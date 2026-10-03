@@ -1,0 +1,20 @@
+# Never commit real tenant workbooks (confidential). Only the synthetic fixture is allowed.
+*.xlsx
+*.xlsm
+*.xls
+*.csv
+!tests/fixture.xlsx
+
+# Office lock / temp files
+~$*
+*.tmp
+
+# Archives and exports
+*.zip
+QBR_Clean_Dataset*
+QBR_Source_Fix_List*
+
+# OS clutter
+Thumbs.db
+desktop.ini
+.DS_Store
