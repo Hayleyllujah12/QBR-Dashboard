@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rakso Education — M365 Tenant QBR Dashboard</title>
+  <link rel="stylesheet" href="libs/bootstrap.min.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#app-main">Skip to content</a>
+  <!-- Fluent System Icons (MIT, vendored inline — offline) -->
+<svg class="fi-sprite" width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+<symbol id="fi-home" viewBox="0 0 20 20"><path d="M9 2.39a1.5 1.5 0 0 1 2 0l5.5 4.94c.32.28.5.69.5 1.12v7.05c0 .83-.67 1.5-1.5 1.5H13a1.5 1.5 0 0 1-1.5-1.5V12a.5.5 0 0 0-.5-.5H9a.5.5 0 0 0-.5.5v3.5c0 .83-.67 1.5-1.5 1.5H4.5A1.5 1.5 0 0 1 3 15.5V8.45c0-.43.18-.84.5-1.12zm1.33.74a.5.5 0 0 0-.66 0l-5.5 4.94a.5.5 0 0 0-.17.38v7.05c0 .28.22.5.5.5H7a.5.5 0 0 0 .5-.5V12c0-.83.67-1.5 1.5-1.5h2c.83 0 1.5.67 1.5 1.5v3.5c0 .28.22.5.5.5h2.5a.5.5 0 0 0 .5-.5V8.45a.5.5 0 0 0-.17-.38z"/></symbol>
+<symbol id="fi-home-f" viewBox="0 0 20 20"><path d="M11 2.39a1.5 1.5 0 0 0-2 0L3.5 7.33c-.32.28-.5.69-.5 1.12v7.05c0 .83.67 1.5 1.5 1.5h2c.83 0 1.5-.67 1.5-1.5v-4c0-.28.22-.5.5-.5h3c.28 0 .5.22.5.5v4c0 .83.67 1.5 1.5 1.5h2c.83 0 1.5-.67 1.5-1.5V8.45c0-.43-.18-.84-.5-1.12z"/></symbol>
+<symbol id="fi-building" viewBox="0 0 20 20"><path d="M6.75 6.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5m.75 2.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0m-.75 3.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5m3.75-6.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0M9.75 9.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5m.75 2.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0m2.25.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M4.5 18a.5.5 0 0 1-.5-.5v-14C4 2.67 4.67 2 5.5 2h6c.83 0 1.5.67 1.5 1.5V8h1.5c.83 0 1.5.67 1.5 1.5v8a.5.5 0 0 1-.5.5zM5 3.5V17h2v-2.5c0-.28.22-.5.5-.5h5c.28 0 .5.22.5.5V17h2V9.5a.5.5 0 0 0-.5-.5h-2a.5.5 0 0 1-.5-.5v-5a.5.5 0 0 0-.5-.5h-6a.5.5 0 0 0-.5.5M12 15h-1.5v2H12zm-2.5 0H8v2h1.5z"/></symbol>
+<symbol id="fi-building-f" viewBox="0 0 20 20"><path d="M4 3.5C4 2.67 4.67 2 5.5 2h6c.83 0 1.5.67 1.5 1.5V8h1.5c.83 0 1.5.67 1.5 1.5v8a.5.5 0 0 1-.5.5H13v-3.5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0-.5.5V18H4.5a.5.5 0 0 1-.5-.5zm2.75 3a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5m.75 2.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0m-.75 3.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5m3.75-6.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0M9.75 9.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5m.75 2.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0m2.25.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M12 15v3h-1.5v-3zm-2.5 0H8v3h1.5z"/></symbol>
+<symbol id="fi-shield-error" viewBox="0 0 20 20"><path d="M10 6c.28 0 .5.22.5.5v5a.5.5 0 0 1-1 0v-5c0-.28.22-.5.5-.5m0 8.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M9.72 2.08a.5.5 0 0 1 .56 0q2.9 1.94 6.3 2.43A.5.5 0 0 1 17 5v4.5c0 3.9-2.3 6.73-6.82 8.47a.5.5 0 0 1-.36 0C5.31 16.23 3 13.39 3 9.5V5a.5.5 0 0 1 .43-.5 15 15 0 0 0 6.3-2.42M9.6 3.35A16 16 0 0 1 4 5.43V9.5c0 3.4 1.97 5.86 6 7.46 4.03-1.6 6-4.07 6-7.46V5.43a16 16 0 0 1-5.6-2.08L10 3.1z"/></symbol>
+<symbol id="fi-shield-error-f" viewBox="0 0 20 20"><path d="M9.72 2.08a.5.5 0 0 1 .56 0q2.9 1.94 6.3 2.43A.5.5 0 0 1 17 5v4.5c0 3.9-2.3 6.73-6.82 8.47a.5.5 0 0 1-.36 0C5.31 16.23 3 13.39 3 9.5V5a.5.5 0 0 1 .43-.5 15 15 0 0 0 6.3-2.42M10 6a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 1 0v-5A.5.5 0 0 0 10 6m0 8.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5"/></symbol>
+<symbol id="fi-shield-checkmark" viewBox="0 0 20 20"><path d="M9.72 2.08a.5.5 0 0 1 .56 0q2.9 1.94 6.3 2.43A.5.5 0 0 1 17 5v4.6q-.48-.25-1-.4V5.44a16 16 0 0 1-5.6-2.08L10 3.1l-.4.25A16 16 0 0 1 4 5.43V9.5c0 3.24 1.8 5.64 5.48 7.25q.3.65.74 1.2l-.04.02a.5.5 0 0 1-.36 0C5.31 16.23 3 13.39 3 9.5V5a.5.5 0 0 1 .43-.5 15 15 0 0 0 6.3-2.42M19 14.5a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0m-2.15-1.85a.5.5 0 0 0-.7 0l-2.65 2.64-.65-.64a.5.5 0 0 0-.7.7l1 1c.2.2.5.2.7 0l3-3a.5.5 0 0 0 0-.7"/></symbol>
+<symbol id="fi-shield-checkmark-f" viewBox="0 0 20 20"><path d="M9.72 2.08a.5.5 0 0 1 .56 0q2.9 1.94 6.3 2.43A.5.5 0 0 1 17 5v4.6Q15.86 9 14.5 9a5.5 5.5 0 0 0-4.28 8.95l-.04.02a.5.5 0 0 1-.36 0C5.31 16.23 3 13.39 3 9.5V5a.5.5 0 0 1 .43-.5 15 15 0 0 0 6.3-2.42M19 14.5a4.5 4.5 0 1 0-9 0 4.5 4.5 0 0 0 9 0m-2.15-1.85c.2.2.2.5 0 .7l-3 3a.5.5 0 0 1-.7 0l-1-1a.5.5 0 0 1 .7-.7l.65.64 2.65-2.64c.2-.2.5-.2.7 0"/></symbol>
+<symbol id="fi-key" viewBox="0 0 20 20"><path d="M15 6a1 1 0 1 1-2 0 1 1 0 0 1 2 0m-2.5-4a5.45 5.45 0 0 0-5.38 6.67q.08.42-.14.64l-4.54 4.54A1.5 1.5 0 0 0 2 14.91v1.59c0 .83.67 1.5 1.5 1.5h2c.83 0 1.5-.67 1.5-1.5V16h1a1 1 0 0 0 1-1v-1h1a1 1 0 0 0 1-1v-.18q.75.19 1.5.18c3.08 0 5.5-2.42 5.5-5.5S15.58 2 12.5 2M8 7.5C8 4.98 9.98 3 12.5 3S17 4.98 17 7.5 15.02 12 12.5 12q-1 .01-1.78-.35a.5.5 0 0 0-.72.45v.9H9a1 1 0 0 0-1 1v1H7a1 1 0 0 0-1 1v.5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1-.5-.5v-1.59a.5.5 0 0 1 .15-.35l4.54-4.54c.43-.43.52-1.04.4-1.56Q8 8 8 7.5"/></symbol>
+<symbol id="fi-key-f" viewBox="0 0 20 20"><path d="M7 7.5C7 4.42 9.42 2 12.5 2S18 4.42 18 7.5 15.58 13 12.5 13q-.75 0-1.5-.18V13a1 1 0 0 1-1 1H9v1a1 1 0 0 1-1 1H7v.5c0 .83-.67 1.5-1.5 1.5h-2A1.5 1.5 0 0 1 2 16.5v-1.59q.01-.62.44-1.06l4.54-4.54q.21-.21.14-.64A6 6 0 0 1 7 7.5M15 6a1 1 0 1 0-2 0 1 1 0 0 0 2 0"/></symbol>
+<symbol id="fi-heart-pulse" viewBox="0 0 20 20"><path d="m10.5 16.8 4.75-4.8h-1a2 2 0 0 1-.36-.04l-3.86 3.9-3.87-3.9a2 2 0 0 1-.36.04h-1l4.75 4.8c.26.27.69.27.95 0m6.22-12.49a4.4 4.4 0 0 1 .98 4.7L17.5 9h-.89c.67-1.28.48-2.9-.6-3.98A3.3 3.3 0 0 0 11.3 5l-.95.96a.5.5 0 0 1-.71 0L8.68 5a3.3 3.3 0 0 0-4.7-.01A3.4 3.4 0 0 0 3.41 9H2.5l-.18.01a4.4 4.4 0 0 1 .94-4.74 4.3 4.3 0 0 1 6.13.02l.6.61.6-.6.1-.1a4.3 4.3 0 0 1 6.03.11m-8.76 2a.5.5 0 0 0-.92 0L5.47 10H2.5a.5.5 0 0 0 0 1h3.3a.5.5 0 0 0 .46-.3L7.5 7.79l2.04 4.9a.5.5 0 0 0 .88.08l2.15-3.43 1.3 1.49q.16.16.38.17h3.25a.5.5 0 0 0 0-1h-3.02l-1.6-1.83a.5.5 0 0 0-.8.06l-2 3.18z"/></symbol>
+<symbol id="fi-heart-pulse-f" viewBox="0 0 20 20"><path d="M9.39 4.29a4.3 4.3 0 0 0-6.13-.02 4.4 4.4 0 0 0-.94 4.74L2.5 9h2.3l1.32-3.09a1.5 1.5 0 0 1 2.76.01l1.39 3.32.96-1.53a1.5 1.5 0 0 1 2.4-.2L14.93 9h2.57l.2.01c.61-1.57.29-3.42-.98-4.7a4.3 4.3 0 0 0-6.13-.01l-.6.6zm.16 12.51L4.8 12h1c.6 0 1.15-.36 1.38-.91l.3-.72 1.14 2.7a1.5 1.5 0 0 0 2.65.22l1.43-2.28.42.48c.29.32.7.51 1.13.51h1l-4.75 4.8a.66.66 0 0 1-.95 0M7.96 6.3a.5.5 0 0 0-.92 0L5.47 10H2.5a.5.5 0 0 0 0 1h3.3a.5.5 0 0 0 .46-.3L7.5 7.79l2.04 4.9a.5.5 0 0 0 .88.08l2.15-3.43 1.3 1.49q.16.16.38.17h3.25a.5.5 0 0 0 0-1h-3.02l-1.6-1.83a.5.5 0 0 0-.8.06l-2 3.18z"/></symbol>
+<symbol id="fi-people-team" viewBox="0 0 20 20"><path d="M10 3a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3M7.5 4.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0m8-.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2m-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0m-10 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0m1-2a2 2 0 1 0 0 4 2 2 0 0 0 0-4m.6 12H5a2 2 0 0 1-2-2V9.25c0-.14.11-.25.25-.25h1.76q.06-.55.37-1H3.25C2.56 8 2 8.56 2 9.25V13a3 3 0 0 0 3.4 2.97 5 5 0 0 1-.3-.97m9.5.97q.2.03.4.03a3 3 0 0 0 3-3V9.25C18 8.56 17.44 8 16.75 8h-2.13q.3.45.37 1h1.76q.23.02.25.25V13a2 2 0 0 1-2.1 2q-.1.5-.3.97M7.25 8C6.56 8 6 8.56 6 9.25V14a4 4 0 0 0 8 0V9.25C14 8.56 13.44 8 12.75 8zM7 9.25c0-.14.11-.25.25-.25h5.5q.23.02.25.25V14a3 3 0 1 1-6 0z"/></symbol>
+<symbol id="fi-people-team-f" viewBox="0 0 20 20"><path d="M12.5 4.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0m5 .5a2 2 0 1 1-4 0 2 2 0 0 1 4 0m-13 2a2 2 0 1 0 0-4 2 2 0 0 0 0 4M6 9.25C6 8.56 6.56 8 7.25 8h5.5c.69 0 1.25.56 1.25 1.25V14a4 4 0 0 1-8 0zm-1 0q.01-.7.38-1.25H3.25C2.56 8 2 8.56 2 9.25V13a3 3 0 0 0 3.4 2.97Q5 15.06 5 14zM15 14q0 1.06-.4 1.97.2.03.4.03a3 3 0 0 0 3-3V9.25C18 8.56 17.44 8 16.75 8h-2.13q.37.55.38 1.25z"/></symbol>
+<symbol id="fi-data-bar-vertical" viewBox="0 0 20 20"><path d="M5 3a2 2 0 0 0-2 2v10a2 2 0 1 0 4 0V5a2 2 0 0 0-2-2M4 5a1 1 0 0 1 2 0v10a1 1 0 1 1-2 0zm4 3a2 2 0 1 1 4 0v7a2 2 0 1 1-4 0zm2-1a1 1 0 0 0-1 1v7a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1m3 4a2 2 0 1 1 4 0v4a2 2 0 1 1-4 0zm2-1a1 1 0 0 0-1 1v4a1 1 0 1 0 2 0v-4a1 1 0 0 0-1-1"/></symbol>
+<symbol id="fi-data-bar-vertical-f" viewBox="0 0 20 20"><path d="M5 3a2 2 0 0 0-2 2v10a2 2 0 1 0 4 0V5a2 2 0 0 0-2-2m5 3a2 2 0 0 0-2 2v7a2 2 0 1 0 4 0V8a2 2 0 0 0-2-2m5 3a2 2 0 0 0-2 2v4a2 2 0 1 0 4 0v-4a2 2 0 0 0-2-2"/></symbol>
+<symbol id="fi-paint-brush" viewBox="0 0 20 20"><path d="M5.5 2a.5.5 0 0 0-.5.5V11c0 1.1.9 2 2 2h1v3a2 2 0 1 0 4 0v-3h1a2 2 0 0 0 2-2V2.5a.5.5 0 0 0-.5-.5zm.5 8h8v1a1 1 0 0 1-1 1h-1.5a.5.5 0 0 0-.5.5V16a1 1 0 1 1-2 0v-3.5a.5.5 0 0 0-.5-.5H7a1 1 0 0 1-1-1zm8-1H6V3h4v1.5a.5.5 0 0 0 1 0V3h1v2.5a.5.5 0 0 0 1 0V3h1z"/></symbol>
+<symbol id="fi-paint-brush-f" viewBox="0 0 20 20"><path d="M10 4.5V2H5.5a.5.5 0 0 0-.5.5V9h10V2.5a.5.5 0 0 0-.5-.5H13v3.5a.5.5 0 0 1-1 0V2h-1v2.5a.5.5 0 0 1-1 0m5 5.5H5v1c0 1.1.9 2 2 2h1.5v3.5a1.5 1.5 0 1 0 3 0V13H13a2 2 0 0 0 2-2z"/></symbol>
+<symbol id="fi-storage" viewBox="0 0 20 20"><path d="M13 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0m2 1a1 1 0 1 0 0-2 1 1 0 0 0 0 2M2 8.5A2.5 2.5 0 0 1 4.5 6h11A2.5 2.5 0 0 1 18 8.5v3a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 11.5zM4.5 7C3.67 7 3 7.67 3 8.5v3c0 .83.67 1.5 1.5 1.5h11c.83 0 1.5-.67 1.5-1.5v-3c0-.83-.67-1.5-1.5-1.5z"/></symbol>
+<symbol id="fi-storage-f" viewBox="0 0 20 20"><path d="M2 8.5A2.5 2.5 0 0 1 4.5 6h11A2.5 2.5 0 0 1 18 8.5v3a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 11.5zM13 9a1 1 0 1 0-2 0 1 1 0 0 0 2 0m3 0a1 1 0 1 0-2 0 1 1 0 0 0 2 0"/></symbol>
+<symbol id="fi-globe" viewBox="0 0 20 20"><path d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16m0-15c.66 0 1.4.59 2.02 1.9q.33.71.56 1.6H7.42q.23-.89.56-1.6C8.59 3.6 9.34 3 10 3M7.07 4.49q-.4.9-.68 2.01H3.94A7 7 0 0 1 7.7 3.38q-.36.5-.64 1.1M6.2 7.5a16 16 0 0 0 0 5H3.46a7 7 0 0 1 0-5zm.2 6q.26 1.12.68 2.01.28.61.64 1.1a7 7 0 0 1-3.77-3.11zm1.03 0h5.16a9 9 0 0 1-.56 1.6C11.41 16.4 10.66 17 10 17s-1.4-.59-2.02-1.9q-.33-.71-.56-1.6m5.37-1H7.21a15 15 0 0 1 0-5h5.58a15 15 0 0 1 0 5m.82 1h2.45a7 7 0 0 1-3.77 3.12q.36-.5.64-1.1.4-.9.68-2.02m2.93-1h-2.73a16 16 0 0 0 0-5h2.73a7 7 0 0 1 0 5m-4.25-9.12a7 7 0 0 1 3.77 3.12h-2.45a11 11 0 0 0-.68-2.01q-.28-.61-.64-1.1"/></symbol>
+<symbol id="fi-globe-f" viewBox="0 0 20 20"><path d="M7.99 4.18q-.42 1-.67 2.32h5.36q-.26-1.32-.67-2.32-.46-1.1-1-1.66Q10.46 1.98 10 2q-.46-.02-1 .52-.55.56-1.01 1.66m-.1-1.9q-.47.65-.83 1.52-.49 1.19-.76 2.7H2.8c1-2.05 2.85-3.6 5.1-4.22m4.22 0q.47.65.83 1.52.48 1.19.76 2.7h3.5a8 8 0 0 0-5.09-4.22m5.5 5.22h-3.76a21 21 0 0 1 0 5h3.75a8 8 0 0 0 0-5m-.41 6h-3.5q-.27 1.52-.76 2.7-.36.88-.83 1.52a8 8 0 0 0 5.09-4.22M10 18q.46.02 1-.52.55-.56 1.01-1.66.42-1 .67-2.32H7.32q.26 1.32.67 2.32.46 1.1 1 1.66.54.54 1.01.52m-2.1-.28a8 8 0 0 1-5.1-4.22h3.5q.28 1.52.76 2.7.36.88.83 1.52M2.4 12.5h3.75a21 21 0 0 1 0-5H2.4a8 8 0 0 0 0 5M7 10q0-1.31.16-2.5h5.68a19 19 0 0 1 0 5H7.16Q7 11.31 7 10"/></symbol>
+<symbol id="fi-mail" viewBox="0 0 20 20"><path d="M15.5 4A2.5 2.5 0 0 1 18 6.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 14.5v-8A2.5 2.5 0 0 1 4.5 4zM17 7.96l-6.75 3.97a.5.5 0 0 1-.42.04l-.08-.04L3 7.96v6.54c0 .83.67 1.5 1.5 1.5h11c.83 0 1.5-.67 1.5-1.5zM15.5 5h-11C3.67 5 3 5.67 3 6.5v.3l7 4.12 7-4.12v-.3c0-.83-.67-1.5-1.5-1.5"/></symbol>
+<symbol id="fi-mail-f" viewBox="0 0 20 20"><path d="M18 7.37v7.13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 14.5V7.37l7.75 4.56c.15.1.35.1.5 0zM15.5 4a2.5 2.5 0 0 1 2.48 2.22L10 10.92l-7.98-4.7A2.5 2.5 0 0 1 4.5 4z"/></symbol>
+<symbol id="fi-document-text" viewBox="0 0 20 20"><path d="M6.5 10a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1zm0 2a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1zm0 2a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1zM4 4c0-1.1.9-2 2-2h4.59q.62.01 1.06.44l3.91 3.91c.28.28.44.67.44 1.06V16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V8h-3.5A1.5 1.5 0 0 1 10 6.5V3zm5.5 4h3.3L11 3.2v3.3c0 .28.22.5.5.5"/></symbol>
+<symbol id="fi-document-text-f" viewBox="0 0 20 20"><path d="M10 6.5V2H5.5C4.67 2 4 2.67 4 3.5v13c0 .83.67 1.5 1.5 1.5h9c.83 0 1.5-.67 1.5-1.5V8h-4.5A1.5 1.5 0 0 1 10 6.5M6.5 10h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1m0 2h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1m0 2h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1M11 6.5V2.25L15.75 7H11.5a.5.5 0 0 1-.5-.5"/></symbol>
+<symbol id="fi-clipboard-task-list-ltr" viewBox="0 0 20 20"><path d="M9.35 7.85a.5.5 0 0 0-.7-.7l-1.42 1.4-.4-.35a.5.5 0 0 0-.67.73l.75.69c.2.18.5.17.7-.02zm0 4.3c.2.2.2.5 0 .7L7.6 14.6a.5.5 0 0 1-.69.02l-.75-.69a.5.5 0 0 1 .68-.73l.4.36 1.4-1.41c.2-.2.52-.2.71 0m1.65.6a.5.5 0 0 0 0 1h2.5a.5.5 0 0 0 0-1zm-.5-4.5c0-.28.22-.5.5-.5h2.5a.5.5 0 0 1 0 1H11a.5.5 0 0 1-.5-.5M8.5 2c-.65 0-1.2.42-1.41 1H5.5C4.67 3 4 3.67 4 4.5v12c0 .83.67 1.5 1.5 1.5h9c.83 0 1.5-.67 1.5-1.5v-12c0-.83-.67-1.5-1.5-1.5h-1.59c-.2-.58-.76-1-1.41-1zM8 3.5c0-.28.22-.5.5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5M5.5 4h1.59c.2.58.76 1 1.41 1h3c.65 0 1.2-.42 1.41-1h1.59c.28 0 .5.22.5.5v12a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-12c0-.28.22-.5.5-.5"/></symbol>
+<symbol id="fi-clipboard-task-list-ltr-f" viewBox="0 0 20 20"><path d="M8.5 2c-.65 0-1.2.42-1.41 1H5.5C4.67 3 4 3.67 4 4.5v12c0 .83.67 1.5 1.5 1.5h9c.83 0 1.5-.67 1.5-1.5v-12c0-.83-.67-1.5-1.5-1.5h-1.59c-.2-.58-.76-1-1.41-1zM8 3.5c0-.28.22-.5.5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5m1.35 4.35L7.6 9.6a.5.5 0 0 1-.69.02l-.75-.69a.5.5 0 1 1 .68-.73l.4.36 1.4-1.41a.5.5 0 1 1 .71.7m0 4.3c.2.2.2.5 0 .7L7.6 14.6a.5.5 0 0 1-.69.02l-.75-.69a.5.5 0 0 1 .68-.73l.4.36 1.4-1.41c.2-.2.52-.2.71 0m1.65.6h2.5a.5.5 0 0 1 0 1H11a.5.5 0 0 1 0-1m-.5-4.5c0-.28.22-.5.5-.5h2.5a.5.5 0 0 1 0 1H11a.5.5 0 0 1-.5-.5"/></symbol>
+<symbol id="fi-table-search" viewBox="0 0 20 20"><path d="M17 5.5A2.5 2.5 0 0 0 14.5 3h-9A2.5 2.5 0 0 0 3 5.5v3.76q.49-.18 1-.23V8h3v1.76a5 5 0 0 1 1 .91V8h4v4H8.74a5 5 0 0 1 .23 1H12v3H9.12l1 1h4.38a2.5 2.5 0 0 0 2.5-2.5zM14.5 16H13v-3h3v1.64A1.5 1.5 0 0 1 14.5 16M13 8h3v4h-3zm-1-1H8V4h4zm1-3h1.64A1.5 1.5 0 0 1 16 5.5V7h-3zM4 7V5.36A1.5 1.5 0 0 1 5.5 4H7v3zm-2.62 4.9a3.5 3.5 0 0 0 5.22 4.4l2.54 2.56a.5.5 0 0 0 .71-.71L7.3 15.6a3.5 3.5 0 1 0-5.92-3.7m5.2.21a2.5 2.5 0 1 1-4.16 2.78 2.5 2.5 0 0 1 4.16-2.78"/></symbol>
+<symbol id="fi-table-search-f" viewBox="0 0 20 20"><path d="M13 17h1.5a2.5 2.5 0 0 0 2.5-2.5V13h-4z"/><path d="M13 12V8h4v4z"/><path d="M12 12H8.74A5 5 0 0 0 8 10.67V8h4z"/><path d="M8.56 15.44 10.12 17H12v-4H8.97a4.6 4.6 0 0 1-.4 2.44"/><path d="M4.5 9q1.4.02 2.5.76V8H3v1.26A5 5 0 0 1 4.5 9"/><path d="M13 7h4V5.5A2.5 2.5 0 0 0 14.5 3H13z"/><path d="M12 3v4H8V3z"/><path d="M7 3v4H3V5.5A2.5 2.5 0 0 1 5.5 3z"/><path d="M4.5 17q1.2-.02 2.1-.7l2.55 2.55a.5.5 0 1 0 .7-.7L7.3 15.6A3.5 3.5 0 1 0 4.5 17m0-1a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5"/></symbol>
+<symbol id="fi-navigation" viewBox="0 0 20 20"><path d="M2 4.5c0-.28.22-.5.5-.5h15a.5.5 0 0 1 0 1h-15a.5.5 0 0 1-.5-.5m0 5c0-.28.22-.5.5-.5h15a.5.5 0 0 1 0 1h-15a.5.5 0 0 1-.5-.5m.5 4.5a.5.5 0 0 0 0 1h15a.5.5 0 0 0 0-1z"/></symbol>
+<symbol id="fi-arrow-upload" viewBox="0 0 20 20"><path d="M15 3a.5.5 0 0 0 .09-.99H4a.5.5 0 0 0-.09.98L4 3zM9.5 18a.5.5 0 0 0 .5-.41V5.7l3.64 3.65c.17.18.44.2.64.06l.07-.06a.5.5 0 0 0 .06-.63l-.06-.07-4.5-4.5A.5.5 0 0 0 9.6 4h-.1a.5.5 0 0 0-.4.19L4.64 8.65a.5.5 0 0 0 .64.76l.07-.06L9 5.71V17.5c0 .28.22.5.5.5"/></symbol>
+<symbol id="fi-arrow-download" viewBox="0 0 20 20"><path d="M15.5 17a.5.5 0 0 1 .09 1H4.5a.5.5 0 0 1-.09-1H15.5M10 2a.5.5 0 0 1 .5.41V14.3l3.64-3.65a.5.5 0 0 1 .64-.06l.07.06c.17.17.2.44.06.63l-.06.07-4.5 4.5a.5.5 0 0 1-.25.14L10 16a.5.5 0 0 1-.4-.2l-4.46-4.45a.5.5 0 0 1 .64-.76l.07.06 3.65 3.64V2.5c0-.27.22-.5.5-.5"/></symbol>
+<symbol id="fi-print" viewBox="0 0 20 20"><path d="M5 4.5C5 3.67 5.67 3 6.5 3h7c.83 0 1.5.67 1.5 1.5V5h.5A2.5 2.5 0 0 1 18 7.5v5c0 .83-.67 1.5-1.5 1.5H15v1.5c0 .83-.67 1.5-1.5 1.5h-7A1.5 1.5 0 0 1 5 15.5V14H3.5A1.5 1.5 0 0 1 2 12.5v-5A2.5 2.5 0 0 1 4.5 5H5zM6 5h8v-.5a.5.5 0 0 0-.5-.5h-7a.5.5 0 0 0-.5.5zm-1 8v-1.5c0-.83.67-1.5 1.5-1.5h7c.83 0 1.5.67 1.5 1.5V13h1.5a.5.5 0 0 0 .5-.5v-5c0-.83-.67-1.5-1.5-1.5h-11C3.67 6 3 6.67 3 7.5v5c0 .28.22.5.5.5zm1.5-2a.5.5 0 0 0-.5.5v4c0 .28.22.5.5.5h7a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 0-.5-.5z"/></symbol>
+<symbol id="fi-dark-theme" viewBox="0 0 20 20"><path d="M10 3a7 7 0 1 1 0 14zm0-1a8 8 0 1 0 0 16 8 8 0 0 0 0-16"/></symbol>
+<symbol id="fi-chevron-down" viewBox="0 0 20 20"><path d="M15.85 7.65c.2.2.2.5 0 .7l-5.46 5.49a.55.55 0 0 1-.78 0L4.15 8.35a.5.5 0 1 1 .7-.7L10 12.8l5.15-5.16c.2-.2.5-.2.7 0"/></symbol>
+<symbol id="fi-panel-left-contract" viewBox="0 0 20 20"><path d="M10.82 10.5h3.68a.5.5 0 0 0 0-1h-3.68l1-.87a.5.5 0 1 0-.66-.76l-2 1.75a.5.5 0 0 0 0 .76l2 1.75a.5.5 0 1 0 .66-.76zM4 4a2 2 0 0 0-2 2v8c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM3 6a1 1 0 0 1 1-1h3v10H4a1 1 0 0 1-1-1zm5 9V5h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1z"/></symbol>
+<symbol id="fi-panel-left-expand" viewBox="0 0 20 20"><path d="m13.18 10.5-1 .87a.5.5 0 0 0 .66.76l2-1.75a.5.5 0 0 0 0-.76l-2-1.75a.5.5 0 1 0-.66.76l1 .87H9.5a.5.5 0 0 0 0 1zM2 14c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2zm2 1a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h3v10zm4 0V5h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1z"/></symbol>
+<symbol id="fi-dismiss" viewBox="0 0 20 20"><path d="m4.09 4.22.06-.07a.5.5 0 0 1 .63-.06l.07.06L10 9.29l5.15-5.14a.5.5 0 0 1 .63-.06l.07.06c.18.17.2.44.06.63l-.06.07L10.71 10l5.14 5.15c.18.17.2.44.06.63l-.06.07a.5.5 0 0 1-.63.06l-.07-.06L10 10.71l-5.15 5.14a.5.5 0 0 1-.63.06l-.07-.06a.5.5 0 0 1-.06-.63l.06-.07L9.29 10 4.15 4.85a.5.5 0 0 1-.06-.63l.06-.07z"/></symbol>
+</svg>
+
+  <!-- ============ TOP BAR (v1.9.0 shell) ============ -->
+  <header class="app-header">
+    <div class="hdr-left">
+      <button id="nav-toggle" class="icon-btn nav-toggle" type="button" aria-label="Open navigation" aria-controls="app-sidebar" aria-expanded="false"><svg class="fi" aria-hidden="true" focusable="false"><use href="#fi-navigation"/></svg></button>
+      <div class="brand-badge" aria-hidden="true">QBR</div>
+      <div class="hdr-titles">
+        <div class="app-title">Microsoft 365 Tenant — Quarterly Business Review</div>
+        <div class="app-sub">Rakso Education · Technical Operations · Offline · <span id="app-version">v1.9.0</span></div>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <div id="upload-status" class="small text-muted"></div>
+      <label class="btn btn-primary btn-sm mb-0 hdr-upload" title="Upload one or more Excel workbooks">
+        <svg class="fi" aria-hidden="true" focusable="false"><use href="#fi-arrow-upload"/></svg><span class="hdr-lbl">Upload</span>
+        <input id="file-input" type="file" accept=".xlsx" multiple hidden />
+      </label>
+      <div class="menu-wrap" id="export-wrap">
+        <button id="btn-export" class="btn btn-outline-secondary btn-sm menu-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="export-menu" title="Print or download">
+          <svg class="fi" aria-hidden="true" focusable="false"><use href="#fi-arrow-download"/></svg><span class="hdr-lbl">Export</span><svg class="fi chev" aria-hidden="true" focusable="false"><use href="#fi-chevron-down"/></svg>
+        </button>
+        <div id="export-menu" class="menu-pop" role="menu" aria-label="Export" hidden>
+          <div class="menu-h">Print or save as PDF</div>
+          <button id="btn-pdf" class="menu-item mi-print" type="button" role="menuitem" data-desc="Only the dashboard you are viewing" title="Print only the dashboard you are viewing">Export Tab</button>
+          <button id="btn-deck" class="menu-item mi-print" type="button" role="menuitem" data-desc="Every dashboard as one paginated QBR document" title="Print every dashboard as one paginated QBR document">Export Deck</button>
+          <div class="menu-sep" role="separator"></div>
+          <div class="menu-h">Download</div>
+          <button id="btn-images" class="menu-item mi-image" type="button" role="menuitem" data-desc="Every chart as a copy-ready PNG gallery" title="Open every chart as a copy-ready PNG gallery">Export Images</button>
+          <button id="btn-data" class="menu-item mi-xlsx" type="button" role="menuitem" data-desc="Full normalized dataset, all sheets (.xlsx)" title="Download the full normalized dataset (all sheets) as one Excel workbook">Export Data</button>
+          <button id="btn-clean" class="menu-item mi-xlsx" type="button" role="menuitem" data-desc="Clean per-tenant × quarter table (.xlsx)" title="Download the clean, corrected per-tenant × quarter dataset (one tidy table) — feeds the executive snapshot">Export Clean</button>
+        </div>
+      </div>
+      <button id="btn-theme" class="icon-btn theme-toggle" type="button" title="Switch between light and dark mode" aria-label="Switch between light and dark mode"></button>
+    </div>
+  </header>
+
+  <!-- ============ LEFT NAVIGATION (v1.9.0) ============
+       Items stay button.tab-btn[data-tab="dash-*"] — app.js binds every [data-tab] and
+       goToTab() queries .tab-btn[data-tab]. Only nav items may carry data-tab. -->
+  <div id="sb-scrim" class="sb-scrim" hidden></div>
+  <aside id="app-sidebar" class="app-sidebar" aria-label="Dashboard navigation">
+    <nav class="sb-nav" aria-label="Dashboard sections">
+        <button class="tab-btn sb-item active" type="button" data-tab="dash-overview" data-group="" aria-current="page"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-home"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-home-f"/></svg><span class="sb-label">Overview</span></button>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-school" data-group=""><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-building"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-building-f"/></svg><span class="sb-label">School 360</span></button>
+      <div class="sb-group" role="group" aria-labelledby="sbg-sec">
+        <div class="sb-gh" id="sbg-sec">Security &amp; identity</div>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-risky" data-group="Security &amp; identity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-shield-error"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-shield-error-f"/></svg><span class="sb-label">Risky sign-ins</span></button>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-sec" data-group="Security &amp; identity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-shield-checkmark"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-shield-checkmark-f"/></svg><span class="sb-label">Security defaults</span></button>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-gdap" data-group="Security &amp; identity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-key"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-key-f"/></svg><span class="sb-label">GDAP partner access</span></button>
+      </div>
+      <div class="sb-group" role="group" aria-labelledby="sbg-health">
+        <div class="sb-gh" id="sbg-health">Tenant health</div>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-health" data-group="Tenant health"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-heart-pulse"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-heart-pulse-f"/></svg><span class="sb-label">Tenant status</span></button>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-usermgmt" data-group="Tenant health"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-people-team"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-people-team-f"/></svg><span class="sb-label">User management</span></button>
+      </div>
+      <div class="sb-group" role="group" aria-labelledby="sbg-adopt">
+        <div class="sb-gh" id="sbg-adopt">Adoption &amp; capacity</div>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-usage" data-group="Adoption &amp; capacity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-data-bar-vertical"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-data-bar-vertical-f"/></svg><span class="sb-label">Microsoft 365 usage</span></button>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-canva" data-group="Adoption &amp; capacity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-paint-brush"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-paint-brush-f"/></svg><span class="sb-label">Canva Education</span></button>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-storage" data-group="Adoption &amp; capacity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-storage"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-storage-f"/></svg><span class="sb-label">Storage</span></button>
+      </div>
+      <div class="sb-group" role="group" aria-labelledby="sbg-mail">
+        <div class="sb-gh" id="sbg-mail">Domains &amp; email</div>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-domainreg" data-group="Domains &amp; email"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-globe"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-globe-f"/></svg><span class="sb-label">Domain registration</span></button>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-postmaster" data-group="Domains &amp; email"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-mail"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-mail-f"/></svg><span class="sb-label">Google Postmaster</span></button>
+      </div>
+      <div class="sb-group" role="group" aria-labelledby="sbg-rep">
+        <div class="sb-gh" id="sbg-rep">Reporting</div>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-report" data-group="Reporting"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-document-text"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-document-text-f"/></svg><span class="sb-label">Executive report</span></button>
+      </div>
+      <div class="sb-group" role="group" aria-labelledby="sbg-data">
+        <div class="sb-gh" id="sbg-data">Data</div>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-quality" data-group="Data"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-clipboard-task-list-ltr"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-clipboard-task-list-ltr-f"/></svg><span class="sb-label">Data quality audit</span></button>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-fulldata" data-group="Data"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-table-search"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-table-search-f"/></svg><span class="sb-label">Data explorer</span></button>
+      </div>
+    </nav>
+    <div class="sb-foot">
+      <button id="sb-collapse" class="sb-item sb-collapse" type="button" aria-label="Collapse navigation" aria-expanded="true"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-panel-left-contract"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-panel-left-expand"/></svg><span class="sb-label">Collapse</span></button>
+      <div class="sb-ver sb-label">Offline · <span id="sb-version">v1.9.0</span></div>
+    </div>
+  </aside>
+
+  <main id="app-main" class="app-main" tabindex="-1">
+  <!-- ============ EMPTY STATE ============ -->
+  <div id="empty-state" class="empty-state">
+    <div id="drop-zone" class="drop-zone">
+      <div class="drop-icon"><svg class="fi fi-xl" aria-hidden="true" focusable="false"><use href="#fi-arrow-upload"/></svg></div>
+      <h4>Drop your Excel workbook(s) here</h4>
+      <p class="text-muted">or use <b>Upload</b> at the top right. You can select <b>multiple files at once</b> — e.g.
+        <b>ALL TENANT AUTOMATED TRACKER.xlsx</b> together with <b>USER MANAGEMENT.xlsx</b>, or split exports
+        (Usage, Storage, Canva, Security, Postmaster). Everything runs offline — data is never uploaded to any server.</p>
+      <label class="remember-label"><input type="checkbox" id="remember-data" checked />
+        Remember uploaded data on this computer, so it reloads automatically next time (stored only in this browser).</label>
+    </div>
+  </div>
+
+  <!-- ============ APP BODY ============ -->
+  <div id="app-body" class="d-none">
+    <!-- Page header: breadcrumb (maintained by js/shell.js) -->
+    <div id="page-head" class="page-head">
+      <nav aria-label="Breadcrumb" class="crumbs"><span id="crumb-group" class="crumb-group" hidden></span><span id="crumb-page" class="crumb-page" aria-current="page">Overview</span></nav>
+    </div>
+    <!-- Global filter bar -->
+    <div class="filter-bar">
+      <div id="f-quarter-chips" class="qchips" title="Select one or more quarters"></div>
+      <select id="f-month" class="form-select form-select-sm" title="Month filter — applies to risky sign-ins" aria-label="Month (applies to risky sign-ins)"></select>
+      <input id="f-org" class="form-control form-control-sm" list="dl-org" placeholder="All Organizations" aria-label="Organization" autocomplete="off" style="min-width:180px;max-width:220px" />
+      <datalist id="dl-org"></datalist>
+      <input id="f-school" class="form-control form-control-sm" list="dl-school" placeholder="All Schools" aria-label="School" autocomplete="off" style="min-width:260px;flex:1;max-width:520px" />
+      <datalist id="dl-school"></datalist>
+      <button id="btn-reset" class="btn btn-sm btn-outline-secondary">Reset</button>
+      <span class="filter-note">Filters adapt to the active tab · tab-specific filters live in their own dashboard</span>
+    </div>
+
+    <!-- Cover page — populated by buildPrintCover(), visible only in full-deck print -->
+    <section id="print-cover">
+      <div class="cover-brand">QBR</div>
+      <h1 class="cover-title">Microsoft 365 Tenant<br />Quarterly Business Review</h1>
+      <div class="cover-sub">Rakso Education · Technical Operations</div>
+      <table class="cover-meta" id="cover-meta"></table>
+      <div class="cover-foot">Generated offline from tenant tracking workbooks · figures reflect the filters listed above.</div>
+    </section>
+
+    <!-- DASH 0: OVERVIEW (executive landing) -->
+    <section id="dash-overview" class="dash-panel">
+      <div class="ov-welcome">
+        <div>
+          <h3 class="dash-h mb-1">Executive Overview</h3>
+          <div class="ov-sub text-muted" id="ov-scope">Portfolio summary across all tenant modules.</div>
+        </div>
+        <div class="ov-period badge-period" id="ov-period">—</div>
+      </div>
+
+      <!-- Hero KPI strip -->
+      <div id="kpi-overview" class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3 kpi-row"></div>
+
+      <!-- Tenant Health Index (composite) -->
+      <div class="row g-3 mt-1">
+        <div class="col-12"><div class="card-box">
+          <h6>Tenant Health Index</h6>
+          <div class="row align-items-center g-3">
+            <div class="col-md-3 text-center">
+              <div id="thi-score" style="font-size:3rem;font-weight:800;line-height:1.05">—</div>
+              <div id="thi-band" class="mt-1"></div>
+            </div>
+            <div class="col-md-5"><div class="chart-wrap" style="height:120px"><canvas id="ch-ov-thi"></canvas></div></div>
+            <div class="col-md-4 small text-muted" id="thi-note"></div>
+          </div>
+          <!-- Per-tenant drill-down -->
+          <div class="mt-3 pt-3 border-top">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+              <div class="fw-semibold small text-muted">Per-Tenant Health Detail</div>
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <div id="thi-band-filter" class="btn-group btn-group-sm flex-wrap" role="group" aria-label="Filter tenants by health band"></div>
+                <button id="thi-drill-toggle" type="button" class="btn btn-sm btn-outline-secondary thi-drill-btn" aria-expanded="false" aria-controls="thi-drill">Show detail ▾</button>
+              </div>
+            </div>
+            <div id="thi-drill" class="mt-2" hidden>
+              <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                  <thead><tr>
+                    <th style="width:2.2rem">#</th><th>Tenant</th>
+                    <th class="text-center">Index</th><th>Band</th>
+                    <th class="text-center">Security</th><th class="text-center">Risky</th>
+                    <th class="text-center">Adoption</th><th class="text-center">Domain</th>
+                    <th class="text-center">Email Rep.</th><th class="text-center">Storage</th>
+                  </tr></thead>
+                  <tbody id="thi-drill-body"></tbody>
+                </table>
+              </div>
+              <div class="small text-muted mt-2">Ranked weakest-first. Each cell is a 0–100 sub-score; the tenant's weakest scored dimension is outlined. "—" means no data for that dimension — excluded from the index, never counted as zero.</div>
+            </div>
+          </div>
+        </div></div>
+      </div>
+
+      <!-- Trend + posture donuts + readiness gauge -->
+      <div class="row g-3 mt-1">
+        <div class="col-xl-6"><div class="card-box"><h6>Risky Users — Monthly Trend</h6><div class="chart-wrap"><canvas id="ch-ov-risky-trend"></canvas></div></div></div>
+        <div class="col-xl-3 col-md-6"><div class="card-box"><h6>Security Posture</h6><div id="ov-secposture" class="stl"></div><div class="stl-export" hidden><div class="chart-wrap"><canvas id="ch-ov-secposture"></canvas></div></div></div></div>
+        <div class="col-xl-3 col-md-6"><div class="card-box"><h6>Domain Health</h6><div id="ov-health" class="stl"></div><div class="stl-export" hidden><div class="chart-wrap"><canvas id="ch-ov-health"></canvas></div></div></div></div>
+      </div>
+
+      <!-- Readiness gauge + adoption/storage bars -->
+      <div class="row g-3 mt-1">
+        <div class="col-xl-4 col-md-6"><div class="card-box">
+          <h6>School-Year Readiness</h6>
+          <div class="ov-gauge-wrap"><div class="chart-wrap ov-gauge"><canvas id="ch-ov-readiness"></canvas></div></div>
+        </div></div>
+        <div class="col-xl-4 col-md-6"><div class="card-box"><h6>Top 5 Storage Consumers (TB)</h6><div class="chart-wrap"><canvas id="ch-ov-storage"></canvas></div></div></div>
+        <div class="col-xl-4"><div class="card-box"><h6>Top 5 Canva Schools (Users)</h6><div class="chart-wrap"><canvas id="ch-ov-canva"></canvas></div></div></div>
+      </div>
+
+      <!-- Top risky table + alerts + quick actions -->
+      <div class="row g-3 mt-1">
+        <div class="col-xl-5"><div class="card-box"><h6>Top 5 Risky Schools</h6>
+          <table class="table table-sm mt-1"><thead><tr><th>School</th><th class="text-end">Risky Users</th><th class="text-end" title="Share of all risky users in scope">Share</th><th>Flag</th></tr></thead><tbody id="tbl-ov-risky"></tbody></table><div class="small text-muted mt-1" id="ov-risky-note"></div>
+        </div></div>
+        <div class="col-xl-4"><div class="card-box"><h6>Priority Flags</h6><div id="ov-alerts" class="ov-alerts"></div></div></div>
+        <div class="col-xl-3"><div class="card-box"><h6>Quick Actions</h6><div id="ov-quick" class="ov-quick"></div></div></div>
+      </div>
+    </section>
+
+    <!-- DASH 1: RISKY -->
+    <section id="dash-risky" class="dash-panel d-none">
+      <h3 class="dash-h">Risky Users Overview</h3>
+      <div id="kpi-risky" class="row row-cols-2 row-cols-lg-4 g-3 kpi-row"></div>
+      <div class="row g-3 mt-1">
+        <div class="col-12"><div class="card-box">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h6 class="mb-0">Monthly Comparison: Security Defaults Enabled vs Not Enabled (Total Risky Users)</h6>
+            <select id="risky-secdef-view" class="form-select form-select-sm" style="--w:240px" title="Security Defaults status shown in this chart">
+              <option value="BOTH">Both statuses</option>
+              <option value="ENABLED">Enabled / Conditional Access only</option>
+              <option value="DISABLED">Not Enabled / Not Managed only</option>
+            </select>
+          </div>
+          <div class="small text-muted mb-1 mt-1" id="risky-secdef-note"></div>
+          <div class="chart-wrap chart-wrap-tall"><canvas id="ch-risky-secdef"></canvas></div>
+        </div></div>
+      </div>
+      <div class="row g-3 mt-1">
+        <div class="col-lg-8"><div class="card-box"><h6>Monthly Trend</h6><div class="chart-wrap"><canvas id="ch-risky-monthly"></canvas></div></div></div>
+        <div class="col-lg-4"><div class="card-box"><h6>Quarterly Comparison</h6><div class="chart-wrap"><canvas id="ch-risky-quarter"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Top 10 Risky Users Per School</h6><div class="chart-wrap"><canvas id="ch-risky-top"></canvas></div><div class="small text-muted mt-1 share-note" id="risky-top-note"></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Lowest Risky Users Per School</h6><div class="small text-muted mb-1" id="risky-low-note"></div><div class="chart-wrap"><canvas id="ch-risky-low"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Risky Users by Organization</h6><div class="chart-wrap"><canvas id="ch-risky-org"></canvas></div><div class="small text-muted mt-1 share-note" id="risky-org-note"></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><div class="d-flex justify-content-between align-items-center"><h6 class="mb-0">Risky Users (Top Schools)</h6><button class="expand-btn" data-exp="risky">Show all ▾</button></div>
+          <table class="table table-sm mt-2"><thead><tr><th>School</th><th class="text-end">Risky Users</th><th class="text-end" title="Share of all risky users in scope">Share</th><th>Status</th><th>Action</th></tr></thead><tbody id="tbl-risky"></tbody></table>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- DASH: DOMAIN HEALTH -->
+    <section id="dash-health" class="dash-panel d-none">
+      <h3 class="dash-h">Tenant Status</h3>
+      <div id="kpi-health" class="row row-cols-2 row-cols-md-3 row-cols-lg-5 g-3 kpi-row"></div>
+      <div class="small text-muted mt-2" id="health-recon"></div>
+      <div class="row g-3 mt-1">
+        <div class="col-lg-5"><div class="card-box"><h6>Tenant Status Distribution</h6><div class="chart-wrap"><canvas id="ch-health-dist"></canvas></div></div></div>
+        <div class="col-lg-7"><div class="card-box"><h6>Health by Organization</h6><div class="chart-wrap"><canvas id="ch-health-org"></canvas></div></div></div>
+        <div class="col-12"><div class="card-box">
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="mb-0">All Schools — Tenant Status</h6>
+            <div class="d-flex gap-2 align-items-center">
+              <select id="health-status" class="form-select form-select-sm" style="--w:200px">
+                <option value="ALL">All Statuses</option>
+                <option value="Healthy">Healthy</option>
+                <option value="Possible Service Issues">Possible Service Issues</option>
+                <option value="Incomplete Setup">Incomplete Setup</option>
+                <option value="No Services Selected">No Services Selected</option>
+                <option value="Not Managed">Not Managed</option>
+                <option value="Not Connected">Not Connected</option>
+                <option value="Not Applicable">Not Applicable</option>
+                <option value="End Contract">End Contract</option>
+                <option value="No Status">No Status</option>
+              </select>
+              <input id="health-search" class="form-control form-control-sm" style="--w:220px" placeholder="Search school…" />
+            </div>
+          </div>
+          <table class="table table-sm mt-2"><thead><tr><th>School</th><th>Organization</th><th>Status</th><th>Remarks</th><th class="text-end">Risky Users</th><th>Period</th></tr></thead><tbody id="tbl-health"></tbody></table>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- DASH 2: SECURITY -->
+    <section id="dash-sec" class="dash-panel d-none">
+      <h3 class="dash-h">Security Defaults vs Risky Users</h3>
+      <div class="panel-filters"><label>Security Default:</label><select id="f-secdef" class="form-select form-select-sm" style="--w:200px"></select></div>
+      <div id="kpi-sec" class="row row-cols-2 row-cols-lg-4 g-3 kpi-row"></div>
+      <div class="alert alert-light border mt-2" id="sec-corr"></div>
+      <div class="row g-3">
+        <div class="col-12"><div class="card-box"><h6>Monthly Risky Users — Security Defaults Enabled vs Not Enabled</h6><div class="chart-wrap"><canvas id="ch-sec-endis"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Avg Risky Users by Security Posture</h6><div class="chart-wrap"><canvas id="ch-sec-compare"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Security Default Distribution</h6><div class="chart-wrap"><canvas id="ch-sec-dist"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Security Control Coverage</h6><div class="chart-wrap"><canvas id="ch-sec-control"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Schools with Security Defaults Not Enabled — highest risk first</h6><div class="chart-wrap"><canvas id="ch-sec-disabled"></canvas></div></div></div>
+        <div class="col-12"><div class="card-box"><div class="d-flex justify-content-between align-items-center flex-wrap gap-2"><h6 class="mb-0">Security &amp; Risk Detail</h6>
+            <div class="d-flex align-items-center gap-2">
+              <label for="f-authmethod" class="small text-muted mb-0">Auth method:</label>
+              <select id="f-authmethod" class="form-select form-select-sm" style="--w:auto" title="Filter this table by authentication method"></select>
+              <button class="expand-btn" data-exp="sec">Show all ▾</button>
+            </div></div>
+          <table class="table table-sm"><thead><tr><th>School</th><th>Security Default</th><th>Authentication Methods</th><th class="text-end">Risky Users</th></tr></thead><tbody id="tbl-sec"></tbody></table>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- GDAP ACCESS -->
+    <section id="dash-gdap" class="dash-panel d-none">
+      <h3 class="dash-h">GDAP Access — Delegated Admin Relationships</h3>
+      <div id="kpi-gdap" class="row row-cols-2 row-cols-md-4 g-3 kpi-row"></div>
+      <div class="row g-3 mt-1">
+        <div class="col-12"><div class="card-box"><h6>GDAP Coverage</h6><div class="chart-wrap" style="height:130px"><canvas id="ch-gdap-dist"></canvas></div></div></div>
+        <div class="col-12"><div class="card-box">
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="mb-0">Schools — GDAP Delegated Admin Access</h6>
+            <div class="d-flex gap-2 align-items-center">
+              <select id="gdap-status" class="form-select form-select-sm" style="--w:170px">
+                <option value="GRANTED">GDAP Granted</option>
+                <option value="ALL">All Statuses</option>
+                <option value="NONE">No GDAP</option>
+              </select>
+              <input id="gdap-search" class="form-control form-control-sm" style="--w:220px" placeholder="Search school…" />
+            </div>
+          </div>
+          <div class="small text-muted mt-1" id="gdap-note"></div>
+          <table class="table table-sm mt-1"><thead><tr>
+            <th>School</th><th>Organization</th><th>GDAP Status</th><th class="text-end">#</th>
+            <th>Relationship ID(s)</th><th>Roles</th><th>Expiry</th>
+          </tr></thead><tbody id="tbl-gdap"></tbody></table>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- DASH 3: CANVA -->
+    <section id="dash-canva" class="dash-panel d-none">
+      <h3 class="dash-h">Canva Education Adoption</h3>
+      <div id="kpi-canva" class="row row-cols-2 row-cols-lg-4 g-3 kpi-row"></div>
+      <div class="row g-3 mt-1">
+        <div class="col-lg-6"><div class="card-box"><h6>Top Canva Schools</h6><div class="chart-wrap"><canvas id="ch-canva-top"></canvas></div><div class="small text-muted mt-1 share-note" id="canva-top-note"></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Adoption by Quarter</h6><div class="chart-wrap"><canvas id="ch-canva-quarter"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Lowest Adoption Schools</h6><div class="chart-wrap"><canvas id="ch-canva-low"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Active Schools by Quarter</h6><div class="chart-wrap"><canvas id="ch-canva-active"></canvas></div><div class="small text-muted mt-1" id="canva-active-note"></div></div></div>
+      </div>
+    </section>
+
+    <!-- DASH 4: USAGE -->
+    <section id="dash-usage" class="dash-panel d-none">
+      <h3 class="dash-h">Office 365 Usage Overview</h3>
+      <div id="kpi-usage" class="row row-cols-2 row-cols-lg-4 g-3 kpi-row"></div>
+
+      <div class="row g-3 mt-2">
+        <div class="col-12"><div class="card-box">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h6 class="mb-0">Per-Tenant Usage Detail</h6>
+            <input id="usage-tenant" class="form-control form-control-sm" list="dl-usage-tenant" style="--w:340px" placeholder="Type or pick a tenant… (or click a Top-10 bar)" autocomplete="off" />
+            <datalist id="dl-usage-tenant"></datalist>
+          </div>
+          <div class="small text-muted mt-1" id="td-note"></div>
+          <div id="kpi-td" class="row row-cols-2 row-cols-md-4 g-2 kpi-row mt-2"></div>
+          <div class="row g-3 mt-1">
+            <div class="col-lg-6"><h6 class="mb-1">Active vs Inactive by Service (latest snapshot)</h6><div class="chart-wrap"><canvas id="ch-td-adoption"></canvas></div></div>
+            <div class="col-lg-6"><h6 class="mb-1">Active vs Inactive Users by Quarter (O365)</h6><div class="chart-wrap"><canvas id="ch-td-trend"></canvas></div></div>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="row g-3 mt-1">
+        <div class="col-lg-8"><div class="card-box"><h6>Top 10 Usage %</h6><div class="small text-muted mb-1">Click a bar to open that tenant's detail above.</div><div class="chart-wrap"><canvas id="ch-usage-top"></canvas></div></div></div>
+        <div class="col-lg-4"><div class="card-box"><h6>Average Adoption by Service</h6><div class="small text-muted mb-1">Active ÷ licensed users across all tenants (latest snapshot).</div><div class="chart-wrap"><canvas id="ch-usage-adoption"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>OneDrive Active</h6><div class="chart-wrap"><canvas id="ch-usage-onedrive"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>SharePoint Active</h6><div class="chart-wrap"><canvas id="ch-usage-sharepoint"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Teams Active</h6><div class="chart-wrap"><canvas id="ch-usage-teams"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Exchange Active</h6><div class="chart-wrap"><canvas id="ch-usage-exchange"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>O365 Active by Organization</h6><div class="chart-wrap"><canvas id="ch-usage-org"></canvas></div><div class="small text-muted mt-1 share-note" id="usage-org-note"></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><div class="d-flex justify-content-between align-items-center"><h6 class="mb-0">Top 5 Usage Report</h6><button class="expand-btn" data-exp="usage">Show all ▾</button></div>
+          <table class="table table-sm"><thead><tr><th>#</th><th>School</th><th class="text-end">Usage %</th><th class="text-end">OneDrive</th><th class="text-end">SharePoint</th><th class="text-end">Teams</th><th class="text-end">O365</th><th class="text-end" title="Share of all active O365 users in scope">Share</th></tr></thead><tbody id="tbl-usage"></tbody></table>
+        </div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Bottom 5 Usage Report — Lowest Adoption</h6>
+          <div class="small text-muted mb-1">Schools with the lowest Office 365 utilization — prioritize for adoption enablement.</div>
+          <table class="table table-sm"><thead><tr><th>#</th><th>School</th><th class="text-end">Usage %</th><th class="text-end">OneDrive</th><th class="text-end">SharePoint</th><th class="text-end">Teams</th><th class="text-end">O365</th><th class="text-end" title="Share of all active O365 users in scope">Share</th></tr></thead><tbody id="tbl-usage-low"></tbody></table>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- DASH 5: STORAGE -->
+    <section id="dash-storage" class="dash-panel d-none">
+      <h3 class="dash-h">Storage Overview</h3>
+      <div id="kpi-storage" class="row row-cols-2 row-cols-md-3 row-cols-xl-5 g-3 kpi-row"></div>
+
+      <div class="row g-3 mt-2">
+        <div class="col-12"><div class="card-box">
+          <h6>Capacity Watch</h6>
+          <div class="small text-muted mb-1" id="stor-cap-note"></div>
+          <table class="table table-sm"><thead><tr><th>School</th><th>Organization</th><th>Snapshot</th><th class="text-end">Used</th><th class="text-end">Pooled Storage</th><th class="text-end">Utilization</th><th>Status</th></tr></thead><tbody id="tbl-stor-cap"></tbody></table>
+        </div></div>
+      </div>
+
+      <div class="row g-3 mt-2">
+        <div class="col-12"><div class="card-box">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h6 class="mb-0">Per-Tenant Storage Detail</h6>
+            <input id="stor-tenant" class="form-control form-control-sm" list="dl-stor-tenant" style="--w:340px" placeholder="Type or pick a tenant… (or click a Top-10 bar)" autocomplete="off" />
+            <datalist id="dl-stor-tenant"></datalist>
+          </div>
+          <div class="small text-muted mt-1" id="sd-note"></div>
+          <div id="kpi-sd" class="row row-cols-2 row-cols-md-4 g-2 kpi-row mt-2"></div>
+          <div class="row g-3 mt-1">
+            <div class="col-lg-6"><h6 class="mb-1">Storage Composition vs Capacity (latest, TB)</h6><div class="chart-wrap"><canvas id="ch-sd-comp"></canvas></div></div>
+            <div class="col-lg-6"><h6 class="mb-1">Storage by Quarter (TB)</h6><div class="chart-wrap"><canvas id="ch-sd-quarter"></canvas></div><div class="small text-muted mt-1" id="sd-growth"></div></div>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="row g-3 mt-1">
+        <div class="col-12"><div class="card-box"><h6>Top 10 Storage Consumers (TB)</h6><div class="small text-muted mb-1">Click a bar to open that tenant's detail above.</div><div class="chart-wrap"><canvas id="ch-stor-top"></canvas></div><div class="small text-muted mt-1 share-note" id="stor-top-note"></div></div></div>
+        <div class="col-lg-4"><div class="card-box"><h6>OneDrive (TB)</h6><div class="chart-wrap"><canvas id="ch-stor-onedrive"></canvas></div></div></div>
+        <div class="col-lg-4"><div class="card-box"><h6>SharePoint (TB)</h6><div class="chart-wrap"><canvas id="ch-stor-sharepoint"></canvas></div></div></div>
+        <div class="col-lg-4"><div class="card-box"><h6>Exchange (TB)</h6><div class="chart-wrap"><canvas id="ch-stor-exchange"></canvas></div></div></div>
+        <div class="col-12"><div class="card-box"><div class="d-flex justify-content-between align-items-center"><h6 class="mb-0">Top Consumers Detail</h6><button class="expand-btn" data-exp="storage">Show all ▾</button></div>
+          <table class="table table-sm"><thead><tr><th>#</th><th>School</th><th class="text-end">Used</th><th class="text-end" title="Share of all managed storage in scope">Share</th><th class="text-end">Pooled Storage (TB)</th><th class="text-end">Utilization %</th></tr></thead><tbody id="tbl-storage"></tbody></table>
+        </div></div>
+        <div class="col-12"><div class="card-box"><h6>Bottom 10 Storage Consumers — Lowest Usage</h6>
+          <div class="small text-muted mb-1">Schools using the least storage (rank 1 = lowest). Useful for right-sizing licenses and spotting under-utilized tenants.</div>
+          <table class="table table-sm"><thead><tr><th>#</th><th>School</th><th class="text-end">Used</th><th class="text-end" title="Share of all managed storage in scope">Share</th><th class="text-end">Pooled Storage (TB)</th><th class="text-end">Utilization %</th></tr></thead><tbody id="tbl-storage-low"></tbody></table>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- GOOGLE POSTMASTER -->
+    <section id="dash-postmaster" class="dash-panel d-none">
+      <h3 class="dash-h">Google Postmaster — Deliverability &amp; Domain Health</h3>
+      <div id="kpi-pm" class="row row-cols-2 row-cols-md-3 row-cols-xl-5 g-3 kpi-row"></div>
+      <div class="small text-muted mt-2" id="pm-note"></div>
+      <div class="row g-3 mt-1">
+        <div class="col-lg-4"><div class="card-box"><h6>Postmaster Verification</h6><div class="chart-wrap"><canvas id="ch-pm-verify"></canvas></div></div></div>
+        <div class="col-lg-4"><div class="card-box"><h6>Cloudflare DNS (TXT) Status</h6><div class="chart-wrap"><canvas id="ch-pm-dns"></canvas></div><div class="small text-muted mt-1" id="pm-dns-note"></div></div></div>
+        <div class="col-lg-4"><div class="card-box"><h6>Domain Reputation Status</h6><div class="chart-wrap"><canvas id="ch-pm-dist"></canvas></div></div></div>
+        <div class="col-12"><div class="card-box"><h6>Verification by Organization</h6><div class="chart-wrap"><canvas id="ch-pm-org"></canvas></div></div></div>
+
+        <div class="col-lg-6"><div class="card-box"><h6 class="mb-0">⚠️ Reputation Watchlist</h6>
+          <div class="small text-muted mb-1">Domains that reached a real Postmaster rating (BAD → HIGH), worst first.</div>
+          <table class="table table-sm"><thead><tr><th>School</th><th>Domain</th><th>Worst</th><th>By month</th></tr></thead><tbody id="tbl-pm-watch"></tbody></table>
+        </div></div>
+        <div class="col-lg-6"><div class="card-box"><h6 class="mb-0">🔧 Onboarding Action List</h6>
+          <div class="small text-muted mb-1">Domains not verified in Postmaster or missing DNS records — no email monitoring until fixed.</div>
+          <table class="table table-sm"><thead><tr><th>School</th><th>Org</th><th>Domain</th><th>DNS</th><th>Postmaster</th></tr></thead><tbody id="tbl-pm-action"></tbody></table>
+        </div></div>
+
+        <div class="col-12"><div class="card-box">
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="mb-0">All Domains — Verification &amp; Reputation</h6>
+            <div class="d-flex gap-2 align-items-center">
+              <select id="pm-rep" class="form-select form-select-sm" style="--w:210px">
+                <option value="ALL">All domains</option>
+                <optgroup label="Verification">
+                  <option value="Verified">Verified</option>
+                  <option value="Managed">Managed</option>
+                  <option value="Not Managed">Not Managed</option>
+                  <option value="Unknown">Unknown</option>
+                </optgroup>
+                <optgroup label="Reputation">
+                  <option value="HIGH">HIGH</option>
+                  <option value="MEDIUM">MEDIUM</option>
+                  <option value="LOW">LOW</option>
+                  <option value="BAD">BAD</option>
+                  <option value="No data to display">No data to display</option>
+                  <option value="Not enough data">Not enough data</option>
+                </optgroup>
+              </select>
+              <input id="pm-search" class="form-control form-control-sm" style="--w:220px" placeholder="Search school…" />
+            </div>
+          </div>
+          <div class="small text-muted mb-1" id="pm-period"></div>
+          <table class="table table-sm mt-1"><thead><tr><th>School</th><th>Organization</th><th>Domain</th><th>Postmaster</th><th>DNS</th><th>Reputation (latest)</th><th>Spam</th></tr></thead><tbody id="tbl-pm"></tbody></table>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- USER MANAGEMENT -->
+    <section id="dash-usermgmt" class="dash-panel d-none">
+      <h3 class="dash-h">User Management — School-Year Readiness</h3>
+      <div class="panel-filters">
+        <label>School Year:</label><select id="f-sy" class="form-select form-select-sm" style="--w:160px"></select>
+        <label class="ms-2">Status:</label><select id="f-status" class="form-select form-select-sm" style="--w:150px"></select>
+      </div>
+      <div class="alert alert-primary py-2" id="um-topcard"></div>
+      <div id="kpi-um" class="row row-cols-2 row-cols-md-3 row-cols-xl-5 g-3 kpi-row"></div>
+      <div class="row g-3 mt-1">
+        <div class="col-lg-4"><div class="card-box"><h6>School-Year Readiness</h6><div class="chart-wrap"><canvas id="ch-um-readiness"></canvas></div></div></div>
+        <div class="col-lg-4"><div class="card-box"><h6>Updated Schools by Organization</h6><div class="chart-wrap"><canvas id="ch-um-org"></canvas></div></div></div>
+        <div class="col-lg-4"><div class="card-box"><h6>Readiness by School Year</h6><div class="chart-wrap"><canvas id="ch-um-sy"></canvas></div></div></div>
+        <div class="col-12"><div class="card-box">
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="mb-0">Detailed Status</h6>
+            <div class="d-flex gap-2 align-items-center">
+              <select id="um-tbl-status" class="form-select form-select-sm" style="--w:170px">
+                <option value="ALL">All Statuses</option>
+                <option value="Updated">Updated</option>
+                <option value="Pending">Pending</option>
+              </select>
+              <input id="um-search" class="form-control form-control-sm" style="--w:220px" placeholder="Search school…" />
+            </div>
+          </div>
+          <table class="table table-sm mt-2"><thead><tr><th>School</th><th>Organization</th><th>School Year</th><th>Grade-Level Update</th><th>Extract Users</th><th>Status</th><th>Reference Files</th></tr></thead><tbody id="tbl-um"></tbody></table>
+        </div></div>
+        <div class="col-12"><div class="card-box"><div class="d-flex justify-content-between align-items-center"><h6 class="mb-0">Cross-Module Readiness Correlation</h6><button class="expand-btn" data-exp="umcorr">Show all ▾</button></div>
+          <div class="small text-muted mb-2">Updated schools that also have Security Defaults enabled, low identity risk, and active adoption score higher on operational readiness.</div>
+          <table class="table table-sm"><thead><tr><th>School</th><th>User Mgmt</th><th>Security Default</th><th>Risky Users</th><th>O365 Usage %</th><th>Canva Users</th><th class="text-end">Readiness</th></tr></thead><tbody id="tbl-um-corr"></tbody></table>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- DOMAIN REGISTRATION -->
+    <section id="dash-domainreg" class="dash-panel d-none">
+      <h3 class="dash-h">Domain Registration Tracker</h3>
+      <div id="kpi-dr" class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3 kpi-row"></div>
+      <div class="row g-3 mt-1">
+        <div class="col-xl-5"><div class="card-box"><h6>Registration Status</h6><div class="chart-wrap chart-wrap-tall"><canvas id="ch-dr-dist"></canvas></div></div></div>
+        <div class="col-xl-7"><div class="card-box">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h6 class="mb-0">Domain Registration &amp; Expiration Status</h6>
+            <div class="d-flex gap-2">
+              <select id="dr-status" class="form-select form-select-sm" style="--w:180px"><option value="ALL">All Statuses</option></select>
+              <input id="dr-search" class="form-control form-control-sm" style="--w:200px" placeholder="Search school / domain…" />
+            </div>
+          </div>
+          <div class="small text-muted mt-1" id="dr-note"></div>
+          <div class="table-responsive"><table class="table table-sm mt-2"><thead><tr>
+            <th>School</th><th>Domain</th><th>Registration Date</th><th>Expiration Date</th>
+            <th class="text-end">Days</th><th>Status</th><th>Action / Remarks</th>
+          </tr></thead><tbody id="tbl-dr"></tbody></table></div>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- REPORT -->
+    <section id="dash-report" class="dash-panel d-none">
+      <h3 class="dash-h">Executive Report</h3>
+      <div class="card-box" id="report-body"></div>
+    </section>
+
+    <!-- DATA QUALITY -->
+    <!-- SCHOOL 360 (single-tenant profile; on-screen + Export Tab only, excluded from deck/gallery) -->
+    <section id="dash-school" class="dash-panel d-none" data-deck="skip">
+      <h3 class="dash-h">School 360</h3>
+      <div class="s360-bar card-box">
+        <label for="s360-school" class="form-label small mb-0">School</label>
+        <input id="s360-school" class="form-control form-control-sm" list="dl-s360" placeholder="Type a school name" autocomplete="off" style="--w:340px">
+        <datalist id="dl-s360"></datalist>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="s360-filter">Show this school across the dashboard</button>
+        <button type="button" class="btn btn-sm btn-primary" id="s360-print">Print this school</button>
+        <div id="s360-note" class="small text-muted w-100" aria-live="polite"></div>
+      </div>
+      <div id="s360-body"></div>
+    </section>
+
+    <section id="dash-quality" class="dash-panel d-none">
+      <h3 class="dash-h">Data Quality &amp; Master School Dimension</h3>
+      <div class="card-box" id="quality-body"></div>
+    </section>
+
+    <!-- FULL DATA EXPLORER -->
+    <section id="dash-fulldata" class="dash-panel d-none">
+      <h3 class="dash-h">Data Explorer</h3>
+      <div class="card-box">
+        <div class="fd-controls">
+          <select id="fd-dataset" class="form-select form-select-sm" style="--w:210px"></select>
+          <input id="fd-search" class="form-control form-control-sm" style="--w:240px" placeholder="Search all columns…" />
+          <label class="fd-check"><input type="checkbox" id="fd-applyfilters" checked /> Apply dashboard filters</label>
+          <select id="fd-pagesize" class="form-select form-select-sm" style="--w:130px">
+            <option value="50">50 / page</option>
+            <option value="100">100 / page</option>
+            <option value="0">Show all</option>
+          </select>
+          <button id="fd-export" class="btn btn-outline-success btn-sm">Export CSV</button>
+          <span class="fd-count small text-muted" id="fd-count"></span>
+        </div>
+        <div class="fd-tablewrap">
+          <table class="table table-sm mt-2" id="fd-table"><thead id="fd-head"></thead><tbody id="fd-body"></tbody></table>
+        </div>
+        <div class="fd-pager">
+          <button id="fd-prev" class="btn btn-sm btn-outline-secondary">‹ Prev</button>
+          <span id="fd-page" class="small text-muted"></span>
+          <button id="fd-next" class="btn btn-sm btn-outline-secondary">Next ›</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  </main>
+
+  <!-- Tenant Health detail pane (v1.9.0 Phase 3) — outside #app-body so the deck export never moves it -->
+  <div id="dp-scrim" class="dp-scrim" hidden></div>
+  <aside id="detail-pane" class="detail-pane" role="dialog" aria-modal="false" aria-labelledby="dp-title" hidden>
+    <div class="dp-head">
+      <div><div class="dp-over">Tenant Health</div><h2 id="dp-title" class="dp-title"></h2></div>
+      <button id="dp-close" class="icon-btn" type="button" aria-label="Close tenant details" title="Close (Esc)"><svg class="fi" aria-hidden="true" focusable="false"><use href="#fi-dismiss"/></svg></button>
+    </div>
+    <div id="dp-body" class="dp-body"></div>
+  </aside>
+
+  <!-- ============ SCRIPTS (all local / offline) ============ -->
+  <script src="libs/xlsx.full.min.js"></script>
+  <script src="libs/chart.umd.min.js"></script>
+  <script src="libs/bootstrap.bundle.min.js"></script>
+  <script src="js/excel-loader.js"></script>
+  <script src="js/chart-generator.js"></script>
+  <script src="js/report-generator.js"></script>
+  <script src="js/data-quality.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/shell.js"></script>  <!-- v1.9.0 shell chrome only: nav state, drawer, menus. No data logic. -->
+</body>
+</html>
