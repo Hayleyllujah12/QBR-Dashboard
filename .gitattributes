@@ -1,0 +1,6 @@
+# Consistent Windows line endings in the working copy; binaries never touched.
+* text=auto eol=crlf
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.ico binary
