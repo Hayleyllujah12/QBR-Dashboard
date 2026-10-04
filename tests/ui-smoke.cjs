@@ -23,7 +23,7 @@ const ok = (c, m, x) => { c ? pass++ : fail++; console.log((c ? "  âœ“ " : "  âœ
   console.log("-- empty state");
   ok(await page.isVisible(".app-header"), "top bar visible");
   ok(!(await page.isVisible("#app-sidebar")), "sidebar hidden before data");
-  ok((await page.textContent("#app-version")) === "v1.9.0", "version label from QBR.VERSION", await page.textContent("#app-version"));
+  ok((await page.textContent("#app-version")) === "v" + (await page.evaluate(() => QBR.VERSION)), "version label from QBR.VERSION", await page.textContent("#app-version"));
   ok((await page.evaluate(() => document.querySelector(".app-header").offsetHeight)) === 48, "top bar is 48px");
   await page.screenshot({ path: OUT + "/01_empty.png" });
 
