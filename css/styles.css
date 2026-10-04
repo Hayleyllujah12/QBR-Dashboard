@@ -509,6 +509,7 @@ table.resizable th{position:relative}
   body[data-print="dash-usermgmt"] #dash-usermgmt,
   body[data-print="dash-domainreg"] #dash-domainreg,
   body[data-print="dash-report"] #dash-report,
+  body[data-print="dash-inventory"] #dash-inventory,
   body[data-print="dash-quality"] #dash-quality,
   body[data-print="dash-fulldata"] #dash-fulldata{display:block !important}
   .card-box,.kpi{box-shadow:none !important;border:1px solid var(--line);break-inside:avoid;transform:none !important}
@@ -712,4 +713,50 @@ th[title^="Share of all"]{width:76px}
   body[data-print="dash-school"] .s360-go{display:none !important}
   body[data-print="dash-school"] .s360-card{break-inside:avoid}
   body[data-print="ALL"] #dash-school{display:none !important}
+  body[data-print="ALL"] #dash-asset360{display:none !important}
+  body[data-print="ALL"] #dash-scan{display:none !important}
 }
+
+/* ============ §20 Inventory module (v1.0.0) ============ */
+.inv-flag{width:100%;text-align:left;cursor:pointer}
+.inv-flag:hover{transform:translateY(-1px)}
+.inv-flag.active{outline:2px solid var(--brand);outline-offset:1px}
+.inv-flag-n{font-size:22px;font-weight:700;line-height:1.1}
+.inv-flag-l{font-weight:600;font-size:13px}
+.inv-flag-orange .inv-flag-n{color:#c46100}
+.inv-flag-red .inv-flag-n{color:#D13438}
+.inv-flag-blue .inv-flag-n{color:#0078D4}
+.inv-tbl tbody tr.inv-row{cursor:pointer}
+.inv-tbl tbody tr.inv-row:hover,.inv-tbl tbody tr.inv-row:focus{background:var(--hover,rgba(0,0,0,.04))}
+.inv-tbl code{font-size:12px}
+.inv-timeline{list-style:none;margin:12px 0 0;padding:0}
+.inv-tl-item{padding:8px 0 12px 18px;border-left:2px solid var(--line);margin-left:6px;position:relative}
+.inv-tl-item::before{content:"";position:absolute;left:-6px;top:14px;width:10px;height:10px;border-radius:50%;background:var(--brand)}
+.s360-fact{display:contents}
+.s360-fact-k{font-weight:500;color:var(--muted)}
+.s360-fact-v{color:var(--ink);overflow-wrap:anywhere}
+@media print{
+  body[data-print="dash-asset360"] #dash-asset360{display:block !important}
+  body[data-print="dash-scan"] #dash-scan{display:block !important}
+  body[data-print="dash-scan"] #scan-zone,
+  body[data-print="dash-scan"] #scan-target-cancel{display:none !important}
+}
+
+/* ============ §21 Scan module — barcode/QR + OCR label extraction (v1.1.0) ============ */
+.scan-zone{border:2px dashed var(--line);border-radius:10px;padding:26px 18px;text-align:center;cursor:pointer;position:relative;transition:border-color .15s,background .15s;background:var(--card)}
+.scan-zone:hover,.scan-zone.dragover{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 6%,var(--card))}
+.scan-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+.scan-zone-icon{font-size:28px;margin-bottom:4px}
+.scan-thumb{width:46px;height:46px;border-radius:6px;object-fit:cover;border:1px solid var(--line);cursor:zoom-in;background:var(--card)}
+.scan-input{border:1px solid transparent;background:transparent;padding:3px 6px;border-radius:6px;font-size:12.5px;width:100%;min-width:90px;color:var(--ink);font-family:inherit}
+.scan-input:hover{background:var(--hover,rgba(0,0,0,.04))}
+.scan-input:focus{outline:none;border-color:var(--brand);background:var(--card);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 15%,transparent)}
+.scan-dialog{max-width:640px;width:calc(100vw - 40px);margin:8vh auto;padding:20px;position:relative;z-index:1001;max-height:86vh;overflow:auto}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(15,20,40,.55);z-index:1000;justify-content:center;align-items:flex-start;backdrop-filter:blur(2px)}
+.modal-overlay.open{display:flex}
+.modal-overlay img{max-width:92vw;max-height:88vh;object-fit:contain;border-radius:8px;box-shadow:0 12px 48px rgba(0,0,0,.45);margin:5vh auto}
+.modal-close{position:fixed;top:14px;right:18px;background:rgba(255,255,255,.16);border:none;color:#fff;font-size:20px;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:1002}
+.modal-close:hover{background:rgba(255,255,255,.28)}
+#scan-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--ink);color:var(--card);padding:9px 20px;border-radius:10px;font-size:13.5px;font-weight:500;box-shadow:0 8px 28px rgba(0,0,0,.25);opacity:0;transition:.25s;pointer-events:none;z-index:2000;max-width:90vw;text-align:center}
+#scan-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media (max-width:576px){.scan-dialog{margin:4vh auto}}

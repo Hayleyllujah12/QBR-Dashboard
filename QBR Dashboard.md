@@ -35,6 +35,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >   picker `#s360-school`/`#dl-s360`, `APP.school360` (default: global school filter → weakest THI tenant),
 >   `openSchool360(key)` (also from the THI pane `#dp-s360`), rule-based action list, CSS §19. Quarter
 >   chips only (`TAB_FILTERS`); Export Tab yes, deck/gallery no. Feature tests now 37.
+>   **2026-10-04 — Inventory + Scanner merged (additive).** New `js/inventory.js` (parsers, flags, write-back,
+>   `renderInventory`, Asset 360 `dash-asset360` detail page — no nav item, `data-deck="skip"`) and `js/scan.js` 1.2.0
+>   (Scan page `dash-scan`). `app.js` 4 hooks only: `APP.model.inventory = QBR.parseInventoryBuffers(buffers)` in
+>   processBuffers (try/catch), Inventory nav badge = open tickets, `renderInventory/renderAsset360Panel/renderScan`
+>   in renderAll (typeof-guarded), `TAB_FILTERS` `[]` for the 3 pages. `index.html`: Inventory nav group + 3 panels +
+>   scripts (`inventory.js`, `libs/tesseract/tesseract.min.js`, `scan.js` before `app.js`). CSS §20/§21. Vendored:
+>   `libs/tesseract/` (Tesseract.js 5.1.1 + generated `offline/` assets for file:// — rebuild with
+>   `node tests/build-tesseract-offline.cjs`), `libs/zxing/` (@zxing/library 0.23.0; native BarcodeDetector is absent on
+>   Windows). Never `window.APP` (top-level const) — use `typeof APP !== "undefined"`. Docs: `docs/SCANNER_FIX.md`,
+>   `docs/INVENTORY_DEV_NOTES.md`, `docs/qbr-dashboard-rebuild-guide.md`. Tests: `tests/scan-tests.cjs` (23),
+>   `tests/ui-scan.cjs` (11, file:// or http://), ui-smoke now layout-aware (15 core nav + Inventory/Scan = 17).
 > - **Live / production version is `QBR-Dashboard_1.8.5`** — app label **1.8.5** (promoted
 >   2026-09-17). In-place fixes are dated patches, **not version bumps** — the label stays 1.8.5.
 >   Recent behavior: security-default status shows as "Not Enabled" (was "Disabled"; canonical model
