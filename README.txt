@@ -6,6 +6,34 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.9.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-04 — Inventory & ticket tracking + label Scanner (new "Inventory" section)
+  - NEW "INVENTORY" PAGE (left navigation, new "Inventory" group): laptops, desktops and
+    monitors with their support tickets, built from an inventory workbook you upload together
+    with (or instead of) the tracker. Sheets are found by name: 02 DEVICES, 03 TECH SUPPORT LOGS,
+    04 RAKSO INV., 06 PIPELINE, 07 PURCHASE ORDER.
+      · KPIs: fleet size, % deployed, in repair, open tickets, average days to resolve.
+      · Flags you can click to filter: tickets open > 7 days, "lemon" units (3+ tickets),
+        warranty expiring within 90 days / expired, ticket serials not in the device list,
+        signed-but-not-delivered pipeline items.
+      · Register assets, deploy units to a client, log and resolve tickets, change a status.
+        Changes stay in this session; "Export inventory workbook" downloads an updated .xlsx
+        with an EDIT LOG sheet (the dashboard never overwrites your original file).
+      · "Look up asset" finds a serial; clicking any asset opens its ASSET 360 page
+        (details, warranty, deployment, ticket history, recommended actions).
+      · The Inventory item in the navigation shows the number of open tickets.
+  - NEW "SCAN" PAGE: upload photos of box or unit labels — the serial number, model and
+    product key are read from the barcodes and the printed text. Results stay editable.
+      · Works fully offline and when the dashboard is opened by double-click.
+      · Barcodes are read on Windows too (built-in browser detectors only exist on Mac/Android).
+      · Straightens tilted photos and enlarges small ones before reading the text.
+      · Existing serial → warning, then its Asset 360 page. New serial → "Intake" fills the
+        register form, "Tag" assigns it to a client (Client, Date, Purchase location, SQ, DR #,
+        Assigned to).
+      · Intake and Deploy forms have "Scan box label" / "Scan unit" buttons.
+      · The first scan in a session takes a few extra seconds while the reader starts.
+      · Photos stay on your computer, in memory only — nothing is uploaded or saved.
+  - Asset 360 and Scan are left out of Export Deck and Export Images, like School 360.
+
 UPDATE — 2026-10-03 — School 360 page + Tenant Health email-score fix
   - NEW "SCHOOL 360" PAGE (left navigation, just under Overview): everything about ONE
     school on a single page — handy for customer calls and school-level reviews.

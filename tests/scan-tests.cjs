@@ -1,0 +1,43 @@
+/* Pure-logic tests for js/scan.js (no browser): OCR text parsing, barcode classification, serial vote.
+ * Usage: node tests/scan-tests.cjs */
+const path = require("path"), fs = require("fs");
+const app = [path.join(__dirname, "../qbr-app"), path.join(__dirname, "..")].find(d => fs.existsSync(path.join(d, "js/scan.js")));
+global.window = global; global.QBR = {};
+const S = require(path.join(app, "js/scan.js"));
+let pass = 0, fail = 0;
+const ok = (c, m, x) => { c ? pass++ : fail++; console.log((c ? "  ✓ " : "  ✗ ") + m + (x !== undefined ? "  [" + x + "]" : "")); };
+const P = S.scanParseOCRText;
+
+console.log("-- serial labels");
+ok(P("SN: PF62SDPW").serial === "PF62SDPW", "SN:");
+ok(P("S/N: PF62SDPW").serial === "PF62SDPW", "S/N:");
+ok(P("S / N PF62SDPW").serial === "PF62SDPW", "S / N with spaces");
+ok(P("(S) SN: PF62SDPW").serial === "PF62SDPW", "(S) SN:");
+ok(P("(S)SN:PF62SDPW").serial === "PF62SDPW", "(S)SN: no spaces");
+ok(P("Serial Number: MJ0ABC12").serial === "MJ0ABC12", "Serial Number:");
+ok(P("Serial No. MJ0ABC12").serial === "MJ0ABC12", "Serial No.");
+ok(P("serial # MJ0ABC12").serial === "MJ0ABC12", "serial #");
+console.log("-- regressions (bare S must not count)");
+const lbl = "Lenovo ThinkPad E14 Gen 6\n(1P) MTM: 21M4S5VDOO\n(S) SN: PF62SDPW\n(1S) 21M4S5VDOOPF62SDPW\nUPC: 197529123456";
+ok(P(lbl).serial === "PF62SDPW", "MTM '21M4S5VD00' before the SN line does not win", P(lbl).serial);
+ok(P("MTM: 21M4S5VD00").serial === "", "MTM alone → no serial");
+ok(P("(1S) 21M4S5VD00PF62SDPW").serial === "", "(1S) concatenation is not an OCR serial label");
+ok(P("SYSTEM SERIAL NUMBER MJ0ABC12").serial === "MJ0ABC12", "SERIAL NUMBER inside a longer label");
+ok(P("SN: 123456 SN: PF62SDPW").serial === "PF62SDPW", "prefers the hit with the unit-serial shape");
+console.log("-- model + key");
+ok(P(lbl).model === "ThinkPad E14 Gen 6", "brand model", P(lbl).model);
+ok(P("Milian E14 Gen6 21M4").model === "E14 Gen6", "mangled brand → model-number fallback", P("Milian E14 Gen6").model);
+ok(P("Product Key: ABCDE-12345-FGHIJ-67890-KLMNO").productKey === "ABCDE-12345-FGHIJ-67890-KLMNO", "5x5 product key");
+ok(P("").serial === "" && P(null).model === "", "empty input safe");
+console.log("-- barcodes + vote");
+ok(S.scanClassifyBarcode("197529123456") === "other" && S.scanClassifyBarcode("9C2DCD1A2B3C") === "other", "UPC + MAC = other");
+ok(S.scanClassifyBarcode("PF62SDPW") === "serial" && S.scanClassifyBarcode("ABCDE-12345-FGHIJ-67890-KLMNO") === "key", "serial / key");
+ok(S.scanSplitMtmSn("21M4S5VD00PF62SDPW") === "PF62SDPW", "MTM+SN split");
+const m1 = S.scanMergeFindings(["21M4S5VD00", "21M4S5VD00PF62SDPW", "PF62SDPW", "197529123456", "9C2DCD1A2B3C"], P(lbl), lbl);
+ok(m1.serial === "PF62SDPW", "merge: barcodes + OCR agree", m1.serial);
+const m2 = S.scanMergeFindings(["21M4S5VD00", "197529123456"], P(lbl), lbl);
+ok(m2.serial === "PF62SDPW", "merge: serial barcode unreadable → OCR serial still wins over MTM", m2.serial);
+const m3 = S.scanMergeFindings(["9C2DCD1A2B3C", "PF62SDPW"], { serial: "", productKey: "", model: "" }, "");
+ok(m3.serial === "PF62SDPW", "merge: barcode-only (OCR unavailable)", m3.serial);
+console.log(`RESULT: ${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

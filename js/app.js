@@ -691,6 +691,12 @@ function updateNavBadges() {
     "dash-health": [(agg.health || {})["Not Managed"] || 0, "bad", "tenants not managed"],
     "dash-domainreg": [dreg.filter(d => d.group === "critical").length, "bad", "domains needing action"],
     "dash-postmaster": [(agg.pmBadSchools || []).length, "warn", "domains with email reputation issues"],
+    "dash-inventory": (() => { try {
+      const inv = m.inventory;
+      if (!inv || !inv.tickets || !inv.tickets.length) return [0, "warn", ""];
+      const n = inv.tickets.filter(t => !t.completed && !/completed|resolved|closed/i.test(String(t.status || ""))).length;
+      return [n, n ? "warn" : "", n === 1 ? "open support ticket" : "open support tickets"];
+    } catch (e) { return [0, "warn", ""]; } })(),
     "dash-storage": (() => { const c = storageCapacityList(); return [c.length, c.some(x => x.band.tone === "bad") ? "bad" : "warn", (c.length === 1 ? "tenant" : "tenants") + " at or above " + storWarn() + "% of storage capacity"]; })(),
   };
   document.querySelectorAll("#app-sidebar .sb-item[data-tab]").forEach(btn => {
@@ -2163,6 +2169,9 @@ function renderAll() {
   renderOverview(); renderRisky(); renderDomainHealth(); renderSecurity(); renderGdap(); renderCanva(); renderUsage(); renderStorage();
   renderPostmaster(); renderUserManagement(); renderDomainReg(); renderReport(); renderQuality();
   renderSchool360();
+  if (typeof renderInventory === "function") renderInventory();
+  if (typeof renderAsset360Panel === "function") renderAsset360Panel();
+  if (typeof renderScan === "function") renderScan();
   if (APP.activeTab === "dash-fulldata") { if (APP.fd.applyFilters) APP.fd.page = 1; renderFullData(); }
   makeTablesResizable();
   updateNavBadges();
@@ -2214,6 +2223,9 @@ const TAB_FILTERS = {
   "dash-quality":    [],
   "dash-fulldata":   ["quarter", "month", "org", "school"],
   "dash-school":     ["quarter"],                 // has its own school picker; org/school filters don't apply
+  "dash-inventory":  [],                          // own client/type/status filters inside the panel
+  "dash-asset360":   [],                          // single-asset page; has its own serial search
+  "dash-scan":       [],                          // scan page; own upload UI, no shared filters
 };
 const GLOBAL_FILTER_IDS = { quarter: "f-quarter-chips", month: "f-month", org: "f-org", school: "f-school" };
 
@@ -2388,6 +2400,8 @@ function processBuffers(buffers, meta) {
   meta = meta || {};
   try { APP.model = QBR.loadWorkbooks(buffers); }
   catch (e) { $("upload-status").textContent = "Error: " + e.message; return false; }
+  try { APP.model.inventory = (typeof QBR.parseInventoryBuffers === "function") ? QBR.parseInventoryBuffers(buffers) : null; }
+  catch (e) { console.warn("[QBR] inventory parse failed:", e && e.message); APP.model.inventory = null; }
   const s = APP.model.sources;
   const n = Object.values(s).filter(Boolean).length;
   const fc = (APP.files || []).length;
