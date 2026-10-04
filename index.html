@@ -70,6 +70,8 @@
         <svg class="fi" aria-hidden="true" focusable="false"><use href="#fi-arrow-upload"/></svg><span class="hdr-lbl">Upload</span>
         <input id="file-input" type="file" accept=".xlsx" multiple hidden />
       </label>
+      <button id="btn-linkfile" class="btn btn-outline-secondary btn-sm" type="button" title="Link an Excel file for direct saving (Chrome/Edge)">🔗 Link file</button>
+      <span id="fs-link-status" class="small text-muted"></span>
       <div class="menu-wrap" id="export-wrap">
         <button id="btn-export" class="btn btn-outline-secondary btn-sm menu-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="export-menu" title="Print or download">
           <svg class="fi" aria-hidden="true" focusable="false"><use href="#fi-arrow-download"/></svg><span class="hdr-lbl">Export</span><svg class="fi chev" aria-hidden="true" focusable="false"><use href="#fi-chevron-down"/></svg>
@@ -593,6 +595,12 @@
       <div id="a360-body"></div>
     </section>
 
+    <!-- TICKET 360 (single-ticket detail; on-screen + Export Tab only, excluded from deck/gallery) -->
+    <section id="dash-ticket360" class="dash-panel d-none" data-deck="skip">
+      <h3 class="dash-h">Ticket 360</h3>
+      <div id="t360-body"></div>
+    </section>
+
     <!-- SCAN (barcode/QR + OCR label extraction; on-screen + Export Tab only, excluded from deck/gallery) -->
     <section id="dash-scan" class="dash-panel d-none" data-deck="skip">
       <h3 class="dash-h">Scan</h3>
@@ -668,9 +676,12 @@
   <script src="js/report-generator.js"></script>
   <script src="js/data-quality.js"></script>
   <script src="js/inventory.js"></script>
+  <script src="js/supplies.js"></script>
   <script src="libs/tesseract/tesseract.min.js"></script>
   <script src="js/scan.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/patch.js"></script>  <!-- v1.15: patch-in-place workbook saver -->
+  <script src="js/persist.js"></script>  <!-- v1.8: journal persistence + direct file save -->
   <script src="js/shell.js"></script>  <!-- v1.9.0 shell chrome only: nav state, drawer, menus. No data logic. -->
 </body>
 </html>

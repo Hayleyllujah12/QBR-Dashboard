@@ -2225,6 +2225,7 @@ const TAB_FILTERS = {
   "dash-school":     ["quarter"],                 // has its own school picker; org/school filters don't apply
   "dash-inventory":  [],                          // own client/type/status filters inside the panel
   "dash-asset360":   [],                          // single-asset page; has its own serial search
+  "dash-ticket360":  [],                          // single-ticket page; opened via #ticket/<tno> deep link
   "dash-scan":       [],                          // scan page; own upload UI, no shared filters
 };
 const GLOBAL_FILTER_IDS = { quarter: "f-quarter-chips", month: "f-month", org: "f-org", school: "f-school" };
@@ -2402,6 +2403,8 @@ function processBuffers(buffers, meta) {
   catch (e) { $("upload-status").textContent = "Error: " + e.message; return false; }
   try { APP.model.inventory = (typeof QBR.parseInventoryBuffers === "function") ? QBR.parseInventoryBuffers(buffers) : null; }
   catch (e) { console.warn("[QBR] inventory parse failed:", e && e.message); APP.model.inventory = null; }
+  try { APP.model.supplies = (typeof QBR.parseSuppliesBuffers === "function") ? QBR.parseSuppliesBuffers(buffers) : null; }
+  catch (e) { console.warn("[QBR] supplies parse failed:", e && e.message); APP.model.supplies = null; }
   const s = APP.model.sources;
   const n = Object.values(s).filter(Boolean).length;
   const fc = (APP.files || []).length;
@@ -2433,8 +2436,24 @@ function loadItems(items, meta) {
   const prev = APP.files || [];
   APP.files = items;
   return Promise.all(items.map(it => readU8(it.blob))).then(buffers => {
+    // Fingerprints let persist.js key journal entries to exact file bytes and
+    // map each file to the inventory kinds it contributed.
+    try {
+      if (typeof QBR !== "undefined" && QBR.fpOf) {
+        QBR._currentFps = items.map(it => QBR.fpOf(it.name, it.blob));
+        QBR._kindByFp = {};
+      }
+    } catch (e) {}
     const ok = processBuffers(buffers, meta || {});
-    if (!ok) APP.files = prev;
+    if (!ok) { APP.files = prev; return ok; }
+    // Replay any journaled entries recorded against these exact files
+    // (covers both fresh uploads and session restores after Ctrl+R).
+    try {
+      if (typeof QBR !== "undefined" && QBR.journalReplayFor) {
+        const n = QBR.journalReplayFor(APP.files);
+        if (n > 0 && typeof renderAll === "function") renderAll();
+      }
+    } catch (e) { console.warn("[QBR] journal replay failed:", e && e.message); }
     return ok;
   }).catch(err => { APP.files = prev; throw err; });
 }
@@ -3094,6 +3113,51 @@ function s360DefaultKey(thi) {
   }
   return thi.perSchool[0] ? thi.perSchool[0].key : (m.master.keys().next().value || null);
 }
+/* Hardware (inventory) summary for a School 360 school. Matches inventory
+ * assets whose client equals the school's audit name (case-insensitive,
+ * including known aliases — the All-tenant-Status naming is the source of
+ * truth). Counts laptops/desktops ever linked to the school (any status),
+ * plus open tickets and warranties expiring within the warn window.
+ * Returns null when the inventory isn't loaded or the school has no units —
+ * the tile and section hide entirely in that case. */
+function s360Hardware(key, name) {
+  let inv = null;
+  try { inv = (typeof invModel === "function") ? invModel() : null; } catch (e) {}
+  if (!inv || !inv.assets || !inv.assets.length) return null;
+  const norm = s => String(s == null ? "" : s).trim().toLowerCase();
+  let aliases = [];
+  try {
+    const raw = (APP.model.master.get(key) || {}).aliases;
+    if (Array.isArray(raw)) aliases = raw;
+    // Set (what the loader stores) — forEach duck-typing works across realms
+    else if (raw && typeof raw.forEach === "function") raw.forEach(v => aliases.push(v));
+    else if (raw) aliases = [raw];
+  } catch (e) { aliases = []; }
+  const names = new Set([norm(name), ...aliases.map(norm)]);
+  names.delete("");
+  const isLD = a => /^(laptop|desktop)$/i.test(String(a.cat || "").trim());
+  const units = inv.assets.filter(a => names.has(norm(a.client)) && isLD(a));
+  if (!units.length) return null;
+  const laptops = units.filter(a => /^laptop$/i.test(String(a.cat || "").trim())).length;
+  const desktops = units.length - laptops;
+  let openTix = 0;
+  try {
+    openTix = (inv.tickets || []).filter(t => names.has(norm(t.client)) &&
+      (typeof invTixOpen === "function" ? invTixOpen(t) : !/^(resolved|completed|closed)$/i.test(String(t.status || "")))).length;
+  } catch (e) {}
+  const warnDays = (QBR.INV_THRESH && QBR.INV_THRESH.WARRANTY_WARN_DAYS) || 90;
+  let expiring = 0;
+  try {
+    const today = invToday();
+    expiring = units.filter(a => {
+      if (!a.wend) return false;
+      const d = invDaysBetween(today, a.wend);
+      return d != null && d >= 0 && d <= warnDays;
+    }).length;
+  } catch (e) {}
+  const clients = [...new Set(units.map(a => a.client).filter(Boolean))];
+  return { laptops, desktops, total: units.length, openTix, expiring, warnDays, client: clients[0] || name };
+}
 function renderSchool360() {
   const host = $("s360-body"), m = APP.model;
   if (!host || !m) return;
@@ -3195,6 +3259,13 @@ function renderSchool360() {
     ["Canva", cvLatest ? 1 : 0], ["Postmaster", pmRows.length], ["Domain registration", dr.length], ["User management", um.length]];
 
   // ---- render ----
+  const hw = s360Hardware(key, name); // null → hide tile + section entirely
+  const hwTile = hw
+    ? kpi("Hardware",
+        `<span class="s360-hw-n">${fmt(hw.laptops)}</span><span class="s360-hw-l">Laptops</span>` +
+        `<span class="s360-hw-n">${fmt(hw.desktops)}</span><span class="s360-hw-l">Desktops</span>` +
+        `<span class="s360-hw-n">${fmt(hw.openTix)}</span><span class="s360-hw-l">Open tickets</span>`, "blue")
+    : "";
   const kpis =
     `<div class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3 kpi-row">` +
       kpi("Tenant Health", tp ? String(tp.thi) : "—", !band ? "blue" : tp.thi >= 80 ? "green" : tp.thi >= 60 ? "orange" : "red") +
@@ -3203,6 +3274,7 @@ function renderSchool360() {
       kpi("M365 Usage", uLatest && uLatest.usagePct != null ? uLatest.usagePct.toFixed(1) + "%" : "—", uLatest && uLatest.usagePct != null ? (uLatest.usagePct < usageLow ? "orange" : "green") : "blue") +
       kpi("Storage Used", stPct != null ? stPct.toFixed(1) + "%" : "—", stBand ? (stBand.tone === "bad" ? "red" : "orange") : stPct != null ? "green" : "blue") +
       kpi("Email Reputation", pmL ? esc(pmL.rep) : pmAny ? esc(pmAny.reputation) : "—", !pmL ? "blue" : repTone(pmL.rep) === "bad" ? "red" : repTone(pmL.rep) === "ok" ? "green" : "orange") +
+      hwTile +
     `</div>`;
 
   const head =
@@ -3273,6 +3345,16 @@ function renderSchool360() {
         (a.tab ? `<button type="button" class="s360-go" data-s360-tab="${a.tab}" aria-label="Open the related page">›</button>` : "") + `</li>`).join("") + `</ol>`
     : '<p class="text-muted s360-empty">No actions flagged for this school in ' + esc(scope) + '.</p>';
   const covBody = `<ul class="s360-cov">` + cov.map(([k, n]) => `<li class="${n ? "on" : "off"}">${esc(k)}<span>${n ? "Data" : "No data"}</span></li>`).join("") + `</ul>`;
+  const hwBody = hw ? s360Facts([
+    ["Laptops", `<b>${fmt(hw.laptops)}</b>`],
+    ["Desktops", `<b>${fmt(hw.desktops)}</b>`],
+    ["Total units", `<b>${fmt(hw.total)}</b> <span class="text-muted small">purchased</span>`],
+    ["Open tickets", `<b>${fmt(hw.openTix)}</b>`],
+    [`Warranty expiring (< ${hw.warnDays}d)`, `<b>${fmt(hw.expiring)}</b>`],
+  ]) : "";
+  const hwCard = hw
+    ? `<div class="col-lg-4 col-md-6"><div class="card-box s360-card"><div class="d-flex justify-content-between align-items-center"><h6 class="mb-0">Hardware</h6><button type="button" class="s360-go" data-s360-hw="1">Open page ›</button></div>${hwBody}</div></div>`
+    : "";
 
   host.innerHTML = head + kpis +
     `<div class="row g-3 mt-1">` +
@@ -3284,6 +3366,7 @@ function renderSchool360() {
       card("Storage", storBody, "dash-storage") +
       card("Canva Education", canvaBody, "dash-canva") +
       card("Email reputation", pmBody, "dash-postmaster") +
+      hwCard +
       card("User management", umBody, "dash-usermgmt") +
       card("Data coverage", covBody, null, "col-lg-8") +
     `</div>`;
@@ -3292,6 +3375,17 @@ function renderSchool360() {
     [{ label: "Risky users", data: months.map(x => x.v), color: QBR.COLORS.red, fill: true }],
     DL("line", months.map(x => x.v ? fmt(x.v) : null)));
   host.querySelectorAll("[data-s360-tab]").forEach(b => b.addEventListener("click", () => goToTab(b.dataset.s360Tab)));
+  /* Hardware card: jump to the Inventory tab pre-filtered to this school */
+  host.querySelectorAll("[data-s360-hw]").forEach(b => b.addEventListener("click", () => {
+    try {
+      if (hw && QBR._invUI) {
+        QBR._invUI.client = hw.client; QBR._invUI.view = "assets";
+        QBR._invUI.showAll = false; QBR._invUI.q = ""; QBR._invUI.flag = null;
+      }
+    } catch (e) {}
+    goToTab("dash-inventory");
+    try { if (typeof renderInventory === "function") renderInventory(); } catch (e) {}
+  }));
   const ns = $("s360-note"); if (ns) ns.textContent = `Showing ${name}. Pick any school above; Organization and School filters don't apply on this page.`;
 }
 

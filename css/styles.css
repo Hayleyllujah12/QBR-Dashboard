@@ -760,3 +760,25 @@ th[title^="Share of all"]{width:76px}
 #scan-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--ink);color:var(--card);padding:9px 20px;border-radius:10px;font-size:13.5px;font-weight:500;box-shadow:0 8px 28px rgba(0,0,0,.25);opacity:0;transition:.25s;pointer-events:none;z-index:2000;max-width:90vw;text-align:center}
 #scan-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media (max-width:576px){.scan-dialog{margin:4vh auto}}
+/* Scan preview: photo left, manual entry right */
+.scan-lb-dialog{display:flex;gap:16px;background:#fff;border-radius:12px;padding:18px;max-width:min(1020px,94vw);max-height:90vh;margin:5vh auto;position:relative;box-shadow:0 12px 48px rgba(0,0,0,.45)}
+.scan-lb-dialog .modal-close{position:absolute;top:10px;right:12px;background:#eef1f6;color:#333;font-size:16px;width:32px;height:32px}
+.scan-lb-dialog .modal-close:hover{background:#dfe4ec}
+.scan-lb-photo{flex:1 1 auto;min-width:0;display:flex;align-items:center;justify-content:center;background:#f4f6fa;border-radius:8px;overflow:auto;min-height:200px}
+.scan-lb-photo img{max-width:100%;max-height:76vh;object-fit:contain;margin:0;box-shadow:none}
+.scan-lb-form{flex:0 0 250px;display:flex;flex-direction:column}
+@media (max-width:680px){.scan-lb-dialog{flex-direction:column;overflow:auto}.scan-lb-form{flex:none}}
+
+/* ---- inventory autocomplete dropdowns + sticky Asset 360 nav (v1.17) ---- */
+.inv-ac-dd{position:absolute;top:calc(100% + 2px);left:0;right:0;z-index:70;max-height:240px;overflow:auto;
+  background:var(--bs-body-bg,#fff);border:1px solid var(--bs-border-color,#dee2e6);border-radius:6px;
+  box-shadow:0 6px 18px rgba(0,0,0,.12);padding:4px}
+.inv-ac-item{display:block;width:100%;text-align:left;background:none;border:0;border-radius:4px;
+  padding:6px 8px;cursor:pointer;color:inherit}
+.inv-ac-item:hover,.inv-ac-item:focus-visible{background:var(--bs-tertiary-bg,#f1f3f5);outline:none}
+.inv-stickybar{position:sticky;top:0;z-index:60;background:var(--bs-body-bg,#fff);
+  padding:8px 0;border-bottom:1px solid var(--bs-border-color,#dee2e6)}
+
+/* ---- School 360 hardware tile (v1.20) ---- */
+.s360-hw-n{font-weight:700;font-size:1.12em}
+.s360-hw-l{font-size:.68em;color:var(--bs-secondary-color,#6c757d);margin:0 .55em 0 .2em;text-transform:uppercase;letter-spacing:.02em}
