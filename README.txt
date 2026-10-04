@@ -1,10 +1,16 @@
-RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.9.0
+RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
 ==================================================================
 
-** LIVE / production version: 1.9.0  (folder: QBR-Dashboard_1.9.0), promoted 2026-09-30.
-   QBR-Dashboard_1.8.5 is now the ROLLBACK — don't edit it. Fixes are applied IN PLACE
+** LIVE / production version: 1.21.0  (folder: QBR-Dashboard_1.21.0), promoted 2026-10-05.
+   QBR-Dashboard_1.9.0 is now the ROLLBACK — don't edit it. Fixes are applied IN PLACE
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
+
+UPDATE — 2026-10-05 — v1.21.0 is now the live version (1.9.0 becomes the rollback):
+  - Open QBR-Dashboard_1.21.0\qbr-app\index.html from now on (update any shortcut or bookmark
+    that still points at the 1.9.0 folder). The header now shows v1.21.0.
+  - If your remembered data doesn't reload automatically, upload the workbooks once. Entries
+    saved in the browser are kept per workbook file and reappear when that same file is loaded.
 
 UPDATE — 2026-10-05 — Inventory v1.21.0: tickets, supplies, saving to Excel, School 360 hardware
   - INVENTORY now has three sub-pages: Assets | Support tickets | Supplies.

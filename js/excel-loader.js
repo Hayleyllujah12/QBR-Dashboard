@@ -15,7 +15,7 @@ var QBR = (window.QBR = window.QBR || {});
 // (QBR-Dashboard_<VERSION>). Per the versioning convention, in-place fixes are
 // dated patches and DO NOT bump this — a new number is cut only for a deliberate
 // major release, together with a new folder.
-QBR.VERSION = "1.9.0";
+QBR.VERSION = "1.21.0";
 
 /* ---------- small helpers ------------------------------------------------ */
 

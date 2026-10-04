@@ -2,6 +2,8 @@
 
 **Host app:** v1.9.0 (unchanged) · **Inventory:** `QBR.INV_VERSION` 1.0.0 → **1.21.0** · **Scanner:** `QBR.SCAN_VERSION` 1.2.0 (fixes kept) ·
 **New:** `QBR.SUP_VERSION` 1.0.0, `QBR.PERSIST_VERSION` 1.8.0
+**Release:** promoted to live on 2026-10-05 as **app version 1.21.0** (`QBR.VERSION` 1.9.0 → 1.21.0, aligned with the Inventory
+number) in the new folder `QBR-Dashboard_1.21.0`; **`QBR-Dashboard_1.9.0` is the rollback** (banner only, code untouched).
 **Compared against:** the previous live merge (2026-10-04: Inventory 1.0.0 + Scanner 1.2.0, repo commit `16af281`).
 **Feature-by-feature history:** `docs/qbr-inventory-merge-guide.md` (supplied with this release).
 
@@ -33,10 +35,11 @@
 | `js/supplies.js` | **new** | 29 KB | Supplies (consumables) module |
 | `js/patch.js` | **new** | 31 KB | Patch-in-place saver: journal → targeted cell writes in the original workbook |
 | `js/persist.js` | **new** | 23 KB | Refresh-proof journal (localStorage) + File System Access direct save |
+| `js/excel-loader.js` | modified | 1 line | `QBR.VERSION = "1.21.0"` (the only change; the harness checks it matches the folder name) |
 | `README.txt` | updated | — | New user-facing entry for 2026-10-05; the 2026-10-04 entry, which the delivery zip had dropped, is restored |
-| `tests/ui-smoke.cjs`, `tests/ui-scan.cjs` (+2 images) | updated | — | Ticket 360 is a detail page; queue test uses new photos (identical photos are now skipped) + a duplicate-photo check |
+| `tests/ui-smoke.cjs`, `tests/ui-scan.cjs` (+2 images) | updated | — | Ticket 360 is a detail page; version check reads `QBR.VERSION` instead of a hard-coded "v1.9.0"; queue test uses new photos (identical photos are now skipped) + a duplicate-photo check |
 
-Unchanged: the dashboard engine (`excel-loader.js`, `report-generator.js`, `chart-generator.js`, `data-quality.js`, `shell.js`), `libs/tesseract/**`, `libs/zxing/**`.
+Unchanged: the dashboard engine (`excel-loader.js` apart from the version line, `report-generator.js`, `chart-generator.js`, `data-quality.js`, `shell.js`), `libs/tesseract/**`, `libs/zxing/**`.
 
 Script order (index.html): `… inventory.js → supplies.js → libs/tesseract/tesseract.min.js → scan.js → app.js → patch.js → persist.js → shell.js`.
 
