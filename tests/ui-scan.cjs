@@ -33,12 +33,18 @@ let pass = 0, fail = 0; const ok = (c, m, x) => { c ? pass++ : fail++; console.l
   const st = await p.evaluate(() => ({ ocr: QBR._scanOCR.mode, failed: QBR._scanOCR.failed, bc: QBR._scanEngines.barcode, note: document.getElementById("scan-engine-note").textContent }));
   ok(!st.failed && st.ocr, "OCR engine running", st.ocr + " · " + st.bc);
   ok(/OCR \(on-device/.test(st.note), "engine note updated after scan", st.note);
-  // queue: add a photo while another is scanning — it must not stay "Pending"
-  await p.setInputFiles("#scan-files", [IMGS[0]]);
+  // queue: add a new photo while another is scanning — it must not stay "Pending"
+  // (new label variants: builds with duplicate-photo detection skip an identical photo)
+  await p.setInputFiles("#scan-files", [path.join(__dirname, "scan-label-clean-b.png")]);
   await p.waitForTimeout(150);
-  await p.setInputFiles("#scan-files", [IMGS[2]]);
+  await p.setInputFiles("#scan-files", [path.join(__dirname, "scan-label-lowres-b.jpg")]);
   await p.waitForFunction(() => QBR._scanUI.rows.length === 5 && QBR._scanUI.rows.every(r => r.status === "done" || r.status === "error"), null, { timeout: 120000 });
   ok(await p.evaluate(() => QBR._scanUI.rows.slice(3).every(r => r.status === "done")), "photos added mid-scan are queued and scanned");
+  const hasDupCheck = await p.evaluate(() => typeof scanPhotoHash === "function");
+  if (hasDupCheck) {
+    await p.setInputFiles("#scan-files", [IMGS[0]]); await p.waitForTimeout(800);
+    ok(await p.evaluate(() => QBR._scanUI.rows.length === 5), "identical photo is skipped (duplicate-photo check)");
+  }
   ok(errs.length === 0, "zero console errors", errs.slice(0, 3).join(" | "));
   console.log(`RESULT: ${pass} passed, ${fail} failed`);
   await b.close(); process.exit(fail ? 1 : 0);

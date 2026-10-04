@@ -34,8 +34,8 @@ const ok = (c, m, x) => { c ? pass++ : fail++; console.log((c ? "  ✓ " : "  �
   ok(await page.evaluate(() => document.body.classList.contains("has-data")), "body.has-data set");
   ok(await page.isVisible("#app-sidebar"), "sidebar visible after data");
   const tabs = await page.$$eval("#app-sidebar .sb-item[data-tab]", b => b.map(x => x.dataset.tab));
-  // detail pages open from other pages and have no nav item by design (Asset 360 in the inventory build)
-  const DETAIL_PAGES = ["dash-asset360"];
+  // detail pages open from other pages and have no nav item by design (Asset 360, Ticket 360 in the inventory build)
+  const DETAIL_PAGES = ["dash-asset360", "dash-ticket360"];
   const panels = (await page.$$eval(".dash-panel", p => p.map(x => x.id))).filter(id => !DETAIL_PAGES.includes(id));
   ok(tabs.length >= 15 && tabs.length === panels.length, "nav items: " + tabs.length + " (15 core + optional Inventory/Scan)", tabs.length);
   ok(tabs.every(t => panels.includes(t)) && panels.every(p => tabs.includes(p)), "nav items ↔ panels 1:1 (detail pages excluded)");

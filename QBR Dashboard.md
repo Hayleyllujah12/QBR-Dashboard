@@ -46,6 +46,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >   Windows). Never `window.APP` (top-level const) — use `typeof APP !== "undefined"`. Docs: `docs/SCANNER_FIX.md`,
 >   `docs/INVENTORY_DEV_NOTES.md`, `docs/qbr-dashboard-rebuild-guide.md`. Tests: `tests/scan-tests.cjs` (23),
 >   `tests/ui-scan.cjs` (11, file:// or http://), ui-smoke now layout-aware (15 core nav + Inventory/Scan = 17).
+>   **2026-10-05 — Inventory v1.21.0** (see `docs/CHANGELOG_v1.21.0.md` + `docs/qbr-inventory-merge-guide.md`): new
+>   `js/supplies.js` (consumables), `js/patch.js` (journal → targeted cell writes into the ORIGINAL workbook; never
+>   overwrites formula cells), `js/persist.js` (localStorage journal `qbr-inv-journal-v1` keyed by file fingerprint,
+>   replayed after every parse; File System Access link/save, handles in IndexedDB `qbr-cache`). New detail page
+>   `dash-ticket360` (no nav item, `data-deck="skip"`), deep links `#ticket/<no>` / `#asset/<key>`. app.js adds:
+>   supplies parse, `QBR._currentFps` + `QBR.journalReplayFor(APP.files)` after load, `s360Hardware()` tile/section.
+>   Script order: inventory → supplies → tesseract → scan → app → patch → persist → shell. **PII note:** the journal
+>   and Forms import hold requester names / contact details / work e-mail & phone in browser storage (90 days).
 > - **Live / production version is `QBR-Dashboard_1.8.5`** — app label **1.8.5** (promoted
 >   2026-09-17). In-place fixes are dated patches, **not version bumps** — the label stays 1.8.5.
 >   Recent behavior: security-default status shows as "Not Enabled" (was "Disabled"; canonical model

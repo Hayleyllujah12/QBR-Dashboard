@@ -453,15 +453,36 @@ function renderScan() {
         <button type="button" class="btn btn-sm btn-outline-secondary" id="scan-clear" ${ui.rows.length ? "" : "disabled"}>Clear</button>
         <span class="small text-muted" id="scan-count">${ui.rows.length} image${ui.rows.length === 1 ? "" : "s"}</span>
       </div></div>
-    <div class="card-box mt-3"><h6>Extraction results</h6>
+    <div class="card-box mt-3"><div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+        <h6 class="mb-0">Extraction results</h6>
+        <button type="button" class="btn btn-sm btn-primary" id="scan-batch-tag" disabled>Tag batch</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="scan-batch-clear" disabled>Clear selection</button>
+        <span class="small text-muted" id="scan-batch-count"></span>
+      </div>
       <div class="table-responsive"><table class="table table-sm inv-tbl"><thead><tr>
+        <th style="width:36px"><input type="checkbox" id="scan-sel-all" title="Select all"></th>
         <th style="width:52px">Photo</th><th>Model</th><th>Serial number</th><th>Product key</th>
         <th>Raw barcodes</th><th style="width:90px">Status</th><th style="width:210px">Actions</th>
       </tr></thead><tbody id="scan-tbody"></tbody></table></div>
       <p class="text-muted small mb-0" id="scan-empty"${ui.rows.length ? " hidden" : ""}>No scans yet — upload a photo to start.</p>
     </div>
     <div id="scan-tag-host"></div>
-    <div class="modal-overlay" id="scan-lightbox"><button class="modal-close" id="scan-lb-close" aria-label="Close">✕</button><img id="scan-lb-img" alt="Label photo preview"></div>`;
+    <div class="modal-overlay" id="scan-lightbox"><div class="scan-lb-dialog" role="dialog" aria-label="Label photo and manual entry">
+      <button class="modal-close" id="scan-lb-close" aria-label="Close">✕</button>
+      <div class="scan-lb-photo"><img id="scan-lb-img" alt="Label photo preview"></div>
+      <div class="scan-lb-form">
+        <h6>Manual entry</h6>
+        <label class="form-label small mb-1" for="scan-lb-serial">Serial number</label>
+        <input id="scan-lb-serial" class="form-control form-control-sm" style="font-family:monospace" placeholder="Type serial from photo…" autocomplete="off">
+        <label class="form-label small mb-1 mt-2" for="scan-lb-model">Model</label>
+        <input id="scan-lb-model" class="form-control form-control-sm" placeholder="Model" autocomplete="off">
+        <div class="d-flex gap-2 mt-3">
+          <button type="button" class="btn btn-sm btn-primary" id="scan-lb-save">Save</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="scan-lb-rescan">↻ Rescan</button>
+        </div>
+        <p class="text-muted small mt-2 mb-0" id="scan-lb-hint"></p>
+      </div>
+    </div></div>`;
 
   scanRenderRows();
   scanBind(host);
@@ -471,7 +492,12 @@ function scanRowStatus(row) {
   const map = { done: ["Done", "status-done"], pending: ["Pending", "status-pending"],
                 processing: ["Scanning…", "status-processing"], error: ["Error", "status-error"] };
   const [lbl, cls] = map[row.status] || map.pending;
-  return `<span class="status ${cls}">${lbl}</span>`;
+  const dup = row.dup === "inventory"
+    ? ` <span class="badge bg-warning text-dark" title="This serial is already in the inventory database">⚠ In inventory</span>`
+    : row.dup === "queue"
+    ? ` <span class="badge bg-warning text-dark" title="This serial appears more than once in this scan batch">⚠ Duplicate</span>`
+    : "";
+  return `<span class="status ${cls}">${lbl}</span>${dup}`;
 }
 
 function scanRenderRows() {
@@ -482,7 +508,9 @@ function scanRenderRows() {
     const thumb = row.dataUrl
       ? `<img src="${row.dataUrl}" class="scan-thumb" alt="label photo" data-scan-act="preview" data-id="${row.id}">`
       : `<span class="text-muted">—</span>`;
+    const checked = row.sel ? " checked" : "";
     return `<tr data-id="${row.id}">
+      <td><input type="checkbox" class="scan-sel" data-id="${row.id}"${checked} title="Select for batch tag"></td>
       <td>${thumb}</td>
       <td><input class="scan-input" data-f="model" data-id="${row.id}" value="${esc(row.model)}" placeholder="Model"></td>
       <td><input class="scan-input" data-f="serial" data-id="${row.id}" value="${esc(row.serial)}" placeholder="Serial" style="font-family:monospace"></td>
@@ -502,6 +530,7 @@ function scanRenderRows() {
   if (sc) sc.disabled = !ui.rows.length;
   if (cn) cn.textContent = ui.rows.length + " image" + (ui.rows.length === 1 ? "" : "s");
   if (em) em.hidden = !!ui.rows.length;
+  scanRefreshBatchUI();
 }
 
 function scanBind(host) {
@@ -533,6 +562,20 @@ function scanBind(host) {
       const row = ui.rows.find(r => r.id === +e.target.dataset.id);
       if (row) row[e.target.dataset.f] = e.target.value;
     });
+    tb.addEventListener("change", e => {
+      if (!e.target.matches(".scan-input")) return;
+      if (e.target.dataset.f !== "serial") return;
+      const r = ui.rows.find(x => x.id === +e.target.dataset.id);
+      if (r) r.dupAck = false;
+      scanFlagDuplicates();
+      scanRenderRows();
+    });
+    tb.addEventListener("change", e => {
+      if (!e.target.matches(".scan-sel")) return;
+      const r = ui.rows.find(x => x.id === +e.target.dataset.id);
+      if (r) r.sel = e.target.checked;
+      scanRefreshBatchUI();
+    });
     tb.addEventListener("click", e => {
       const el = e.target.closest("[data-scan-act]");
       if (!el) return;
@@ -551,12 +594,77 @@ function scanBind(host) {
   if (lb) {
     lb.addEventListener("click", e => { if (e.target === lb || e.target.id === "scan-lb-close") lb.classList.remove("open"); });
   }
+  if (!QBR._scanBatchBound) {
+    QBR._scanBatchBound = true;
+    document.addEventListener("click", function (e) {
+      if (e.target && e.target.id === "scan-batch-tag") scanBatchTagDialog();
+      if (e.target && e.target.id === "scan-batch-clear") {
+        QBR._scanUI.rows.forEach(r => { r.sel = false; });
+        scanRenderRows();
+      }
+    });
+    document.addEventListener("change", function (e) {
+      if (e.target && e.target.id === "scan-sel-all") {
+        const on = e.target.checked;
+        QBR._scanUI.rows.forEach(r => { r.sel = on; });
+        scanRenderRows();
+      }
+    });
+  }
+  if (!QBR._scanLbBound) {
+    QBR._scanLbBound = true;
+    document.addEventListener("click", function (e) {
+      if (e.target && e.target.id === "scan-lb-save") scanPreviewSave(true);
+      if (e.target && e.target.id === "scan-lb-rescan") {
+        var l = $("scan-lightbox"), rid = l && l.dataset.rowId;
+        scanPreviewSave(false);
+        if (l) l.classList.remove("open");
+        var row = QBR._scanUI.rows.find(function (r) { return String(r.id) === String(rid); });
+        if (row && row.dataUrl) { row.status = "pending"; row.serial = ""; row.model = ""; scanRenderRows(); scanPump(); }
+      }
+    });
+    /* Enter in the serial box saves; focus starts in the serial box. */
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && e.target && e.target.id === "scan-lb-serial") {
+        e.preventDefault(); scanPreviewSave(true);
+      }
+    });
+  }
   if (!QBR._scanEscBound) {
     QBR._scanEscBound = true;
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") { const l = $("scan-lightbox"); if (l) l.classList.remove("open"); }
     });
   }
+}
+
+/* Fast fingerprint of a photo's bytes (sampled FNV-1a, two passes) so the
+ * exact same file uploaded twice is caught without re-scanning it. */
+function scanPhotoHash(dataUrl) {
+  const s = String(dataUrl || "");
+  const step = Math.max(1, Math.floor(s.length / 4096));
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  for (let i = 0; i < s.length; i += step) {
+    h1 = Math.imul(h1 ^ s.charCodeAt(i), 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ s.charCodeAt(s.length - 1 - i), 0x01000193) >>> 0;
+  }
+  return h1.toString(36) + "-" + h2.toString(36);
+}
+
+/* Flag rows whose serial is already in the inventory database ("inventory")
+ * or appears more than once in this scan batch ("queue"). Runs after every
+ * scan and after manual serial edits. */
+function scanFlagDuplicates() {
+  const ui = QBR._scanUI;
+  const seen = new Map();
+  ui.rows.forEach(r => {
+    r.dup = null;
+    const sn = (r.serial || "").trim().toUpperCase();
+    if (!sn || r.status === "pending" || r.status === "processing") return;
+    if (scanFindAsset(sn)) { r.dup = "inventory"; return; }
+    if (seen.has(sn)) { r.dup = "queue"; seen.get(sn).dup = "queue"; }
+    else seen.set(sn, r);
+  });
 }
 
 function scanAddFiles(files) {
@@ -567,9 +675,15 @@ function scanAddFiles(files) {
   imgs.forEach(f => {
     const rd = new FileReader();
     rd.onload = () => {
-      ui.rows.push({ id: ui.nextId++, file: f, dataUrl: rd.result,
-        model: "", serial: "", productKey: "", barcodeRaw: "", status: "pending" });
       n++;
+      const fp = scanPhotoHash(rd.result);
+      const already = ui.rows.find(r => r.fp === fp);
+      if (already) {
+        scanToast("This photo is already in the list — skipped.");
+      } else {
+        ui.rows.push({ id: ui.nextId++, file: f, dataUrl: rd.result, fp: fp,
+          model: "", serial: "", productKey: "", barcodeRaw: "", status: "pending", dup: null });
+      }
       scanRenderRows();
       if (n === imgs.length) {
         const sa = $("scan-all"); if (sa) sa.disabled = false;
@@ -604,7 +718,11 @@ async function scanRowScan(id) {
     if (!row.productKey) row.productKey = res.productKey;
     if (!row.model) row.model = res.model;
     row.status = "done";
-    scanToast(row.serial ? `Extracted serial ${row.serial}` : "Scan done — no serial found, edit the row manually.");
+    row.dupAck = false;
+    scanFlagDuplicates();
+    const dupMsg = row.dup === "inventory" ? " — already in inventory!" :
+                   row.dup === "queue" ? " — duplicate in this batch!" : "";
+    scanToast(row.serial ? `Extracted serial ${row.serial}${dupMsg}` : "Scan done — no serial found, edit the row manually.");
   } catch (e) {
     row.status = "error";
     scanToast("Scan failed: " + (e && e.message ? e.message : "unknown error"));
@@ -634,10 +752,34 @@ function scanDownload(id) {
 
 function scanPreview(id) {
   const row = QBR._scanUI.rows.find(r => r.id === id);
-  const lb = $("scan-lightbox"), img = $("scan-lb-img");
-  if (!row || !row.dataUrl || !lb || !img) return;
-  img.src = row.dataUrl;
+  const lb = $("scan-lightbox");
+  if (!row || !row.dataUrl || !lb) return;
+  lb.dataset.rowId = id;
+  const img = $("scan-lb-img"), se = $("scan-lb-serial"),
+        mo = $("scan-lb-model"), hint = $("scan-lb-hint");
+  if (img) img.src = row.dataUrl;
+  if (se) se.value = row.serial || "";
+  if (mo) mo.value = row.model || "";
+  if (hint) hint.textContent = row.serial
+    ? "Detected — correct it here if wrong."
+    : "Nothing detected — read the label and type the serial.";
   lb.classList.add("open");
+  setTimeout(function () { var s = $("scan-lb-serial"); if (s) { s.focus(); s.select(); } }, 60);
+}
+
+/* Save the manual entry back to the row (serial normalized to uppercase,
+ * like extracted values) and refresh the table. */
+function scanPreviewSave(close) {
+  const lb = $("scan-lightbox");
+  const rid = lb && lb.dataset.rowId;
+  const row = QBR._scanUI.rows.find(function (r) { return String(r.id) === String(rid); });
+  if (row) {
+    const se = $("scan-lb-serial"), mo = $("scan-lb-model");
+    if (se) row.serial = se.value.trim().toUpperCase();
+    if (mo) row.model = mo.value.trim();
+    scanRenderRows();
+  }
+  if (close !== false && lb) lb.classList.remove("open");
 }
 
 /* ====================== post-scan routing ================================ */
@@ -654,14 +796,152 @@ function scanWarnAndJump(asset) {
   setTimeout(() => { try { openAsset360(asset.key); } catch (e) { /* noop */ } }, 800);
 }
 
+/* ---- batch selection ---- */
+function scanSelRows() {
+  return QBR._scanUI.rows.filter(r => r.sel);
+}
+function scanRefreshBatchUI() {
+  const ui = QBR._scanUI;
+  const n = ui.rows.filter(r => r.sel).length;
+  const bt = $("scan-batch-tag"), bc = $("scan-batch-clear"), cc = $("scan-batch-count");
+  if (bt) { bt.disabled = !n; bt.textContent = n ? `Tag batch (${n})` : "Tag batch"; }
+  if (bc) bc.disabled = !n;
+  if (cc) cc.textContent = n ? `${n} selected` : "";
+  const sa = $("scan-sel-all");
+  if (sa) {
+    const all = ui.rows.length > 0 && ui.rows.every(r => r.sel);
+    sa.checked = all;
+    sa.indeterminate = !all && n > 0;
+  }
+}
+
+/* ---- batch tag: one school / SQ / DR# / owner for many serials ---- */
+function scanBatchTagDialog() {
+  const host = $("scan-tag-host");
+  const rows = scanSelRows().filter(r => (r.serial || "").trim());
+  if (!host || !rows.length) { scanToast("Select at least one row with a serial first."); return; }
+  const inv = scanInv();
+  const clients = inv ? [...new Set(inv.assets.map(a => a.client).filter(Boolean))].sort() : [];
+  const today = (() => { const d = new Date(); return d.getFullYear() + "-" +
+    String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); })();
+  const already = rows.filter(r => scanFindAsset(r.serial.trim()));
+  const fresh = rows.filter(r => !scanFindAsset(r.serial.trim()));
+  const noSerial = scanSelRows().length - rows.length;
+  host.innerHTML =
+    `<div class="modal-overlay open" id="scan-batch-modal"><div class="scan-dialog card-box" role="dialog" aria-modal="true" aria-label="Tag batch to school">
+      <h6>Tag ${rows.length} serial${rows.length === 1 ? "" : "s"} to one school</h6>
+      <p class="small text-muted mb-2"><code>${esc(fresh.slice(0, 6).map(r => r.serial.trim()).join(", "))}</code>${fresh.length > 6 ? ` <span class="text-muted">+${fresh.length - 6} more</span>` : ""}</p>
+      ${already.length ? `<p class="small text-warning mb-1">⚠ ${already.length} already in inventory — will be skipped.</p>` : ""}
+      ${noSerial ? `<p class="small text-muted mb-1">${noSerial} selected row${noSerial === 1 ? "" : "s"} without a serial — will be skipped.</p>` : ""}
+      <div class="row g-2 mt-1">
+        <div class="col-md-6"><label class="form-label small">School / Client *</label>
+          <input id="btg-client" class="form-control form-control-sm" list="dl-scan-bclients" autocomplete="off">
+          <datalist id="dl-scan-bclients">${clients.map(c => `<option value="${esc(c)}"></option>`).join("")}</datalist></div>
+        <div class="col-md-6"><label class="form-label small">Date *</label>
+          <input id="btg-date" type="date" class="form-control form-control-sm" value="${today}"></div>
+        <div class="col-md-6"><label class="form-label small">Purchase location</label>
+          <input id="btg-loc" class="form-control form-control-sm" placeholder="e.g. Twireless Megamall"></div>
+        <div class="col-md-6"><label class="form-label small">SQ number</label>
+          <input id="btg-sq" class="form-control form-control-sm" placeholder="e.g. 121823-002"></div>
+        <div class="col-md-6"><label class="form-label small">DR #</label>
+          <input id="btg-dr" class="form-control form-control-sm"></div>
+        <div class="col-md-6"><label class="form-label small">Owner (assigned to)</label>
+          <input id="btg-assigned" class="form-control form-control-sm" placeholder="Person receiving the units"></div>
+      </div>
+      <div class="d-flex gap-2 mt-2">
+        <button type="button" class="btn btn-sm btn-primary" id="btg-go">Tag ${fresh.length} asset${fresh.length === 1 ? "" : "s"}</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btg-cancel">Cancel</button>
+      </div>
+      <div id="btg-msg" class="small mt-1" aria-live="polite"></div>
+    </div></div>`;
+  const close = () => { host.innerHTML = ""; };
+  $("btg-cancel").addEventListener("click", close);
+  $("scan-batch-modal").addEventListener("click", e => { if (e.target.id === "scan-batch-modal") close(); });
+  $("btg-go").addEventListener("click", () => {
+    const f = {
+      client: $("btg-client").value.trim(), date: $("btg-date").value,
+      location: $("btg-loc").value.trim(), sq: $("btg-sq").value.trim(),
+      dr: $("btg-dr").value.trim(), assigned: $("btg-assigned").value.trim(),
+    };
+    if (!f.client || !f.date) { $("btg-msg").textContent = "School/client and date are required."; return; }
+    // re-check: something may have been registered while the dialog was open
+    const todo = fresh.filter(r => !scanFindAsset(r.serial.trim()));
+    const skipped = fresh.length - todo.length;
+    if (!todo.length) { $("btg-msg").textContent = "Nothing left to tag — all selected serials are already in inventory."; return; }
+    const list = todo.map(r => ({ sn: r.serial.trim(), model: r.model || null, cat: "Laptop",
+      dr: f.dr || null, client: f.client, wstart: f.date }));
+    QBR.invIntake(list);
+    const inv2 = scanInv();
+    todo.forEach(r => {
+      const a = inv2.assets.find(x => x.key === scanKey(r.serial.trim()));
+      if (a && f.assigned) a.contact = f.assigned;
+    });
+    QBR.invDeploy(todo.map(r => r.serial.trim()), f.client, f.date, f.sq || null);
+    todo.forEach(r => {
+      const dep = inv2.deployments.slice().reverse().find(d => d.key === scanKey(r.serial.trim()));
+      if (dep) dep.remarks = "Tagged via scan (batch)" + (f.location ? " · Purchased: " + f.location : "");
+    });
+    QBR.invLog("scan batch tag", todo.length + " → " + f.client + (f.sq ? " (SQ " + f.sq + ")" : ""));
+    QBR._scanUI.rows.forEach(r => { r.sel = false; });
+    scanFlagDuplicates();
+    scanRenderRows();
+    close();
+    if (typeof renderAll === "function") renderAll();
+    let msg = `Tagged ${todo.length} asset${todo.length === 1 ? "" : "s"} to ${f.client}.`;
+    if (already.length + skipped) msg += ` ${already.length + skipped} skipped (already in inventory).`;
+    if (noSerial) msg += ` ${noSerial} skipped (no serial).`;
+    scanToast(msg);
+  });
+  setTimeout(() => { const c = $("btg-client"); if (c) c.focus(); }, 60);
+}
+
 function scanRoute(row, action) {
   const sn = (row.serial || "").trim();
   if (!sn) { scanToast("No serial extracted yet — edit the row or rescan first."); return; }
-  const hit = scanFindAsset(sn);
-  if (hit) { scanWarnAndJump(hit); return; }
+  scanFlagDuplicates();
+  if (row.dup && !row.dupAck) { scanDupDialog(row, action); return; }
+  scanRouteGo(row, action);
+}
+
+function scanRouteGo(row, action) {
   if (action === "tag") scanOpenTagDialog(row);
   else if (action === "deploy-fill") scanPrefillDeploy(row);
   else scanPrefillIntake(row); // default + "intake" action
+}
+
+/* Duplicate serial confirmation: "already in inventory" offers to view the
+ * existing asset (Asset 360) or add anyway; "duplicate in batch" offers to
+ * add anyway or cancel. Reuses the tag dialog host. */
+function scanDupDialog(row, action) {
+  const host = $("scan-tag-host");
+  if (!host) { scanRouteGo(row, action); return; }
+  const sn = (row.serial || "").trim().toUpperCase();
+  const asset = scanFindAsset(sn);
+  const qCount = QBR._scanUI.rows.filter(r => r !== row &&
+    (r.serial || "").trim().toUpperCase() === sn).length;
+  const invLine = asset
+    ? `<p class="mb-1">Serial <code>${esc(sn)}</code> is <strong>already in inventory</strong>.</p>
+       <p class="small text-muted mb-2">Client: ${esc(asset.client || "—")} · Status: ${esc(asset.status || "—")} · Model: ${esc(asset.model || "—")}</p>`
+    : "";
+  const qLine = qCount
+    ? `<p class="mb-1">Serial <code>${esc(sn)}</code> appears <strong>${qCount + 1} times</strong> in this scan batch.</p>`
+    : "";
+  host.innerHTML =
+    `<div class="modal-overlay open" id="scan-dup-modal"><div class="scan-dialog card-box" role="dialog" aria-modal="true" aria-label="Duplicate serial">
+      <h6>⚠ Duplicate serial</h6>
+      ${invLine}${qLine}
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        ${asset ? `<button type="button" class="btn btn-sm btn-outline-primary" id="dup-view">View existing asset</button>` : ""}
+        <button type="button" class="btn btn-sm btn-primary" id="dup-go">Add anyway</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="dup-cancel">Cancel</button>
+      </div>
+    </div></div>`;
+  const close = () => { host.innerHTML = ""; };
+  $("dup-cancel").addEventListener("click", close);
+  $("scan-dup-modal").addEventListener("click", e => { if (e.target.id === "scan-dup-modal") close(); });
+  const vw = $("dup-view");
+  if (vw) vw.addEventListener("click", () => { close(); scanWarnAndJump(asset); });
+  $("dup-go").addEventListener("click", () => { close(); row.dupAck = true; scanRouteGo(row, action); });
 }
 
 function scanModelOption(model) {

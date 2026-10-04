@@ -6,6 +6,33 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.9.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-05 — Inventory v1.21.0: tickets, supplies, saving to Excel, School 360 hardware
+  - INVENTORY now has three sub-pages: Assets | Support tickets | Supplies.
+      · Assets: tiles per unit type (in stock / deployed), deployable desktop sets, a per-model
+        breakdown, "Total Inventory" KPI, a red "Duplicate serials" flag, a searchable client
+        filter, and serial lookup that suggests matches as you type.
+      · Support tickets: ticket numbers like PF62SDPW-20251005, statuses (Open, In Progress,
+        Waiting for parts, Escalated, Resolved), priority, requester, follow-up notes, related
+        tickets. "Import Forms file" loads the MS Forms ticket export — you see a preview first,
+        and rows already imported are skipped.
+      · Supplies (new): printer consumables from the ETG printer inventory workbook — items,
+        received/used transactions, stock levels, and flags for items to reorder.
+  - TICKET 360 (new): click a ticket to see its full timeline, status and related tickets.
+  - ASSET 360: "✏️ Edit" to correct a unit's details (the serial can't be changed), a sticky
+    "Back to Inventory" bar, and a "Check on Lenovo ↗" warranty link.
+  - Links like …index.html#ticket/<ticket-no> or #asset/<serial> open that page directly.
+  - SCHOOL 360: a Hardware tile and section (laptops, desktops, open tickets, warranties
+    expiring soon) when the school has inventory records.
+  - SCAN: click a photo to type the serial while looking at it; tick several rows and use
+    "Tag batch" to assign them to one school at once; the same photo added twice is skipped.
+  - SAVING:
+      · Your entries now survive a page refresh (kept in this browser).
+      · Chrome/Edge: "🔗 Link file" once, then "💾 Save to Excel" writes your changes straight
+        into the original workbook — formulas and layout stay; bold/colours may be lost.
+      · Other browsers: use Export to download an updated copy.
+  - PRIVACY: entries kept in the browser include names and contact details from tickets.
+    On a shared PC, clear this site's data (browser settings) when you're done.
+
 UPDATE — 2026-10-04 — Inventory & ticket tracking + label Scanner (new "Inventory" section)
   - NEW "INVENTORY" PAGE (left navigation, new "Inventory" group): laptops, desktops and
     monitors with their support tickets, built from an inventory workbook you upload together
