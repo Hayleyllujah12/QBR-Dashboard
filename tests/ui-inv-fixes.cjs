@@ -182,10 +182,76 @@ async function batchTests(b) {
   await p.close();
 }
 
+async function bulkTests(b) {
+  console.log("== bulk select + bulk edit");
+  const p = await load(b);
+  // make 3 'assigned but not delivered' units (client set, no Date Delivered) — the user's screenshot case
+  const keys = await p.evaluate(() => {
+    const A = invModel().assets.filter(a => !a.delivered && QBR.invAssetStatus(a, QBR.invOpenByKey(invModel().tickets)) === "In Stock").slice(0, 3);
+    A.forEach(a => QBR.invUpdateAsset(a.key, { client: "Bulk Test School" }));
+    goToTab("dash-inventory"); QBR._invUI.view = "assets"; QBR._invUI.flag = null; renderInventory();
+    return A.map(a => a.key);
+  });
+  await p.waitForTimeout(300);
+  const fl = await p.evaluate(() => { const b = document.querySelector('[data-inv-flag="assignedNoDel"] .inv-flag-n'); return b ? Number(b.textContent.replace(/,/g, "")) : -1; });
+  ok(fl >= 3, "'Assigned, not delivered' flag counts the mis-tagged units (" + fl + ")");
+  await p.click('[data-inv-flag="assignedNoDel"]'); await p.waitForTimeout(300);
+  await p.fill("#inv-f-client", "Bulk Test School"); await p.press("#inv-f-client", "Enter"); await p.waitForTimeout(300);
+  const rowsN = await p.evaluate(() => document.querySelectorAll("#inv-col-assets tbody tr.inv-row").length);
+  ok(rowsN === 3, "flag + client filter list exactly those units (" + rowsN + ")");
+  await p.check("#inv-sel-all"); await p.waitForTimeout(200);
+  ok(/3/.test(await p.textContent("#inv-bulk-edit")), "header checkbox selects the 3 shown units");
+  await p.click("#inv-bulk-edit"); await p.waitForTimeout(300);
+  ok(await p.isVisible("#bk-preview"), "Bulk edit form opens");
+  await p.selectOption("#bk-status", "Deployed"); await p.waitForTimeout(100);
+  ok(await p.isVisible("#bk-del"), "Deployed shows the Date delivered field");
+  await p.fill("#bk-del", "2026-10-01"); await p.fill("#bk-dr", "DR-BULK-9"); await p.fill("#bk-sq", "SQ-BULK-9");
+  await p.fill("#bk-batch", "B-20261001-01"); await p.fill("#bk-we", "2029-12-31");
+  ok(await p.isDisabled("#bk-go"), "Apply stays disabled until previewed");
+  await p.click("#bk-preview"); await p.waitForTimeout(200);
+  const prev = await p.textContent("#bk-plan");
+  ok(/Status In Stock → Deployed/.test(prev) && /Date delivered — → 2026-10-01/.test(prev) && /SQ — → SQ-BULK-9/.test(prev), "preview shows from → to per field");
+  if (SHOTS) await shot(p, "bulk-edit");
+  await p.click("#bk-go"); await p.waitForTimeout(500);
+  const after = await p.evaluate(k => {
+    const inv = invModel(), ob = QBR.invOpenByKey(inv.tickets);
+    return k.map(key => { const a = inv.assets.find(x => x.key === key);
+      return { st: QBR.invAssetStatus(a, ob), del: invFmtDate(a.delivered), dr: a.dr, batch: a.batch, we: invFmtDate(a.wend), sq: QBR.invCurrentSq(key) }; });
+  }, keys);
+  ok(after.every(x => x.st === "Deployed" && x.del === "2026-10-01"), "status now Deployed via Date Delivered (saved as data)");
+  ok(after.every(x => x.dr === "DR-BULK-9" && x.batch === "B-20261001-01" && x.we === "2029-12-31"), "DR, batch code and warranty end applied");
+  ok(after.every(x => x.sq === "SQ-BULK-9"), "SQ recorded as a deployment row");
+  ok(await p.evaluate(() => QBR._invUI.sel.size === 0), "selection cleared after apply");
+
+  console.log("== look up by DR / SQ / batch");
+  await p.evaluate(() => { QBR._invUI.flag = null; QBR._invUI.client = "ALL"; renderInventory(); }); await p.waitForTimeout(200);
+  await p.fill("#inv-lookup", "DR-BULK"); await p.dispatchEvent("#inv-lookup", "input"); await p.waitForTimeout(200);
+  const sug = await p.evaluate(() => [...document.querySelectorAll("#inv-lookup-dd .inv-ac-item")].map(x => x.textContent.replace(/\s+/g, " ").trim()));
+  ok(sug.some(t => /DR DR-BULK-9 3 units/.test(t)), "suggestions include 'DR DR-BULK-9 · 3 units'");
+  await p.dispatchEvent('#inv-lookup-dd [data-gkind="dr"]', "mousedown"); await p.waitForTimeout(300);
+  const gN = await p.evaluate(() => document.querySelectorAll("#inv-col-assets tbody tr.inv-row").length);
+  ok(gN === 3 && /DR DR-BULK-9/.test(await p.textContent("#inv-bulkbar")), "picking it filters to the 3 units, with a chip");
+  await p.click("#inv-group-x"); await p.waitForTimeout(200);
+  await p.fill("#inv-lookup", "sq-bulk-9"); await p.click("#inv-lookup-go"); await p.waitForTimeout(300);
+  ok((await p.evaluate(() => document.querySelectorAll("#inv-col-assets tbody tr.inv-row").length)) === 3, "Open with an SQ (any case) filters to its units");
+  await p.fill("#inv-lookup", "B-20261001-01"); await p.click("#inv-lookup-go"); await p.waitForTimeout(300);
+  ok((await p.evaluate(() => (QBR._invUI.group || {}).kind)) === "batch", "Open with a batch code filters by batch");
+
+  console.log("== bulk status → In Stock");
+  await p.evaluate(k => { QBR._invUI.sel = new Set([k]); QBR._invUI.form = "bulkedit"; renderInventory(); }, keys[0]); await p.waitForTimeout(300);
+  await p.selectOption("#bk-status", "In Stock"); await p.check("#bk-clr");
+  await p.click("#bk-preview"); await p.waitForTimeout(150); await p.click("#bk-go"); await p.waitForTimeout(400);
+  const back = await p.evaluate(key => { const a = invModel().assets.find(x => x.key === key); return [QBR.invAssetStatus(a, QBR.invOpenByKey(invModel().tickets)), a.delivered, a.client]; }, keys[0]);
+  ok(back[0] === "In Stock" && !back[1] && !back[2], "In Stock clears Date Delivered and (ticked) the client");
+  ok(p._errs.length === 0, "no page errors" + (p._errs.length ? ": " + p._errs.join(" | ") : ""));
+  await p.close();
+}
+
 (async () => {
   const b = await chromium.launch();
   await serialFixes(b);
   await batchTests(b);
+  await bulkTests(b);
   await b.close();
   console.log(`RESULT: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
 })();

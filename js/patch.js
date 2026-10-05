@@ -559,6 +559,22 @@ function patchInvResolveTicket(wb, fp, args) {
 /* statusOverride is dashboard-model-only (no sheet column): nothing to write */
 function patchInvSetStatus() { return "noop"; }
 
+/* invAddDeployment (2026-10-05 bulk SQ): append one deployment row to 04 RAKSO
+ * INV. for a unit that lives in THIS linked file. Never edits existing rows. */
+function patchInvAddDeployment(wb, fp, args) {
+  const d = args[0] || {};
+  const key = (typeof QBR.invSerialKey === "function") ? QBR.invSerialKey(d.sn || "") : String(d.sn || "").toUpperCase();
+  const inv = pModel("assets");
+  const a = ((inv && inv.assets) || []).find(x => x.key === key);
+  if (!a || !a._src || a._src.fp !== fp) return "skip: unit not in linked file";
+  const D = v => (typeof invDate === "function" ? invDate(v) : null);
+  const dep = ((inv && inv.deployments) || []).filter(x => !x._src && x.key === key && String(x.sq) === String(d.sq)).pop()
+    || { key, sn: a.sn, type: a.cat, desc: a.desc, sq: d.sq, client: d.client || a.client, req: null, delivered: D(d.delivered), remarks: d.remarks || "SQ set via bulk edit" };
+  if (!(dep.delivered instanceof Date)) dep.delivered = D(dep.delivered);
+  patchAppendDeployment(wb, fp, dep);
+  return "ok";
+}
+
 var PATCH_OPS = {
   supRecordTransaction: patchSupRecordTransaction,
   supAddItem: patchSupAddItem,
@@ -572,6 +588,7 @@ var PATCH_OPS = {
   invResolveTicket: patchInvResolveTicket,
   invSetStatus: patchInvSetStatus,
   invUpdateAsset: patchInvUpdateAsset,
+  invAddDeployment: patchInvAddDeployment,
 };
 
 /* ============================ edit log ================================== */
@@ -591,6 +608,7 @@ function pLogDetail(op, args) {
       case "invResolveTicket": return "ticket resolved: " + a[0];
       case "invSetStatus": return "status override: " + a[0] + " → " + a[1];
       case "invUpdateAsset": return "asset updated: " + a[0] + " (" + Object.keys(a[1] || {}).join(", ") + ")";
+      case "invAddDeployment": return "SQ: " + (a[0].sn || "") + " → " + (a[0].sq || "");
       default: return op;
     }
   } catch (e) { return op; }
