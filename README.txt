@@ -21,6 +21,10 @@ UPDATE — 2026-10-05 — Inventory fixes: safe Save to Excel, batch tagging, st
     and units scanned twice count once. Units moving from another school are highlighted, and each
     row can be set to Skip. School, SQ, DR #, owner and date are entered once for all of them.
     Warranty start is filled only where it's empty, unless you tick "overwrite".
+  - KNOWN WARRANTY END DATE: in Tag batch, choose "Known end date", pick the date and whether it
+    applies to all units or only those without one. A unit that ends on a different date gets its
+    own date in that row's "Warranty end" box. Register assets also has a "Warranty end (if known)"
+    field. Warranty years are worked out from the start date, so expiry alerts stay correct.
   - SCAN › STOCKTAKE (new, check only): scan everything at a school and compare it with the
     inventory — found, missing, belongs to another school, not in inventory. Nothing changes unless
     you apply a fix (move here / register). "Export stocktake" downloads the list as Excel.

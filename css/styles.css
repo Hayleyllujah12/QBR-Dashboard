@@ -787,6 +787,10 @@ th[title^="Share of all"]{width:76px}
 .scan-seg button+button{border-left:1px solid var(--line)}
 .scan-seg button.on{background:var(--brand);color:var(--on-brand)}
 .scan-adv summary{cursor:pointer;color:var(--muted)}
+.scan-warr{border:1px solid var(--line);border-radius:var(--radius-sm);padding:6px 10px 8px;margin:0}
+.scan-warr legend{float:none;width:auto;padding:0 4px;font-size:12px}
+.scan-rowend{min-width:130px}
+.scan-chg{max-width:230px}
 .inv-timeline{list-style:none;margin:12px 0 0;padding:0}
 .inv-tl-item{padding:8px 0 12px 18px;border-left:2px solid var(--line);margin-left:6px;position:relative}
 .inv-tl-item::before{content:"";position:absolute;left:-6px;top:14px;width:10px;height:10px;border-radius:50%;background:var(--brand)}

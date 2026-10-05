@@ -799,6 +799,22 @@ QBR.invUpdateAsset = function (key, patch) {
   return true;
 };
 
+/* Known warranty END (2026-10-05): sets wend as typed and derives warranty years
+ * from the unit's start date (1 decimal; whole number when within ~2 weeks), so
+ * the expiry flags (which read wend) are exact. Goes through invUpdateAsset →
+ * journaled + saved like any edit. */
+QBR.invSetWarrantyEnd = function (key, end) {
+  const inv = invModel(); if (!inv) return false;
+  const a = inv.assets.find(x => x.key === QBR.invSerialKey(key)); if (!a) return false;
+  const we = invDate(end); if (!we) return false;
+  const patch = { wend: we };
+  if (a.wstart instanceof Date && !isNaN(a.wstart) && we > a.wstart) {
+    const yrs = (we - a.wstart) / (365.25 * 864e5), r = Math.round(yrs);
+    patch.wyears = Math.abs(yrs - r) < 0.04 ? r : Math.round(yrs * 10) / 10;
+  }
+  return QBR.invUpdateAsset(a.key, patch);
+};
+
 /* ---------- export: regenerate the workbook from the model ---------------- */
 // Build the inventory workbook object (shared by Export download and direct save).
 QBR.invBuildWorkbook = function () {
@@ -1274,6 +1290,8 @@ function invShowForm(which) {
             <input id="in-client" class="form-control form-control-sm" list="dl-inv-clients">${dl}</div>
           <div class="col-md-6"><label class="form-label small">Warranty start</label>
             <input id="in-ws" type="date" class="form-control form-control-sm" value="${invFmtDate(invToday()) === "—" ? "" : (() => { const d = invToday(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); })()}"></div>
+          <div class="col-md-6"><label class="form-label small" for="in-we">Warranty end (if known)</label>
+            <input id="in-we" type="date" class="form-control form-control-sm" title="Leave blank to count it from warranty start + years"></div>
         </div></div>
       </div>
       <div class="mt-2 d-flex gap-2"><button type="button" class="btn btn-sm btn-primary" id="in-go">Register</button><button type="button" class="btn btn-sm btn-outline-primary" id="in-scan">Scan box label</button>${close}</div>
@@ -1281,9 +1299,12 @@ function invShowForm(which) {
     $("in-go").addEventListener("click", () => {
       const serials = $("in-serials").value.split(/\n+/).map(s => s.trim()).filter(Boolean);
       if (!serials.length) { $("in-msg").textContent = "Enter at least one serial number."; return; }
+      const had = new Set((invModel() || { assets: [] }).assets.map(a => a.key));
       const n = QBR.invIntake(serials.map(sn => ({ sn, model: $("in-model").value, cat: $("in-cat").value,
         supplier: $("in-supplier").value.trim() || null, wyears: Number($("in-wy").value),
         dr: $("in-dr").value.trim() || null, client: $("in-client").value.trim() || null, wstart: $("in-ws").value || null })));
+      const we = $("in-we") ? $("in-we").value : "";
+      if (we && n) serials.filter(sn => !had.has(QBR.invSerialKey(sn))).forEach(sn => QBR.invSetWarrantyEnd(sn, we));   // new units only
       $("in-msg").innerHTML = `<span class="text-success">${n} asset(s) registered.</span> <span class="text-muted">Duplicates skipped.</span>`;
       setTimeout(() => { ui.form = null; renderAll(); }, 900);
     });
