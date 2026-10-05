@@ -28,7 +28,7 @@
  * ==========================================================================*/
 var QBR = window.QBR = window.QBR || {};
 
-QBR.SCAN_VERSION = "1.2.0";
+QBR.SCAN_VERSION = "1.3.0";
 /* v1.2.0 fixes (2026-10-04):
  *  1. Barcodes on Windows/Linux: Chrome/Edge only ship window.BarcodeDetector on macOS, ChromeOS and
  *     Android, so the barcode path was dead on Windows PCs. ZXing (vendored, Apache-2.0, pure JS —
@@ -456,6 +456,7 @@ function renderScan() {
     <div class="card-box mt-3"><div class="d-flex flex-wrap align-items-center gap-2 mb-2">
         <h6 class="mb-0">Extraction results</h6>
         <button type="button" class="btn btn-sm btn-primary" id="scan-batch-tag" disabled>Tag batch</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="scan-stocktake" title="Compare scanned serials with what inventory says is at a school (check only)"${ui.rows.some(r => (r.serial || "").trim()) ? "" : " disabled"}>Stocktake</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" id="scan-batch-clear" disabled>Clear selection</button>
         <span class="small text-muted" id="scan-batch-count"></span>
       </div>
@@ -597,7 +598,8 @@ function scanBind(host) {
   if (!QBR._scanBatchBound) {
     QBR._scanBatchBound = true;
     document.addEventListener("click", function (e) {
-      if (e.target && e.target.id === "scan-batch-tag") scanBatchTagDialog();
+      if (e.target && e.target.id === "scan-batch-tag") scanBatchTagDialog("deploy");
+      if (e.target && e.target.id === "scan-stocktake") scanBatchTagDialog("stocktake");
       if (e.target && e.target.id === "scan-batch-clear") {
         QBR._scanUI.rows.forEach(r => { r.sel = false; });
         scanRenderRows();
@@ -806,6 +808,7 @@ function scanRefreshBatchUI() {
   const bt = $("scan-batch-tag"), bc = $("scan-batch-clear"), cc = $("scan-batch-count");
   if (bt) { bt.disabled = !n; bt.textContent = n ? `Tag batch (${n})` : "Tag batch"; }
   if (bc) bc.disabled = !n;
+  const stk = $("scan-stocktake"); if (stk) stk.disabled = !ui.rows.some(r => (r.serial || "").trim());
   if (cc) cc.textContent = n ? `${n} selected` : "";
   const sa = $("scan-sel-all");
   if (sa) {
@@ -815,84 +818,244 @@ function scanRefreshBatchUI() {
   }
 }
 
-/* ---- batch tag: one school / SQ / DR# / owner for many serials ---- */
-function scanBatchTagDialog() {
-  const host = $("scan-tag-host");
-  const rows = scanSelRows().filter(r => (r.serial || "").trim());
-  if (!host || !rows.length) { scanToast("Select at least one row with a serial first."); return; }
+/* ---- batch tag + stocktake: one review for the whole batch (2026-10-05) ----
+ * Tag batch used to SKIP every serial already in inventory, and the per-row
+ * "Add anyway" path pushed people towards duplicate records. Now one dialog
+ * sorts the batch and applies everything in one go, through the journaled
+ * inventory calls (invIntake / invDeploy / invUpdateAsset / invLog), so the
+ * changes survive a refresh and reach the workbook on "Save to Excel".
+ *   Deploy / tag  : New → register + tag · In stock / same school / other
+ *                   school → update (other school highlighted as a move) ·
+ *                   scanned twice → counted once. Per-row Add|Update / Skip.
+ *   Stocktake     : check only — scanned vs. what inventory says is at the
+ *                   school (found / missing / other school / not in
+ *                   inventory); export to .xlsx; optional fixes. */
+function scanSameClient(a, b) { return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase() && !!String(a || "").trim(); }
+function scanTodayStr() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function scanBatchClassify(rows, client) {
+  const seen = new Set(), out = [];
+  rows.forEach(r => {
+    const sn = (r.serial || "").trim(); if (!sn) return;
+    const key = scanKey(sn);
+    if (seen.has(key)) { out.push({ sn, key, model: r.model || null, kind: "dup" }); return; }
+    seen.add(key);
+    const a = scanFindAsset(sn);
+    const kind = !a ? "new" : !String(a.client || "").trim() ? "stock" : scanSameClient(a.client, client) ? "same" : (client ? "other" : "assigned");
+    out.push({ sn, key, model: r.model || (a && a.model) || null, kind, asset: a });
+  });
+  return out;
+}
+const SCAN_KIND = {
+  new: ["New", "scan-p-new"], stock: ["In stock", "scan-p-same"], same: ["Same school", "scan-p-same"],
+  other: ["Other school", "scan-p-move"], assigned: ["Assigned", "scan-p-move"], dup: ["Scanned twice", "scan-p-dup"],
+};
+function scanPill(kind, label) { const k = SCAN_KIND[kind] || ["", "scan-p-dup"]; return `<span class="scan-pill ${k[1]}">${esc(label || k[0])}</span>`; }
+
+function scanBatchTagDialog(mode, preset) {
+  const host = $("scan-tag-host"); if (!host) return;
+  const sel = scanSelRows().filter(r => (r.serial || "").trim());
+  const allRows = QBR._scanUI.rows.filter(r => (r.serial || "").trim());
+  if (mode !== "stocktake" && !sel.length) { scanToast("Select at least one row with a serial first."); return; }
+  if (mode === "stocktake" && !allRows.length) { scanToast("Scan some labels first — stocktake compares them with the inventory."); return; }
   const inv = scanInv();
-  const clients = inv ? [...new Set(inv.assets.map(a => a.client).filter(Boolean))].sort() : [];
-  const today = (() => { const d = new Date(); return d.getFullYear() + "-" +
-    String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); })();
-  const already = rows.filter(r => scanFindAsset(r.serial.trim()));
-  const fresh = rows.filter(r => !scanFindAsset(r.serial.trim()));
-  const noSerial = scanSelRows().length - rows.length;
-  host.innerHTML =
-    `<div class="modal-overlay open" id="scan-batch-modal"><div class="scan-dialog card-box" role="dialog" aria-modal="true" aria-label="Tag batch to school">
-      <h6>Tag ${rows.length} serial${rows.length === 1 ? "" : "s"} to one school</h6>
-      <p class="small text-muted mb-2"><code>${esc(fresh.slice(0, 6).map(r => r.serial.trim()).join(", "))}</code>${fresh.length > 6 ? ` <span class="text-muted">+${fresh.length - 6} more</span>` : ""}</p>
-      ${already.length ? `<p class="small text-warning mb-1">⚠ ${already.length} already in inventory — will be skipped.</p>` : ""}
-      ${noSerial ? `<p class="small text-muted mb-1">${noSerial} selected row${noSerial === 1 ? "" : "s"} without a serial — will be skipped.</p>` : ""}
+  if (!inv) { scanToast("Load an inventory workbook first."); return; }
+  const clients = [...new Set(inv.assets.map(a => a.client).filter(Boolean))].sort();
+  const st = { mode: mode === "stocktake" ? "stocktake" : "deploy", choice: {}, filter: "all", fixes: {} };
+  const f = { client: "", date: scanTodayStr(), sq: "", dr: "", owner: "", loc: "", wFill: true, wOver: false };
+  const noSerial = scanSelRows().length - sel.length;
+  host.innerHTML = `<div class="modal-overlay open" id="scan-batch-modal"><div class="scan-dialog scan-dialog-wide card-box" role="dialog" aria-modal="true" aria-labelledby="sb-title">
+      <h6 id="sb-title" class="mb-1"></h6><p class="small text-muted mb-2" id="sb-sub"></p>
+      <div class="scan-tabs" role="tablist">
+        <button type="button" role="tab" class="scan-tab" data-sb-mode="deploy">Deploy / tag</button>
+        <button type="button" role="tab" class="scan-tab" data-sb-mode="stocktake">Stocktake (check only)</button></div>
       <div class="row g-2 mt-1">
-        <div class="col-md-6"><label class="form-label small">School / Client *</label>
-          <input id="btg-client" class="form-control form-control-sm" list="dl-scan-bclients" autocomplete="off">
-          <datalist id="dl-scan-bclients">${clients.map(c => `<option value="${esc(c)}"></option>`).join("")}</datalist></div>
-        <div class="col-md-6"><label class="form-label small">Date *</label>
-          <input id="btg-date" type="date" class="form-control form-control-sm" value="${today}"></div>
-        <div class="col-md-6"><label class="form-label small">Purchase location</label>
-          <input id="btg-loc" class="form-control form-control-sm" placeholder="e.g. Twireless Megamall"></div>
-        <div class="col-md-6"><label class="form-label small">SQ number</label>
-          <input id="btg-sq" class="form-control form-control-sm" placeholder="e.g. 121823-002"></div>
-        <div class="col-md-6"><label class="form-label small">DR #</label>
-          <input id="btg-dr" class="form-control form-control-sm"></div>
-        <div class="col-md-6"><label class="form-label small">Owner (assigned to)</label>
-          <input id="btg-assigned" class="form-control form-control-sm" placeholder="Person receiving the units"></div>
+        <div class="col-md-4"><label class="form-label small" for="sb-client">School / Client *</label>
+          <input id="sb-client" class="form-control form-control-sm" list="dl-sb-clients" autocomplete="off">
+          <datalist id="dl-sb-clients">${clients.map(c => `<option value="${escAttr(c)}"></option>`).join("")}</datalist></div>
+        <div class="col-md-4 sb-dep"><label class="form-label small" for="sb-date">Date *</label><input id="sb-date" type="date" class="form-control form-control-sm" value="${f.date}"></div>
+        <div class="col-md-4 sb-dep"><label class="form-label small" for="sb-sq">SQ number</label><input id="sb-sq" class="form-control form-control-sm" placeholder="e.g. 121823-002"></div>
+        <div class="col-md-4 sb-dep"><label class="form-label small" for="sb-dr">DR #</label><input id="sb-dr" class="form-control form-control-sm"></div>
+        <div class="col-md-4 sb-dep"><label class="form-label small" for="sb-owner">Owner (assigned to)</label><input id="sb-owner" class="form-control form-control-sm" placeholder="Person receiving the units"></div>
+        <div class="col-md-4 sb-dep"><label class="form-label small" for="sb-loc">Purchase location</label><input id="sb-loc" class="form-control form-control-sm" placeholder="e.g. Megamall"></div>
       </div>
-      <div class="d-flex gap-2 mt-2">
-        <button type="button" class="btn btn-sm btn-primary" id="btg-go">Tag ${fresh.length} asset${fresh.length === 1 ? "" : "s"}</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="btg-cancel">Cancel</button>
-      </div>
-      <div id="btg-msg" class="small mt-1" aria-live="polite"></div>
+      <div class="sb-dep mt-2">
+        <label class="small d-block"><input type="checkbox" id="sb-wfill" checked> Set warranty start to the batch date for units that don't have one</label>
+        <label class="small d-block"><input type="checkbox" id="sb-wover"> Also overwrite warranty start dates that are already filled <span id="sb-wover-n" class="text-muted"></span></label></div>
+      <div class="scan-sum" id="sb-sum"></div>
+      <div class="table-responsive scan-review"><table class="table table-sm inv-tbl mb-0"><thead id="sb-thead"></thead><tbody id="sb-body"></tbody></table></div>
+      <div class="d-flex flex-wrap gap-2 mt-3" id="sb-actions"></div>
+      <div id="sb-msg" class="small mt-1" aria-live="polite"></div>
     </div></div>`;
   const close = () => { host.innerHTML = ""; };
-  $("btg-cancel").addEventListener("click", close);
   $("scan-batch-modal").addEventListener("click", e => { if (e.target.id === "scan-batch-modal") close(); });
-  $("btg-go").addEventListener("click", () => {
-    const f = {
-      client: $("btg-client").value.trim(), date: $("btg-date").value,
-      location: $("btg-loc").value.trim(), sq: $("btg-sq").value.trim(),
-      dr: $("btg-dr").value.trim(), assigned: $("btg-assigned").value.trim(),
-    };
-    if (!f.client || !f.date) { $("btg-msg").textContent = "School/client and date are required."; return; }
-    // re-check: something may have been registered while the dialog was open
-    const todo = fresh.filter(r => !scanFindAsset(r.serial.trim()));
-    const skipped = fresh.length - todo.length;
-    if (!todo.length) { $("btg-msg").textContent = "Nothing left to tag — all selected serials are already in inventory."; return; }
-    const list = todo.map(r => ({ sn: r.serial.trim(), model: r.model || null, cat: "Laptop",
-      dr: f.dr || null, client: f.client, wstart: f.date }));
-    QBR.invIntake(list);
-    const inv2 = scanInv();
-    todo.forEach(r => {
-      const a = inv2.assets.find(x => x.key === scanKey(r.serial.trim()));
-      if (a && f.assigned) a.contact = f.assigned;
+  const read = () => {
+    f.client = $("sb-client").value.trim(); f.date = $("sb-date").value; f.sq = $("sb-sq").value.trim();
+    f.dr = $("sb-dr").value.trim(); f.owner = $("sb-owner").value.trim(); f.loc = $("sb-loc").value.trim();
+    f.wFill = $("sb-wfill").checked; f.wOver = $("sb-wover").checked;
+  };
+  const act = it => st.choice[it.key + "|" + it.kind] || (it.kind === "dup" ? "skip" : it.kind === "new" ? "add" : "update");
+
+  function renderDeploy() {
+    const items = scanBatchClassify(sel, f.client);
+    const cnt = k => items.filter(i => i.kind === k).length;
+    const willAdd = items.filter(i => i.kind === "new" && act(i) === "add");
+    const willUpd = items.filter(i => i.kind !== "new" && i.kind !== "dup" && act(i) === "update");
+    const filled = items.filter(i => i.asset && i.asset.wstart && act(i) === "update").length;
+    $("sb-title").textContent = `Tag ${items.length} scanned serial${items.length === 1 ? "" : "s"}`;
+    $("sb-sub").innerHTML = `One review for the whole batch. The fields below apply to every row marked <b>Add</b> or <b>Update</b>.` +
+      (noSerial ? ` ${noSerial} selected row${noSerial === 1 ? "" : "s"} without a serial will be skipped.` : "");
+    $("sb-wover-n").textContent = filled ? `(${filled} unit${filled === 1 ? "" : "s"})` : "";
+    $("sb-sum").innerHTML = [
+      cnt("new") && scanPill("new", cnt("new") + " new"),
+      cnt("stock") && scanPill("stock", cnt("stock") + " in stock"),
+      cnt("same") && scanPill("same", cnt("same") + " already at " + (f.client || "this school")),
+      (cnt("other") + cnt("assigned")) && scanPill("other", (cnt("other") + cnt("assigned")) + (f.client ? " at another school" : " assigned to a school")),
+      cnt("dup") && scanPill("dup", cnt("dup") + " scanned twice (counted once)"),
+    ].filter(Boolean).join(" ") +
+      `<span class="scan-filter">Show: ${["all", "new", "update", "moves", "skipped"].map(k => `<button type="button" class="btn btn-sm btn-link p-0${st.filter === k ? " fw-bold" : ""}" data-sb-filter="${k}">${k[0].toUpperCase() + k.slice(1)}</button>`).join(" · ")}</span>`;
+    $("sb-thead").innerHTML = `<tr><th>Serial</th><th>Model</th><th>Found</th><th>Change</th><th>Action</th></tr>`;
+    const show = items.filter(i => st.filter === "all" ? true : st.filter === "new" ? i.kind === "new" :
+      st.filter === "update" ? (i.kind !== "new" && i.kind !== "dup") : st.filter === "moves" ? (i.kind === "other" || i.kind === "assigned") : act(i) === "skip");
+    $("sb-body").innerHTML = show.map(i => {
+      const a = i.asset, to = f.client || "the chosen school";
+      const change = i.kind === "new" ? `Register → ${esc(to)}` : i.kind === "dup" ? `<span class="text-muted">Duplicate scan — ignored</span>` :
+        i.kind === "stock" ? `Stock → ${esc(to)}` : i.kind === "same" ? `SQ / DR / owner only` :
+        `<span class="scan-move">${esc(a.client)} → ${esc(to)}</span>`;
+      const opts = i.kind === "dup" ? "" : (i.kind === "new" ? ["add", "skip"] : ["update", "skip"]).map(o =>
+        `<button type="button" class="${act(i) === o ? "on" : ""}" data-sb-act="${escAttr(i.key + "|" + i.kind)}" data-v="${o}" aria-pressed="${act(i) === o}">${o[0].toUpperCase() + o.slice(1)}</button>`).join("");
+      return `<tr><td><code>${esc(i.sn)}</code></td><td>${esc(i.model || "—")}</td><td>${scanPill(i.kind)}</td><td>${change}</td><td>${opts ? `<span class="scan-seg">${opts}</span>` : ""}</td></tr>`;
+    }).join("") || `<tr><td colspan="5" class="text-muted">Nothing in this view.</td></tr>`;
+    $("sb-actions").innerHTML = `<button type="button" class="btn btn-sm btn-primary" id="sb-go"${willAdd.length + willUpd.length ? "" : " disabled"}>Apply: add ${willAdd.length} · update ${willUpd.length}</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="sb-cancel">Cancel</button>`;
+    $("sb-cancel").addEventListener("click", close);
+    $("sb-go").addEventListener("click", () => applyDeploy(items));
+  }
+
+  function applyDeploy(items) {
+    read();
+    if (!f.client || !f.date) { $("sb-msg").textContent = "School/client and date are required."; return; }
+    items = scanBatchClassify(sel, f.client);   // re-check: something may have changed while open
+    const adds = items.filter(i => i.kind === "new" && act(i) === "add");
+    const upds = items.filter(i => i.kind !== "new" && i.kind !== "dup" && act(i) === "update");
+    if (!adds.length && !upds.length) { $("sb-msg").textContent = "Nothing to apply — every row is set to Skip."; return; }
+    if (adds.length) QBR.invIntake(adds.map(i => ({ sn: i.sn, model: i.model || null, cat: "Laptop", dr: f.dr || null,
+      client: f.client, wstart: f.wFill ? f.date : null })));
+    const moves = upds.filter(i => i.asset && i.asset.client && !scanSameClient(i.asset.client, f.client)).map(i => ({ sn: i.sn, from: i.asset.client }));
+    QBR.invDeploy(adds.concat(upds).map(i => i.sn), f.client, f.date, f.sq || null);
+    const inv2 = scanInv(), ws = f.date ? new Date(f.date + "T00:00:00") : null;
+    adds.concat(upds).forEach(i => {
+      const a = inv2.assets.find(x => x.key === i.key); if (!a) return;
+      const patch = {};
+      if (f.owner) patch.contact = f.owner;
+      if (f.dr && i.kind !== "new") patch.dr = f.dr;
+      if (ws && i.kind !== "new" && ((f.wFill && !a.wstart) || (f.wOver && a.wstart))) {
+        const yrs = a.wyears || 3;
+        patch.wstart = f.date;
+        patch.wend = new Date(ws.getFullYear() + yrs, ws.getMonth(), Math.min(ws.getDate(), 28));
+      }
+      if (Object.keys(patch).length) QBR.invUpdateAsset(a.key, patch);
     });
-    QBR.invDeploy(todo.map(r => r.serial.trim()), f.client, f.date, f.sq || null);
-    todo.forEach(r => {
-      const dep = inv2.deployments.slice().reverse().find(d => d.key === scanKey(r.serial.trim()));
-      if (dep) dep.remarks = "Tagged via scan (batch)" + (f.location ? " · Purchased: " + f.location : "");
-    });
-    QBR.invLog("scan batch tag", todo.length + " → " + f.client + (f.sq ? " (SQ " + f.sq + ")" : ""));
+    moves.forEach(m => QBR.invLog("move", m.sn + ": " + m.from + " → " + f.client));
+    QBR.invLog("scan batch tag", `${adds.length} new + ${upds.length} updated → ${f.client}` + (f.sq ? ` (SQ ${f.sq})` : "") + (f.loc ? ` · Purchased: ${f.loc}` : ""));
     QBR._scanUI.rows.forEach(r => { r.sel = false; });
-    scanFlagDuplicates();
-    scanRenderRows();
-    close();
+    scanFlagDuplicates(); scanRenderRows(); close();
     if (typeof renderAll === "function") renderAll();
-    let msg = `Tagged ${todo.length} asset${todo.length === 1 ? "" : "s"} to ${f.client}.`;
-    if (already.length + skipped) msg += ` ${already.length + skipped} skipped (already in inventory).`;
-    if (noSerial) msg += ` ${noSerial} skipped (no serial).`;
-    scanToast(msg);
+    const skipped = items.filter(i => act(i) === "skip" && i.kind !== "dup").length, dups = items.filter(i => i.kind === "dup").length;
+    scanToast(`Tagged to ${f.client}: ${adds.length} added, ${upds.length} updated${moves.length ? ` (${moves.length} moved from another school)` : ""}` +
+      (skipped ? `, ${skipped} skipped` : "") + (dups ? `, ${dups} duplicate scan${dups === 1 ? "" : "s"} ignored` : "") + ".", 6000);
+  }
+
+  function stocktake() {
+    const school = f.client;
+    const scanned = scanBatchClassify(sel.length ? sel : allRows, school).filter(i => i.kind !== "dup");
+    const sk = new Set(scanned.map(i => i.key));
+    const expected = school ? inv.assets.filter(a => scanSameClient(a.client, school)) : [];
+    const res = [];
+    scanned.forEach(i => {
+      if (!i.asset) res.push({ sn: i.sn, key: i.key, model: i.model, r: "unknown", label: "Not in inventory", fix: "register" });
+      else if (scanSameClient(i.asset.client, school)) res.push({ sn: i.sn, key: i.key, model: i.model, r: "found", label: "Found" });
+      else res.push({ sn: i.sn, key: i.key, model: i.model, r: "other", label: i.asset.client ? "At " + i.asset.client : "In stock", from: i.asset.client || "", fix: "move" });
+    });
+    expected.filter(a => !sk.has(a.key)).forEach(a => res.push({ sn: a.sn, key: a.key, model: a.model, r: "missing", label: "Missing" }));
+    return { school, res, expected: expected.length, scanned: scanned.length };
+  }
+  function renderStocktake() {
+    const t = stocktake(), c = k => t.res.filter(x => x.r === k).length;
+    $("sb-title").textContent = t.school ? `Stocktake result: ${t.school}` : "Stocktake";
+    $("sb-sub").innerHTML = `Check only: compares the ${t.scanned} scanned serial${t.scanned === 1 ? "" : "s"}${sel.length ? " (selected rows)" : ""} with what inventory says is at this school. <b>Nothing is changed</b> unless you apply a fix.`;
+    if (!t.school) {
+      $("sb-sum").innerHTML = ""; $("sb-thead").innerHTML = "";
+      $("sb-body").innerHTML = `<tr><td class="text-muted">Pick the school you're checking to compare.</td></tr>`;
+      $("sb-actions").innerHTML = `<button type="button" class="btn btn-sm btn-outline-secondary" id="sb-cancel">Close</button>`;
+      $("sb-cancel").addEventListener("click", close); return;
+    }
+    $("sb-sum").innerHTML = [scanPill("same", c("found") + " found"), c("missing") && `<span class="scan-pill scan-p-miss">${c("missing")} missing (in inventory, not scanned)</span>`,
+      c("other") && scanPill("other", c("other") + " belong elsewhere"), c("unknown") && scanPill("new", c("unknown") + " not in inventory")].filter(Boolean).join(" ") +
+      `<span class="text-muted small ms-1">· inventory lists ${t.expected} unit${t.expected === 1 ? "" : "s"} at this school</span>`;
+    $("sb-thead").innerHTML = `<tr><th>Serial</th><th>Model</th><th>Result</th><th>Fix</th></tr>`;
+    const order = { other: 0, unknown: 1, missing: 2, found: 3 };   // actionable rows first
+    $("sb-body").innerHTML = t.res.slice().sort((a, b) => order[a.r] - order[b.r]).map(x => {
+      const pill = x.r === "missing" ? `<span class="scan-pill scan-p-miss">Missing</span>` : x.r === "found" ? scanPill("same", "Found") :
+        x.r === "other" ? scanPill("other", x.label) : scanPill("new", "Not in inventory");
+      const fix = x.fix ? `<label class="small"><input type="checkbox" data-sb-fix="${escAttr(x.key)}"${st.fixes[x.key] ? " checked" : ""}> ${x.fix === "move" ? "Move here" : "Register here"}</label>` :
+        x.r === "missing" ? `<span class="small text-muted">Follow up (in export)</span>` : "";
+      return `<tr><td><code>${esc(x.sn)}</code></td><td>${esc(x.model || "—")}</td><td>${pill}</td><td>${fix}</td></tr>`;
+    }).join("") || `<tr><td colspan="4" class="text-muted">No units to compare.</td></tr>`;
+    const nFix = t.res.filter(x => x.fix && st.fixes[x.key]).length;
+    $("sb-actions").innerHTML = `<button type="button" class="btn btn-sm btn-primary" id="sb-export">Export stocktake (.xlsx)</button>
+      <button type="button" class="btn btn-sm btn-outline-primary" id="sb-fix"${nFix ? "" : " disabled"}>Apply selected fixes${nFix ? ` (${nFix})` : ""}</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="sb-cancel">Close</button>`;
+    $("sb-cancel").addEventListener("click", close);
+    $("sb-export").addEventListener("click", () => {
+      const rows = [["Serial", "Model", "Result", "Inventory school", "Scanned"]].concat(t.res.map(x =>
+        [x.sn, x.model || "", x.r === "found" ? "Found" : x.r === "missing" ? "Missing" : x.r === "other" ? "Belongs elsewhere" : "Not in inventory",
+          x.r === "other" ? (x.from || "In stock") : x.r === "unknown" ? "" : t.school, x.r === "missing" ? "No" : "Yes"]));
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "Stocktake");
+      const safe = t.school.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "_").slice(0, 40) || "school";
+      XLSX.writeFile(wb, `Stocktake_${safe}_${scanTodayStr()}.xlsx`);
+      $("sb-msg").textContent = "Exported.";
+    });
+    $("sb-fix").addEventListener("click", () => {
+      const todo = t.res.filter(x => x.fix && st.fixes[x.key]);
+      const reg = todo.filter(x => x.fix === "register"), mv = todo.filter(x => x.fix === "move");
+      if (reg.length) QBR.invIntake(reg.map(x => ({ sn: x.sn, model: x.model || null, cat: "Laptop", client: t.school })));
+      if (mv.length) {
+        QBR.invDeploy(mv.map(x => x.sn), t.school, scanTodayStr(), null);
+        mv.forEach(x => QBR.invLog("move", x.sn + ": " + (x.from || "stock") + " → " + t.school + " (stocktake)"));
+      }
+      QBR.invLog("stocktake", `${t.school}: ${c("found")} found, ${c("missing")} missing, ${c("other")} elsewhere, ${c("unknown")} unknown`);
+      // renderAll() rebuilds the Scan page (and this dialog's host) — reopen on the same school.
+      if (typeof renderAll === "function") renderAll();
+      scanFlagDuplicates(); scanRenderRows();
+      scanBatchTagDialog("stocktake", { client: t.school, msg: `Applied: ${reg.length} registered, ${mv.length} moved to ${t.school}.` });
+    });
+  }
+
+  function render() {
+    read();
+    host.querySelectorAll("[data-sb-mode]").forEach(b => { const on = b.dataset.sbMode === st.mode; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); });
+    host.querySelectorAll(".sb-dep").forEach(el => { el.hidden = st.mode !== "deploy"; });
+    $("sb-msg").textContent = "";
+    if (st.mode === "deploy") renderDeploy(); else renderStocktake();
+  }
+  host.querySelector(".scan-dialog").addEventListener("click", e => {
+    const m = e.target.closest("[data-sb-mode]"); if (m) { st.mode = m.dataset.sbMode; render(); return; }
+    const fl = e.target.closest("[data-sb-filter]"); if (fl) { st.filter = fl.dataset.sbFilter; render(); return; }
+    const ac = e.target.closest("[data-sb-act]"); if (ac) { st.choice[ac.dataset.sbAct] = ac.dataset.v; render(); return; }
   });
-  setTimeout(() => { const c = $("btg-client"); if (c) c.focus(); }, 60);
+  host.querySelector(".scan-dialog").addEventListener("change", e => {
+    const fx = e.target.closest("[data-sb-fix]"); if (fx) { st.fixes[fx.dataset.sbFix] = fx.checked; render(); return; }
+    if (e.target.id === "sb-wfill" || e.target.id === "sb-wover") render();
+  });
+  $("sb-client").addEventListener("input", render);
+  document.addEventListener("keydown", function onKey(e) {
+    if (!$("scan-batch-modal")) { document.removeEventListener("keydown", onKey); return; }
+    if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); }
+  });
+  if (preset && preset.client) $("sb-client").value = preset.client;
+  render();
+  if (preset && preset.msg) $("sb-msg").textContent = preset.msg;
+  setTimeout(() => { const c = $("sb-client"); if (c) c.focus(); }, 60);
 }
 
 function scanRoute(row, action) {
@@ -932,9 +1095,13 @@ function scanDupDialog(row, action) {
       ${invLine}${qLine}
       <div class="d-flex flex-wrap gap-2 mt-2">
         ${asset ? `<button type="button" class="btn btn-sm btn-outline-primary" id="dup-view">View existing asset</button>` : ""}
-        <button type="button" class="btn btn-sm btn-primary" id="dup-go">Add anyway</button>
+        ${asset ? "" : `<button type="button" class="btn btn-sm btn-primary" id="dup-go">Add anyway</button>`}
         <button type="button" class="btn btn-sm btn-outline-secondary" id="dup-cancel">Cancel</button>
       </div>
+      ${asset ? `<p class="small text-muted mt-2 mb-1">Updating several units? Select their rows and use <b>Tag batch</b>, which updates existing units in one go.</p>` : ""}
+      ${asset ? `<details class="scan-adv mt-1"><summary class="small">Advanced</summary>
+        <button type="button" class="btn btn-sm btn-outline-danger mt-1" id="dup-go">Add anyway (separate record)</button>
+        <div class="small text-muted mt-1">Only for a genuinely different unit with the same serial. It shows in the red <b>Duplicate serials</b> flag.</div></details>` : ""}
     </div></div>`;
   const close = () => { host.innerHTML = ""; };
   $("dup-cancel").addEventListener("click", close);

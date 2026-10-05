@@ -35,7 +35,7 @@ var QBR = window.QBR = window.QBR || {};
 
 /* ============================ A. ENTRY JOURNAL ========================== */
 
-QBR.PERSIST_VERSION = "1.8.0";
+QBR.PERSIST_VERSION = "1.9.0";
 
 // Fingerprint: identifies the exact file bytes an entry was recorded against.
 QBR.fpOf = function (name, blob) {
@@ -248,7 +248,7 @@ QBR.fsLinkFile = async function () {
   try {
     const picks = await window.showOpenFilePicker({
       multiple: false,
-      types: [{ description: "Excel workbook", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx", ".xlsm"] } }],
+      types: [{ description: "Excel workbook", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"], "application/vnd.ms-excel.sheet.macroEnabled.12": [".xlsm"] } }],
     });
     handle = picks[0];
   } catch (e) { return; } // user cancelled
@@ -313,6 +313,45 @@ QBR.fsRefreshStatus = function () {
   } catch (e) {}
 };
 
+/* ---- Safe write helpers (2026-10-05) ------------------------------------
+ * Root cause of "Excel cannot open the file … .xlsm": the linked save always
+ * wrote bookType "xlsx" bytes into the user's .xlsm file. Excel validates the
+ * workbook content type against the extension and refuses the mismatch; the
+ * VBA project was dropped too (never read with bookVBA). Now:
+ *  - the output type follows the linked file's extension (.xlsm → "xlsm"),
+ *  - the VBA project is carried over (re-read once with bookVBA if needed),
+ *  - every write is verified BEFORE touching the file (content type matches
+ *    the extension, macros present when the source had them, all sheets
+ *    there); any doubt → nothing is written and a separate copy downloads. */
+function fsBookType(name) { return /\.xlsm$/i.test(String(name || "")) ? "xlsm" : "xlsx"; }
+const FS_MAIN_CT = {
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+  xlsm: "application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+};
+async function fsEnsureVba(wb, file) {
+  if (!wb || wb.vbaraw || !file) return;
+  try {
+    const w2 = XLSX.read(await file.arrayBuffer(), { type: "array", bookVBA: true });
+    if (w2 && w2.vbaraw) wb.vbaraw = w2.vbaraw;
+  } catch (e) { /* verification below decides */ }
+}
+// Returns null when the bytes are safe to write, else a plain-language reason.
+function fsVerifyBytes(bytes, bookType, wb) {
+  try {
+    const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    const zip = XLSX.CFB.read(u8, { type: "array" });
+    const ctEntry = XLSX.CFB.find(zip, "/[Content_Types].xml");
+    const ct = ctEntry ? new TextDecoder().decode(ctEntry.content) : "";
+    if (ct.indexOf(FS_MAIN_CT[bookType]) < 0) return "the file format would not match its ." + bookType + " name";
+    if (bookType === "xlsm" && wb && wb.vbaraw && !XLSX.CFB.find(zip, "/xl/vbaProject.bin")) return "the workbook's macros would be lost";
+    const back = XLSX.read(u8, { type: "array", bookSheets: true });
+    const want = (wb && wb.SheetNames || []).join("\u0001");
+    if (want && (back.SheetNames || []).join("\u0001") !== want) return "some sheets would be missing";
+    return null;
+  } catch (e) { return "the new file could not be read back (" + ((e && e.message) || e) + ")"; }
+}
+QBR._fsBookType = fsBookType; QBR._fsVerifyBytes = fsVerifyBytes;   // exposed for tests
+
 /* Rebuild-download path (classic Export). Used when no file is linked, when the
  * browser lacks the File System Access API, and as a fallback. NOTE: this
  * regenerates the workbook from parsed data — formulas/layout of the original
@@ -337,7 +376,10 @@ QBR.fsRebuildToLink = async function (kind, link) {
   if (!b || !b.wb) return { mode: "no-data" };
   const oldFp = link.fp;
   if (typeof QBR.fsDropPatchState === "function") QBR.fsDropPatchState(oldFp);
-  const bytes = XLSX.write(b.wb, { bookType: "xlsx", type: "array", cellStyles: true });
+  const bookType = fsBookType(link.name);
+  if (bookType === "xlsm") return QBR.fsDownloadKind(kind, "download-unsafe");   // a rebuild can't carry macros
+  const bytes = XLSX.write(b.wb, { bookType: bookType, type: "array", cellStyles: true });
+  if (fsVerifyBytes(bytes, bookType, null)) return QBR.fsDownloadKind(kind, "download-unsafe");
   const w = await link.handle.createWritable();
   await w.write(bytes);
   await w.close();
@@ -368,11 +410,13 @@ QBR.fsSaveKind = async function (kind) {
     const cur = await link.handle.getFile();
     const changed = cur.size !== link.size || cur.lastModified !== link.lastModified;
     if (changed) {
-      const ok = confirm(
-        `"${link.name}" changed outside the dashboard (for example, edited in Excel).\n\n` +
-        `Overwrite it with the dashboard's data?`);
-      if (!ok) return { mode: "cancelled" };
-      return await QBR.fsRebuildToLink(kind, link);
+      // 2026-10-05: never rebuild over the linked file (that wiped formulas and
+      // layout, and broke .xlsm files). Download a separate copy instead.
+      alert(`"${link.name}" changed outside the dashboard since it was linked (for example, edited in Excel).\n\n` +
+        `To keep that file safe, nothing will be written to it. Your changes will download as a separate copy.\n` +
+        `To save directly again, click "Link file" and pick the updated workbook.`);
+      const r = QBR.fsDownloadKind(kind, "download-changed");
+      return Object.assign(r, { name: link.name });
     }
     // Patch-in-place: replay the journal as cell writes into the ORIGINAL
     // workbook, preserving its formulas, layout and helper columns.
@@ -393,7 +437,15 @@ QBR.fsSaveKind = async function (kind) {
     wb.Workbook = wb.Workbook || {};
     wb.Workbook.CalcPr = { fullCalcOnLoad: true };
     try { delete wb.CalcChain; } catch (e) {}
-    const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array", cellStyles: true });
+    const bookType = fsBookType(link.name);
+    if (bookType === "xlsm") await fsEnsureVba(wb, cur);
+    const bytes = XLSX.write(wb, { bookType: bookType, type: "array", cellStyles: true, bookVBA: true });
+    const why = fsVerifyBytes(bytes, bookType, wb);
+    if (why) {
+      console.warn("[QBR] save blocked — " + why);
+      const r = QBR.fsDownloadKind(kind, "download-unsafe");
+      return Object.assign(r, { name: link.name, reason: why });
+    }
     const w = await link.handle.createWritable();
     await w.write(bytes);
     await w.close();
@@ -460,6 +512,10 @@ QBR.supSaveDone = function (r) {
   else if (r.mode === "no-changes") QBR.persistNote("supplies", "No changes to save", 3000);
   else if (r.mode === "download" || r.mode === "download-fallback")
     QBR.persistNote("supplies", `Downloaded ${r.filename || ""} — link a file for direct save`, 5000);
+  else if (r.mode === "download-unsafe")
+    QBR.persistNote("supplies", `Not saved to ${r.name || "the linked file"} — ${r.reason || "safety check failed"}. Downloaded a separate copy instead.`, 12000);
+  else if (r.mode === "download-changed")
+    QBR.persistNote("supplies", `${r.name || "Linked file"} changed in Excel — downloaded a separate copy. Re-link to save directly.`, 12000);
   else if (r.mode === "denied") QBR.persistNote("supplies", "Permission denied — file not saved", 5000);
   else if (r.mode === "no-data") alert("Load a supplies workbook first.");
   else QBR.persistRefreshBadge();
@@ -474,6 +530,10 @@ QBR.invSaveDone = function (r) {
   else if (r.mode === "no-changes") QBR.persistNote("assets", "No changes to save", 3000);
   else if (r.mode === "download" || r.mode === "download-fallback")
     QBR.persistNote("assets", `Downloaded ${r.filename || ""} — link a file for direct save`, 5000);
+  else if (r.mode === "download-unsafe")
+    QBR.persistNote("assets", `Not saved to ${r.name || "the linked file"} — ${r.reason || "safety check failed"}. Downloaded a separate copy instead.`, 12000);
+  else if (r.mode === "download-changed")
+    QBR.persistNote("assets", `${r.name || "Linked file"} changed in Excel — downloaded a separate copy. Re-link to save directly.`, 12000);
   else if (r.mode === "denied") QBR.persistNote("assets", "Permission denied — file not saved", 5000);
   else if (r.mode === "no-data") alert("Load an inventory workbook first.");
   else QBR.persistRefreshBadge();

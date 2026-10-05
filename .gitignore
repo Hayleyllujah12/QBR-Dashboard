@@ -5,6 +5,7 @@
 *.csv
 !tests/fixture.xlsx
 !tests/SAMPLE_Lenovo_Inventory_SYNTH.xlsx
+!tests/SAMPLE_Lenovo_Inventory_SYNTH.xlsm
 
 # Office lock / temp files
 ~$*
