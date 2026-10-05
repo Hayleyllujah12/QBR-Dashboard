@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Rakso Education — M365 Tenant QBR Dashboard</title>
+  <title>RCT OpsDesk — IT Operations Hub</title>
+  <link rel="icon" type="image/svg+xml" href="assets/rct-opsdesk-logo.svg">
   <link rel="stylesheet" href="libs/bootstrap.min.css" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
@@ -58,9 +59,20 @@
   <header class="app-header">
     <div class="hdr-left">
       <button id="nav-toggle" class="icon-btn nav-toggle" type="button" aria-label="Open navigation" aria-controls="app-sidebar" aria-expanded="false"><svg class="fi" aria-hidden="true" focusable="false"><use href="#fi-navigation"/></svg></button>
-      <div class="brand-badge" aria-hidden="true">QBR</div>
+      <div class="brand-wrap">
+        <button id="brand-btn" class="brand-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="brand-menu" title="Change logo">
+          <img id="brand-logo" class="brand-logo" src="assets/rct-opsdesk-logo.svg" alt="RCT OpsDesk logo" width="36" height="36">
+        </button>
+        <div id="brand-menu" class="brand-menu" hidden>
+          <div class="brand-menu-t">Logo</div>
+          <button id="brand-upload" class="brand-menu-i" type="button">Upload new logo…</button>
+          <button id="brand-reset" class="brand-menu-i" type="button">Reset to default</button>
+          <div class="brand-menu-n">SVG, PNG, JPG or WebP · max 512 KB · square works best. Saved in this browser only.</div>
+          <input id="brand-file" type="file" accept=".svg,.png,.jpg,.jpeg,.webp,image/svg+xml,image/png,image/jpeg,image/webp" hidden>
+        </div>
+      </div>
       <div class="hdr-titles">
-        <div class="app-title">Microsoft 365 Tenant — Quarterly Business Review</div>
+        <div class="app-title">RCT OpsDesk</div>
         <div class="app-sub">Rakso Education · Technical Operations · Offline · <span id="app-version">v1.21.0</span></div>
       </div>
     </div>
@@ -146,13 +158,56 @@
   <!-- ============ EMPTY STATE ============ -->
   <div id="empty-state" class="empty-state">
     <div id="drop-zone" class="drop-zone">
-      <div class="drop-icon"><svg class="fi fi-xl" aria-hidden="true" focusable="false"><use href="#fi-arrow-upload"/></svg></div>
-      <h4>Drop your Excel workbook(s) here</h4>
-      <p class="text-muted">or use <b>Upload</b> at the top right. You can select <b>multiple files at once</b> — e.g.
-        <b>ALL TENANT AUTOMATED TRACKER.xlsx</b> together with <b>USER MANAGEMENT.xlsx</b>, or split exports
-        (Usage, Storage, Canva, Security, Postmaster). Everything runs offline — data is never uploaded to any server.</p>
-      <label class="remember-label"><input type="checkbox" id="remember-data" checked />
-        Remember uploaded data on this computer, so it reloads automatically next time (stored only in this browser).</label>
+      <div class="dz-head">
+        <div class="drop-icon"><svg class="fi fi-xl" aria-hidden="true" focusable="false"><use href="#fi-arrow-upload"/></svg></div>
+        <h4>Drop your Excel workbook(s) here</h4>
+        <p class="dz-sub text-muted">Select several files at once. Each file is recognised by its <b>sheets</b>, so the file name doesn't have to match.</p>
+        <button id="dz-choose" class="btn btn-primary btn-sm" type="button"><svg class="fi" aria-hidden="true" focusable="false"><use href="#fi-arrow-upload"/></svg> Choose files…</button>
+        <div class="dz-tip">Same as <b>Upload</b> at the top right · .xlsx only</div>
+      </div>
+
+      <div class="dz-sec">1 · Start here</div>
+      <div class="dz-card dz-req">
+        <div class="dz-name">ALL TENANT AUTOMATED TRACKER.xlsx <span class="dz-badge dz-b-req">Required</span></div>
+        <div class="dz-what">Master data — one file powers the Overview, Security, Risky sign-ins, Adoption, Storage, Canva and Postmaster pages. No separate exports needed.</div>
+        <div class="dz-chips"><span>RISKY_USERS_AND_DOMAIN</span><span>SECURITY_DATA</span><span>USAGE_REPORT</span><span>STORAGE_DATA</span><span>CANVA_STATUS</span><span>GOOGLE_POSTMASTERTOOLS</span></div>
+      </div>
+
+      <div class="dz-sec">2 · Add more (optional) — drop together or later</div>
+      <div class="dz-grid dz-grid-2">
+        <div class="dz-card"><div class="dz-name">USER MANAGEMENT.xlsx <span class="dz-badge dz-b-opt">Optional</span></div>
+          <div class="dz-what">User Management page (accounts per school year).</div>
+          <div class="dz-chips"><span>SY 2025-2026</span><span>SY 2026-2027</span></div></div>
+        <div class="dz-card"><div class="dz-name">DOMAIN REGISTRATION TRACKER.xlsx <span class="dz-badge dz-b-opt">Optional</span></div>
+          <div class="dz-what">Domain Registration page (expiry, renewals).</div>
+          <div class="dz-chips"><span>CURRENT</span><span>Q3</span></div></div>
+        <div class="dz-card"><div class="dz-name">Lenovo Inventory workbook <span class="dz-badge dz-b-opt">Optional</span></div>
+          <div class="dz-what">Inventory › Assets, Support tickets, Asset 360.</div>
+          <div class="dz-chips"><span>02 DEVICES</span><span>03 TECH SUPPORT LOGS</span><span>04 RAKSO INV.</span><span>06 PIPELINE</span><span>07 PURCHASE ORDER</span></div></div>
+        <div class="dz-card"><div class="dz-name">ETG_PRINTER_INVENTORY.xlsx <span class="dz-badge dz-b-opt">Optional</span></div>
+          <div class="dz-what">Inventory › Supplies (printer consumables).</div>
+          <div class="dz-chips"><span>Items</span><span>Transactions</span><span>Inventory Summary</span></div></div>
+      </div>
+
+      <div class="dz-sec">3 · Loaded inside the app (not here)</div>
+      <div class="dz-grid">
+        <div class="dz-card dz-inapp"><div class="dz-name">MS Forms ticket export</div>
+          <div class="dz-what">INTERNAL__LENOVO_TICKET_SUPPORT….xlsx</div>
+          <div class="dz-where">Inventory › Support tickets › Import Forms file</div></div>
+        <div class="dz-card dz-inapp"><div class="dz-name">Label photos (JPG, PNG, WebP)</div>
+          <div class="dz-what">Barcode / serial-number reading.</div>
+          <div class="dz-where">Inventory › Scan</div></div>
+        <div class="dz-card dz-inapp"><div class="dz-name">Save back to your workbook (.xlsx / .xlsm)</div>
+          <div class="dz-what">Writes your edits into the original file (Chrome/Edge).</div>
+          <div class="dz-where">🔗 Link file / 💾 Save to Excel</div></div>
+      </div>
+
+      <div class="dz-foot">
+        <div class="dz-warn">Not supported: .csv, .xls or Google Sheets links — open them in Excel and <b>Save As .xlsx</b> first.</div>
+        <div class="dz-ok">🔒 Everything runs offline — your data is never uploaded to any server.</div>
+        <label class="remember-label"><input type="checkbox" id="remember-data" checked />
+          Remember uploaded data on this computer, so it reloads automatically next time (stored only in this browser).</label>
+      </div>
     </div>
   </div>
 
@@ -682,6 +737,7 @@
   <script src="js/app.js"></script>
   <script src="js/patch.js"></script>  <!-- v1.15: patch-in-place workbook saver -->
   <script src="js/persist.js"></script>  <!-- v1.8: journal persistence + direct file save -->
+  <script src="js/branding.js"></script>  <!-- 2026-10-05 RCT OpsDesk: custom logo upload (browser-local). No data logic. -->
   <script src="js/shell.js"></script>  <!-- v1.9.0 shell chrome only: nav state, drawer, menus. No data logic. -->
 </body>
 </html>
