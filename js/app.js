@@ -2907,6 +2907,8 @@ function initShell() {
   ["dragover", "dragenter"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("drag"); }));
   ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("drag"); }));
   drop.addEventListener("drop", e => handleFiles(e.dataTransfer.files));
+  const dzChoose = $("dz-choose");
+  if (dzChoose) dzChoose.addEventListener("click", () => { const fi = $("file-input"); if (fi) fi.click(); });
 
   // Remember-data preference + auto-restore of any cached session
   const rem = $("remember-data");

@@ -6,6 +6,28 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-05 — New name and logo: RCT OpsDesk
+  - The app is now called RCT OpsDesk. The top bar shows the new logo and "RCT OpsDesk", and the
+    browser tab reads "RCT OpsDesk — IT Operations Hub" with the logo as its icon.
+  - CHANGE THE LOGO YOURSELF: click the logo (top-left) → "Upload new logo…" and pick an SVG,
+    PNG, JPG or WebP (max 512 KB; square works best). "Reset to default" brings the standard logo
+    back. An uploaded logo is saved in this browser only — other PCs keep the standard one.
+  - To change the standard logo for everyone, replace qbr-app\assets\rct-opsdesk-logo.svg with the
+    new file (same name).
+  - Nothing else changed: pages, filters, Inventory, Scan, exports and the version number are the same.
+
+UPDATE — 2026-10-05 — Welcome screen now shows which files to upload:
+  - Before any data is loaded, the start screen lists what to drop:
+      1. Start here (required): ALL TENANT AUTOMATED TRACKER.xlsx — the master data for the
+         Overview, Security, Risky sign-ins, Adoption, Storage, Canva and Postmaster pages.
+      2. Optional: USER MANAGEMENT, DOMAIN REGISTRATION TRACKER, the Lenovo Inventory workbook,
+         ETG_PRINTER_INVENTORY — each card shows the sheet names it needs.
+      3. Loaded inside the app instead: the MS Forms ticket export (Support tickets › Import
+         Forms file), label photos (Scan) and Link file / Save to Excel.
+  - New "Choose files…" button in the drop area (same as Upload at the top right).
+  - Files are still recognised by their sheets, so renamed files keep working. Old separate
+    exports (Usage, Storage, Canva, Security, Postmaster) still load but are no longer listed.
+
 UPDATE — 2026-10-05 — v1.21.0 is now the live version (1.9.0 becomes the rollback):
   - Open QBR-Dashboard_1.21.0\qbr-app\index.html from now on (update any shortcut or bookmark
     that still points at the 1.9.0 folder). The header now shows v1.21.0.

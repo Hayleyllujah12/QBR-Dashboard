@@ -55,6 +55,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >   supplies parse, `QBR._currentFps` + `QBR.journalReplayFor(APP.files)` after load, `s360Hardware()` tile/section.
 >   Script order: inventory → supplies → tesseract → scan → app → patch → persist → shell. **PII note:** the journal
 >   and Forms import hold requester names / contact details / work e-mail & phone in browser storage (90 days).
+>   **2026-10-05 — Welcome-screen file guide** (dated patch, no bump): `#drop-zone` in index.html now holds
+>   `.dz-*` sections (required tracker card, optional files 2×2 `.dz-grid-2`, "loaded inside the app" cards, footer
+>   with unsupported-format note + `#remember-data`, id unchanged). New `#dz-choose` button → `$("file-input").click()`
+>   (app.js, next to the drop handlers). CSS: `.drop-zone` max-width 640→900px, `/* welcome guide */` block. Detection
+>   logic untouched; split exports still parse but are no longer advertised. All suites green (105/23/71/37/12).
+>   **2026-10-05 — Rebrand to RCT OpsDesk** (branding only, no bump; per `REBRAND-GUIDE.md`): `<title>` "RCT OpsDesk —
+>   IT Operations Hub" + SVG favicon; top-bar `.brand-badge` text → `#brand-logo` img (`assets/rct-opsdesk-logo.svg`,
+>   inline-safe SVG, no scripts) inside `#brand-btn`; `.app-title` "RCT OpsDesk"; `#app-version` untouched. `.brand-badge`
+>   CSS kept (unused). **Custom logo:** new `js/branding.js` (before shell.js) — logo click opens `#brand-menu`
+>   (Upload / Reset, Esc + outside-click close); upload = SVG/PNG/JPG/WebP ≤ 512 KB, validated by loading it, stored as a
+>   data: URL in localStorage `rct-logo-v1`, applied to the img + favicon; a broken stored logo self-clears. Shown via
+>   `<img>` so an uploaded SVG can't execute. API `window.RCT_BRAND.{apply,reset}`. `QBR.*` identifiers, zip names,
+>   inventory/supplies/scan/patch/persist untouched. Suites green (105/23/71/37/12).
 > - **Live / production version is `QBR-Dashboard_1.8.5`** — app label **1.8.5** (promoted
 >   2026-09-17). In-place fixes are dated patches, **not version bumps** — the label stays 1.8.5.
 >   Recent behavior: security-default status shows as "Not Enabled" (was "Disabled"; canonical model
