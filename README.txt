@@ -6,6 +6,24 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-05 — Bulk select & bulk edit, "Assigned, not delivered" flag, look up by DR / SQ / batch
+  - INVENTORY › ASSETS now has a tick box on every row. Tick units, or filter the list (client,
+    flag, status, batch, DR, SQ) and click "Select all N shown", then "Bulk edit".
+  - Bulk edit can change: Status, Date delivered, School/client, Owner, DR #, SQ, Batch code,
+    Warranty start/end and Condition. Blank fields are left as they are.
+      · "Preview changes" lists every unit with "from → to" for each field. Nothing is saved
+        until you click Apply. Changes are kept and go into the workbook on "Save to Excel".
+      · STATUS is worked out from the data, so it's saved through the real columns:
+        Deployed = client + Date Delivered (set to the date you pick when it's empty) ·
+        In Stock = Date Delivered cleared (tick "Also clear the client" if needed) ·
+        In Repair / Retired = Condition. A unit with an open ticket stays In Repair; the preview
+        notes it.
+      · SQ adds a new row to the 04 RAKSO INV. sheet; older rows stay as history.
+  - NEW FLAG "Assigned, not delivered": units that have a client but no Date Delivered, so they
+    still show as In Stock. Click it to list them, select all, and fix them with Bulk edit.
+  - LOOK UP (top of Inventory) now finds DR #, SQ and batch codes as well as serials. Pick a
+    suggestion, or type the full value and click Open, to list those units; the "✕" chip clears it.
+
 UPDATE — 2026-10-05 — Batch codes: find and bulk-update the units of one batch
   - Every Tag batch now gets a batch code, e.g. B-20261005-01 (date + running number for that day).
     It's filled in automatically; type your own, or pick an existing code to add units to that

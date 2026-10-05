@@ -37,6 +37,7 @@ async function run(b, ext, externalChange) {
     const inv = QBR._invModel || (typeof invModel === "function" ? invModel() : null);
     const a = inv.assets[0];
     QBR.invUpdateAsset(a.key, { client: "UI-SAVE TEST SCHOOL", batch: "B-20261005-07" });
+    QBR.invAddDeployment({ sn: a.sn, sq: "SQ-SAVE-TEST", delivered: "2026-10-01" });
     let dl = 0; const oldW = XLSX.writeFile; XLSX.writeFile = function () { dl++; };
     const r = await QBR.fsSaveKind("assets");
     XLSX.writeFile = oldW;
@@ -59,6 +60,8 @@ async function run(b, ext, externalChange) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets["02 DEVICES"], { header: 1, defval: "" });
     ok(rows.some(r => r.includes(res.sn) && r.includes("UI-SAVE TEST SCHOOL")), "edit written into 02 DEVICES for " + res.sn);
     const hdr = rows[0], bc = hdr.indexOf("Batch Code");
+    const rk = XLSX.utils.sheet_to_json(wb.Sheets["04 RAKSO INV."], { header: 1, defval: "" });
+    ok(rk.some(r => r.includes("SQ-SAVE-TEST") && r.includes(res.sn)), "bulk SQ appended as a row in 04 RAKSO INV.");
     ok(bc === hdr.filter(h => h !== "").length - 1 && rows.some(r => r.includes(res.sn) && r[bc] === "B-20261005-07"), "'Batch Code' column added at the end and filled (col " + bc + ")");
   }
   ok(errs.length === 0, "no page errors" + (errs.length ? ": " + errs.join(" | ") : ""));

@@ -95,6 +95,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >   `#inv-f-batch` filter, `ui.form = "editbatch"` bulk form (blank = keep; per-unit untick), Asset 360 "Batch code".
 >   Fixed latent bug: Type/Status `<option>`s had no `value`, so "All …" set ui.type/status to the label → empty list.
 >   Tests: ui-inv-fixes 41, ui-save 18 (Batch Code column appended + filled).
+>   **Bulk select / bulk edit (INV 1.24.0)**: Assets rows get `input.inv-sel` (row click ignores it) + header `#inv-sel-all`;
+>   `ui.sel` (Set, survives renders), `ui.filteredKeys` for "Select all N shown"; bulk bar `#inv-bulkbar`. `ui.form =
+>   "bulkedit"` → `QBR.invBulkPlan(keys, f)` builds per-unit patches + `changes[{label,from,to}]` + simulated status;
+>   preview gate before `QBR.invBulkApply`. Status mapping onto real fields (Deployed → delivered (+client required),
+>   In Stock → clear delivered (+client opt), In Repair/Retired → cond; clears repair/retired cond when leaving them).
+>   SQ: new `QBR.invAddDeployment` (journaled op `invAddDeployment` → patch.js `patchInvAddDeployment` →
+>   `patchAppendDeployment`, never edits existing rows); `QBR.invCurrentSq` = last deployment SQ. Flag `assignedNoDel`
+>   (client && !delivered && In Stock). Groups `{kind: dr|sq|batch, value}`: `QBR.invGroupKeys/GroupSearch/GroupLabel`,
+>   lookup suggestions + exact-match Open → `invApplyGroup` (`ui.group`, chip `#inv-group-x`). Tests: ui-inv-fixes 58,
+>   ui-save 20 (SQ row appended to 04 RAKSO INV.).
 > - **Live / production version is `QBR-Dashboard_1.8.5`** — app label **1.8.5** (promoted
 >   2026-09-17). In-place fixes are dated patches, **not version bumps** — the label stays 1.8.5.
 >   Recent behavior: security-default status shows as "Not Enabled" (was "Disabled"; canonical model

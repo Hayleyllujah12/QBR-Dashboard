@@ -22,7 +22,7 @@ var QBR = window.QBR = window.QBR || {};
 /* Delivery package version (semver MAJOR.MINOR.PATCH — see VERSIONING.md).
  * Single source of truth for the shipped zip name qbr-inventory-app-<ver>.zip
  * and the version badge on the Inventory page. */
-QBR.INV_VERSION = "1.23.0";
+QBR.INV_VERSION = "1.24.0";
 
 /* ---------- Lenovo warranty lookup ---------------------------------------
  * Generic lookup page (per Pedro): paste any serial number. Deep per-unit
@@ -440,7 +440,7 @@ QBR.invComputeFlags = function (inv, today) {
   const T = QBR.INV_THRESH;
   const openByKey = QBR.invOpenByKey(inv.tickets);
   const assetByKey = new Map((inv.assets || []).map(a => [a.key, a]));
-  const flags = { aging: [], lemons: [], warrantyExpiring: [], warrantyExpired: [], unmatched: [], stalled: [], duplicates: [] };
+  const flags = { aging: [], lemons: [], warrantyExpiring: [], warrantyExpired: [], unmatched: [], stalled: [], duplicates: [], assignedNoDel: [] };
   (inv.tickets || []).forEach(t => {
     const open = invTixOpen(t);
     if (open && t.repEdtech && invDaysBetween(t.repEdtech, today) > T.AGING_DAYS) flags.aging.push(t);
@@ -470,6 +470,11 @@ QBR.invComputeFlags = function (inv, today) {
     else seenKeys.set(a.key, { key: a.key, sn: a.sn, count: 1 });
   });
   seenKeys.forEach(e => { if (e.count > 1) flags.duplicates.push(e); });
+  /* assigned but not delivered (2026-10-05): a client is set but Date Delivered is
+   * empty, so the unit still counts as In Stock — usually a tagging slip. */
+  (inv.assets || []).forEach(a => {
+    if (String(a.client || "").trim() && !a.delivered && QBR.invAssetStatus(a, openByKey) === "In Stock") flags.assignedNoDel.push(a);
+  });
   return flags;
 };
 
@@ -847,6 +852,121 @@ QBR.invBatches = function () {
 };
 function invSameBatch(a, code) { return !!code && String(a.batch || "").trim().toUpperCase() === String(code).trim().toUpperCase(); }
 
+/* ---- DR / SQ / batch groups (2026-10-05) ---------------------------------
+ * A "group" is {kind: "dr"|"sq"|"batch", value}. DR # and batch live on the
+ * unit (02 DEVICES); SQ lives in the deployment rows (04 RAKSO INV.). */
+const _U = v => String(v == null ? "" : v).trim().toUpperCase();
+QBR.invGroupKeys = function (g) {
+  const inv = invModel(); if (!inv || !g || !g.value) return [];
+  const v = _U(g.value);
+  if (g.kind === "dr") return inv.assets.filter(a => _U(a.dr) === v).map(a => a.key);
+  if (g.kind === "batch") return inv.assets.filter(a => _U(a.batch) === v).map(a => a.key);
+  if (g.kind === "sq") return [...new Set((inv.deployments || []).filter(d => _U(d.sq) === v).map(d => d.key))];
+  return [];
+};
+// distinct DR / SQ / batch values containing q (for lookup suggestions)
+QBR.invGroupSearch = function (q, max) {
+  const inv = invModel(), Q = _U(q); if (!inv || Q.length < 2) return [];
+  const out = [], seen = new Set();
+  const add = (kind, value) => { const k = kind + "|" + _U(value); if (!value || seen.has(k) || _U(value).indexOf(Q) < 0) return; seen.add(k); out.push({ kind, value: String(value).trim() }); };
+  inv.assets.forEach(a => { add("dr", a.dr); add("batch", a.batch); });
+  (inv.deployments || []).forEach(d => add("sq", d.sq));
+  out.forEach(g => { g.n = QBR.invGroupKeys(g).length; });
+  return out.filter(g => g.n).sort((a, b) => (_U(a.value) === Q ? -1 : 0) - (_U(b.value) === Q ? -1 : 0)).slice(0, max || 6);
+};
+QBR.invGroupLabel = g => ({ dr: "DR", sq: "SQ", batch: "Batch" }[g.kind] || g.kind) + " " + g.value;
+// unit's latest SQ (last deployment row for it)
+QBR.invCurrentSq = function (key) {
+  const inv = invModel(); if (!inv) return null;
+  const d = (inv.deployments || []).filter(x => x.key === key && x.sq).pop();
+  return d ? d.sq : null;
+};
+/* Add a deployment row carrying an SQ (journaled; patch.js appends it to
+ * 04 RAKSO INV.). Existing rows are never edited: one SQ cell there can cover
+ * several units, so a correction is a new row and the old one stays as history. */
+QBR.invAddDeployment = function (d) {
+  const inv = invModel(); if (!inv || !d || !d.sn || !String(d.sq || "").trim()) return false;
+  const a = inv.assets.find(x => x.key === QBR.invSerialKey(d.sn)); if (!a) return false;
+  const dep = { key: a.key, sn: a.sn, type: a.cat, desc: a.desc, sq: String(d.sq).trim(), client: d.client || a.client || null,
+    req: null, delivered: invDate(d.delivered) || a.delivered || null, remarks: d.remarks || "SQ set via bulk edit" };
+  inv.deployments.push(dep);
+  QBR.invLog("sq", a.sn + " → SQ " + dep.sq);
+  if (typeof QBR.journalRecord === "function") QBR.journalRecord("assets", "invAddDeployment",
+    [{ sn: a.sn, sq: dep.sq, client: dep.client, delivered: dep.delivered, remarks: dep.remarks }]);
+  return true;
+};
+
+/* ---- bulk edit planner (2026-10-05) --------------------------------------
+ * f: {client, clearClient, status, delivered, owner, dr, sq, batch, wstart, wend, cond}
+ * Blank = keep. Status is DERIVED, so it is mapped onto real columns:
+ *   Deployed → client required + Date Delivered (set when empty) + clear a repair/retired condition
+ *   In Stock → clear Date Delivered (+ client if clearClient) + clear a repair/retired condition
+ *   In Repair → Condition "For Repair" · Retired → Condition "Retired"
+ * Returns per-unit {a, patch, sq, wend, changes[{label, from, to}], after, warn}. */
+QBR.invBulkPlan = function (keys, f) {
+  const inv = invModel(); if (!inv) return [];
+  const openByKey = QBR.invOpenByKey(inv.tickets);
+  const fd = d => (d instanceof Date && !isNaN(d)) ? invFmtDate(d) : "—";
+  const badCond = c => /retired|dispos|beyond repair|repair/i.test(String(c || ""));
+  return keys.map(k => inv.assets.find(a => a.key === k)).filter(Boolean).map(a => {
+    const patch = {}, changes = [], warn = [];
+    const set = (field, label, to, fromTxt, toTxt) => {
+      const cur = a[field];
+      const same = (cur instanceof Date || to instanceof Date) ? fd(cur) === fd(invDate(to)) : String(cur == null ? "" : cur) === String(to == null ? "" : to);
+      if (same) return;
+      patch[field] = to;
+      changes.push({ label, from: fromTxt != null ? fromTxt : (cur instanceof Date ? fd(cur) : (cur || "—")), to: toTxt != null ? toTxt : (to === "" || to == null ? "—" : (to instanceof Date ? fd(to) : String(to))) });
+    };
+    if (f.client) set("client", "Client", f.client);
+    if (f.owner) set("contact", "Owner", f.owner);
+    if (f.dr) set("dr", "DR #", f.dr);
+    if (f.batch) set("batch", "Batch", f.batch);
+    if (f.cond) set("cond", "Condition", f.cond);
+    if (f.status === "Deployed") {
+      if (!f.client && !String(a.client || "").trim()) warn.push("needs a client to be Deployed");
+      else {
+        if (!a.delivered) set("delivered", "Date delivered", f.delivered || invFmtDate(invToday()), "—", f.delivered || invFmtDate(invToday()));
+        if (badCond(a.cond) && !f.cond) set("cond", "Condition", "No Issue");
+      }
+    } else if (f.status === "In Stock") {
+      if (a.delivered) set("delivered", "Date delivered", "", fd(a.delivered), "—");
+      if (f.clearClient && a.client && !f.client) set("client", "Client", "", a.client, "—");
+      if (badCond(a.cond) && !f.cond) set("cond", "Condition", "No Issue");
+    } else if (f.status === "In Repair") { if (!f.cond) set("cond", "Condition", "For Repair"); }
+    else if (f.status === "Retired") { if (!f.cond) set("cond", "Condition", "Retired"); }
+    if (f.wstart) {
+      set("wstart", "Warranty start", f.wstart);
+      if (!f.wend && patch.wstart !== undefined) {
+        const d = new Date(f.wstart + "T00:00:00"), y = a.wyears || 3;
+        const we = new Date(d.getFullYear() + y, d.getMonth(), Math.min(d.getDate(), 28));
+        set("wend", "Warranty end", we);
+      }
+    }
+    let wend = null;
+    if (f.wend && fd(a.wend) !== f.wend) { wend = f.wend; changes.push({ label: "Warranty end", from: fd(a.wend), to: f.wend }); }
+    let sq = null;
+    if (f.sq && _U(QBR.invCurrentSq(a.key)) !== _U(f.sq)) { sq = f.sq; changes.push({ label: "SQ", from: QBR.invCurrentSq(a.key) || "—", to: f.sq }); }
+    const sim = Object.assign({}, a, patch);
+    if (patch.delivered !== undefined) sim.delivered = invDate(patch.delivered);
+    const before = QBR.invAssetStatus(a, openByKey), after = QBR.invAssetStatus(sim, openByKey);
+    if (before !== after) changes.unshift({ label: "Status", from: before, to: after });
+    if (f.status && after !== f.status && !warn.length) warn.push(openByKey.has(a.key) && f.status !== "In Repair" ? "open ticket keeps it In Repair" : "stays " + after);
+    return { a, patch, sq, wend, changes, after, warn };
+  });
+};
+QBR.invBulkApply = function (plan, f) {
+  let n = 0;
+  plan.forEach(p => {
+    let ok = false;
+    if (Object.keys(p.patch).length) ok = QBR.invUpdateAsset(p.a.key, p.patch) || ok;
+    if (p.wend) ok = QBR.invSetWarrantyEnd(p.a.key, p.wend) || ok;
+    if (p.sq) ok = QBR.invAddDeployment({ sn: p.a.sn, sq: p.sq, client: p.a.client, delivered: p.a.delivered }) || ok;
+    if (ok) n++;
+  });
+  if (n) QBR.invLog("bulk edit", `${n} unit${n === 1 ? "" : "s"}` + (f && f.status ? ` · status → ${f.status}` : ""));
+  return n;
+};
+
 /* ---------- export: regenerate the workbook from the model ---------------- */
 // Build the inventory workbook object (shared by Export download and direct save).
 QBR.invBuildWorkbook = function () {
@@ -901,7 +1021,7 @@ QBR.invExportWorkbook = function () {
 };
 
 /* ---------- UI state + small view helpers -------------------------------- */
-QBR._invUI = { client: "ALL", type: "ALL", status: "ALL", q: "", flag: null, showAll: false, form: null, prefillSn: null, view: "assets", batch: null, editBatch: null };
+QBR._invUI = { client: "ALL", type: "ALL", status: "ALL", q: "", flag: null, showAll: false, form: null, prefillSn: null, view: "assets", batch: null, editBatch: null, sel: new Set(), group: null };
 QBR._invA360 = null;
 
 function invPill(s) {
@@ -1116,6 +1236,7 @@ function renderInventory() {
     ["unmatched", "Unmatched tickets", flags.unmatched.length, "serial not in registry", "blue"],
     ["stalled", "Stalled pipeline", flags.stalled.length, "signed, not delivered", "blue"],
     ["duplicates", "Duplicate serials", flags.duplicates.length, "same serial 2+ times", "red"],
+    ["assignedNoDel", "Assigned, not delivered", flags.assignedNoDel.length, "client set, no Date Delivered", "orange"],
   ];
   const flagCards = `<div class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3 mt-1">` + flagDefs.map(([k, lbl, n, sub, tone]) =>
     `<div class="col"><button type="button" class="card-box inv-flag inv-flag-${tone}${ui.flag === k ? " active" : ""}" data-inv-flag="${k}">
@@ -1130,8 +1251,8 @@ function renderInventory() {
       ${(typeof QBR.saveButtonHtml === "function") ? QBR.saveButtonHtml("assets", "inv-save") : ""}
     </div>
     <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
-      <label class="form-label small mb-0" for="inv-lookup"><strong>Look up asset</strong></label>
-      <div style="position:relative"><input id="inv-lookup" class="form-control form-control-sm" style="--w:220px" placeholder="Type or paste a serial…" autocomplete="off" role="combobox" aria-expanded="false">
+      <label class="form-label small mb-0" for="inv-lookup"><strong>Look up</strong></label>
+      <div style="position:relative"><input id="inv-lookup" class="form-control form-control-sm" style="--w:220px" placeholder="Serial, DR #, SQ or batch code…" autocomplete="off" role="combobox" aria-expanded="false">
       <div id="inv-lookup-dd" class="inv-ac-dd d-none" role="listbox"></div></div>
       <button type="button" class="btn btn-sm btn-primary" id="inv-lookup-go">Open</button>
       <span id="inv-lookup-msg" class="small text-muted"></span>
@@ -1173,16 +1294,31 @@ function renderInventory() {
   if (ui.flag === "warrantyExpired") { const s = new Set(flags.warrantyExpired.map(a => a.key)); rows = rows.filter(x => s.has(x.a.key)); }
   if (ui.flag === "lemons") { const s = new Set(flags.lemons.map(l => l.key)); rows = rows.filter(x => s.has(x.a.key)); }
   if (ui.flag === "duplicates") { const s = new Set(flags.duplicates.map(d => d.key)); rows = rows.filter(x => s.has(x.a.key)); }
+  if (ui.flag === "assignedNoDel") { const s = new Set(flags.assignedNoDel.map(a => a.key)); rows = rows.filter(x => s.has(x.a.key)); }
+  if (ui.group) { const gk = new Set(QBR.invGroupKeys(ui.group)); rows = rows.filter(x => gk.has(x.a.key)); }
   const tixByKey = new Map();
   inv.tickets.forEach(t => tixByKey.set(t.key, (tixByKey.get(t.key) || 0) + 1));
   const total = rows.length, shown = ui.showAll ? rows : rows.slice(0, 150);
-  const assetTblBody = `<div class="table-responsive"><table class="table table-sm inv-tbl"><thead><tr>
+  /* bulk selection (2026-10-05): ui.sel survives re-renders; keys no longer present are dropped */
+  const allKeys = new Set(inv.assets.map(a => a.key));
+  ui.sel = new Set([...(ui.sel || [])].filter(k => allKeys.has(k)));
+  ui.filteredKeys = rows.map(x => x.a.key);
+  const nSel = ui.sel.size, allShownSel = shown.length > 0 && shown.every(x => ui.sel.has(x.a.key));
+  const bulkBar = `<div class="inv-bulkbar${nSel ? " on" : ""}" id="inv-bulkbar">
+      ${ui.group ? `<span class="inv-chip">${esc(QBR.invGroupLabel(ui.group))} <button type="button" class="btn btn-sm btn-link p-0" id="inv-group-x" aria-label="Clear ${escAttr(QBR.invGroupLabel(ui.group))} filter">✕</button></span>` : ""}
+      <span class="small"><b>${fmt(nSel)}</b> selected</span>
+      ${total && nSel < total ? `<button type="button" class="btn btn-sm btn-link p-0" id="inv-sel-filtered">Select all ${fmt(total)} shown by the filters</button>` : ""}
+      <button type="button" class="btn btn-sm btn-primary" id="inv-bulk-edit"${nSel ? "" : " disabled"}>Bulk edit${nSel ? ` (${fmt(nSel)})` : ""}</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="inv-sel-clear"${nSel ? "" : " disabled"}>Clear selection</button></div>`;
+  const assetTblBody = bulkBar + `<div class="table-responsive"><table class="table table-sm inv-tbl"><thead><tr>
+    <th style="width:34px" data-nosort><input type="checkbox" id="inv-sel-all"${allShownSel ? " checked" : ""} aria-label="Select all units shown"></th>
     <th>Serial</th><th>Client</th><th>Model</th><th>Type</th><th>Status</th><th>Warranty end</th><th class="text-end">Tickets</th></tr></thead><tbody>` +
-    (shown.map(x => `<tr class="inv-row" data-inv-key="${esc(x.a.key)}" tabindex="0" role="button" aria-label="Open asset ${esc(x.a.sn)}">
+    (shown.map(x => `<tr class="inv-row${ui.sel.has(x.a.key) ? " inv-row-sel" : ""}" data-inv-key="${esc(x.a.key)}" tabindex="0" role="button" aria-label="Open asset ${esc(x.a.sn)}">
+      <td><input type="checkbox" class="inv-sel" value="${escAttr(x.a.key)}"${ui.sel.has(x.a.key) ? " checked" : ""} aria-label="Select ${escAttr(x.a.sn)}"></td>
       <td>${invAssetLink(x.a.key, x.a.sn)}</td><td>${esc(x.a.client || "—")}</td><td>${esc(x.a.model || "—")}</td>
       <td>${esc(x.a.cat)}</td><td>${invPill(x.st)}</td><td>${invFmtDate(x.a.wend)}</td>
       <td class="text-end">${fmt(tixByKey.get(x.a.key) || 0)}</td></tr>`).join("") ||
-      `<tr><td colspan="7" class="text-muted">No assets match the current filters.</td></tr>`) +
+      `<tr><td colspan="8" class="text-muted">No assets match the current filters.</td></tr>`) +
     `</tbody></table></div>` +
     (!ui.showAll && total > 150 ? `<button type="button" class="btn btn-sm btn-outline-secondary" id="inv-showall">Show all ${fmt(total)}</button>` : "");
   const assetTbl = invCollapsible("assets", `Assets <span class="text-muted">(${fmt(total)})</span>`, assetTblBody);
@@ -1260,6 +1396,22 @@ function invBind(host) {
     ui.batch = b.dataset.invBatchShow; ui.showAll = false; rerender();
     const t = $("inv-card-assets"); if (t) t.scrollIntoView({ block: "start" });
   }));
+  host.querySelectorAll("input.inv-sel").forEach(c => c.addEventListener("change", e => {
+    e.stopPropagation();
+    if (c.checked) ui.sel.add(c.value); else ui.sel.delete(c.value);
+    rerender();
+  }));
+  const selAll = $("inv-sel-all"); if (selAll) selAll.addEventListener("change", () => {
+    host.querySelectorAll("input.inv-sel").forEach(c => { if (selAll.checked) ui.sel.add(c.value); else ui.sel.delete(c.value); });
+    rerender();
+  });
+  const selF = $("inv-sel-filtered"); if (selF) selF.addEventListener("click", () => { (ui.filteredKeys || []).forEach(k => ui.sel.add(k)); rerender(); });
+  const selC = $("inv-sel-clear"); if (selC) selC.addEventListener("click", () => { ui.sel.clear(); if (ui.form === "bulkedit") ui.form = null; rerender(); });
+  const gx = $("inv-group-x"); if (gx) gx.addEventListener("click", () => { ui.group = null; ui.showAll = false; rerender(); });
+  const be = $("inv-bulk-edit"); if (be) be.addEventListener("click", () => {
+    ui.form = "bulkedit"; rerender();
+    const fh = $("inv-form-host"); if (fh) fh.scrollIntoView({ block: "center" });
+  });
   host.querySelectorAll("[data-inv-batch-edit]").forEach(b => b.addEventListener("click", () => {
     ui.editBatch = b.dataset.invBatchEdit; ui.form = "editbatch"; rerender();
     const fh = $("inv-form-host"); if (fh) fh.scrollIntoView({ block: "center" });
@@ -1302,6 +1454,7 @@ function invBind(host) {
   host.querySelectorAll(".inv-row[data-inv-key]").forEach(r => {
     const go = e => {
       if (e.target && e.target.closest && e.target.closest("a")) return; // real link (new tab) handles it
+      if (e.target && e.target.closest && e.target.closest("input.inv-sel")) return; // selection checkbox
       e.preventDefault(); openAsset360(r.dataset.invKey);
     };
     r.addEventListener("click", go);
@@ -1327,6 +1480,71 @@ function invShowForm(which) {
   const clients = inv ? invClients(inv) : [];
   const dl = `<datalist id="dl-inv-clients">${clients.map(c => `<option value="${esc(c)}"></option>`).join("")}</datalist>`;
   const close = `<button type="button" class="btn btn-sm btn-outline-secondary" data-inv-form="">Close ✕</button>`;
+  if (which === "bulkedit") {
+    /* Bulk edit (2026-10-05): selected units → preview of every change → apply. */
+    const keys = [...(ui.sel || [])];
+    const conds = [...new Set((inv ? inv.assets : []).map(a => a.cond).filter(Boolean))].sort();
+    const batches = QBR.invBatches();
+    const today = invFmtDate(invToday());
+    host.innerHTML = `<div class="card-box"><h6>Bulk edit <span class="text-muted small fw-normal">(${keys.length} selected unit${keys.length === 1 ? "" : "s"})</span></h6>
+      <p class="small text-muted mb-2">Fill in only what should change; blank fields are left as they are. Click <b>Preview changes</b> to see exactly what will change before anything is saved.</p>
+      <div class="row g-2">
+        <div class="col-md-3"><label class="form-label small" for="bk-status">Status</label>
+          <select id="bk-status" class="form-select form-select-sm"><option value="">— keep —</option>${QBR.INV_STATUS.map(t => `<option value="${escAttr(t)}">${esc(t)}</option>`).join("")}</select></div>
+        <div class="col-md-3" id="bk-del-wrap" hidden><label class="form-label small" for="bk-del">Date delivered</label>
+          <input id="bk-del" type="date" class="form-control form-control-sm" value="${escAttr(today === "—" ? "" : today)}" title="Used for units that have no Date Delivered yet"></div>
+        <div class="col-md-3 align-items-end d-none" id="bk-clr-wrap"><label class="small"><input type="checkbox" id="bk-clr"> Also clear the client</label></div>
+        <div class="col-md-3"><label class="form-label small" for="bk-client">School / Client</label><input id="bk-client" class="form-control form-control-sm" list="dl-inv-clients" autocomplete="off">${dl}</div>
+        <div class="col-md-3"><label class="form-label small" for="bk-owner">Owner (assigned to)</label><input id="bk-owner" class="form-control form-control-sm"></div>
+        <div class="col-md-3"><label class="form-label small" for="bk-dr">DR #</label><input id="bk-dr" class="form-control form-control-sm"></div>
+        <div class="col-md-3"><label class="form-label small" for="bk-sq">SQ</label><input id="bk-sq" class="form-control form-control-sm" title="Adds a deployment row in 04 RAKSO INV.; older rows stay as history"></div>
+        <div class="col-md-3"><label class="form-label small" for="bk-batch">Batch code</label><input id="bk-batch" class="form-control form-control-sm" list="dl-bk-batches" autocomplete="off">
+          <datalist id="dl-bk-batches">${batches.map(b => `<option value="${escAttr(b.code)}"></option>`).join("")}</datalist></div>
+        <div class="col-md-3"><label class="form-label small" for="bk-ws">Warranty start</label><input id="bk-ws" type="date" class="form-control form-control-sm"></div>
+        <div class="col-md-3"><label class="form-label small" for="bk-we">Warranty end</label><input id="bk-we" type="date" class="form-control form-control-sm"></div>
+        <div class="col-md-3"><label class="form-label small" for="bk-cond">Condition</label><input id="bk-cond" class="form-control form-control-sm" list="dl-bk-cond" autocomplete="off">
+          <datalist id="dl-bk-cond">${conds.map(c => `<option value="${escAttr(c)}"></option>`).join("")}</datalist></div>
+      </div>
+      <div class="mt-2 d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-primary" id="bk-preview">Preview changes</button>
+        <button type="button" class="btn btn-sm btn-primary" id="bk-go" disabled>Apply</button>${close}</div>
+      <div id="bk-msg" class="small mt-1" aria-live="polite"></div>
+      <div id="bk-plan" class="mt-2"></div></div>`;
+    let plan = null, form = null;
+    const read = () => {
+      const v = id => $(id).value.trim();
+      return { status: v("bk-status"), delivered: v("bk-del"), clearClient: $("bk-clr").checked, client: v("bk-client"), owner: v("bk-owner"),
+        dr: v("bk-dr"), sq: v("bk-sq"), batch: v("bk-batch"), wstart: v("bk-ws"), wend: v("bk-we"), cond: v("bk-cond") };
+    };
+    const invalidate = () => { plan = null; $("bk-go").disabled = true; $("bk-go").textContent = "Apply"; $("bk-plan").innerHTML = ""; };
+    host.querySelectorAll("input,select").forEach(el => el.addEventListener("input", invalidate));
+    $("bk-status").addEventListener("change", () => {
+      const st = $("bk-status").value;
+      $("bk-del-wrap").hidden = st !== "Deployed"; $("bk-clr-wrap").classList.toggle("d-none", st !== "In Stock"); $("bk-clr-wrap").classList.toggle("d-flex", st === "In Stock"); invalidate();
+    });
+    $("bk-preview").addEventListener("click", () => {
+      form = read();
+      if (!Object.keys(form).some(k => k !== "delivered" && k !== "clearClient" && form[k])) { $("bk-msg").textContent = "Fill in at least one field to change."; return; }
+      plan = QBR.invBulkPlan(keys, form);
+      const changing = plan.filter(p => p.changes.length), warns = plan.filter(p => p.warn.length);
+      $("bk-msg").innerHTML = `${changing.length} of ${plan.length} unit${plan.length === 1 ? "" : "s"} will change` +
+        (warns.length ? ` · <span class="text-warning">${warns.length} with a note</span>` : "") + ".";
+      $("bk-plan").innerHTML = `<div class="table-responsive scan-review"><table class="table table-sm inv-tbl mb-0"><thead><tr><th>Serial</th><th>Changes</th><th>Note</th></tr></thead><tbody>` +
+        plan.map(p => `<tr><td><code>${esc(p.a.sn)}</code></td><td>${p.changes.length ? p.changes.map(c => `<span class="inv-chg"><b>${esc(c.label)}</b> ${esc(c.from)} → ${esc(c.to)}</span>`).join(" ") : `<span class="text-muted">no change</span>`}</td>
+          <td class="small text-warning">${esc(p.warn.join("; "))}</td></tr>`).join("") + `</tbody></table></div>`;
+      $("bk-go").disabled = !changing.length;
+      $("bk-go").textContent = changing.length ? `Apply to ${changing.length} unit${changing.length === 1 ? "" : "s"}` : "Apply";
+    });
+    $("bk-go").addEventListener("click", () => {
+      if (!plan) return;
+      const n = QBR.invBulkApply(plan.filter(p => p.changes.length), form);
+      ui.sel = new Set(); ui.form = null;
+      renderAll();
+      const m = $("inv-lookup-msg");
+      if (typeof scanToast === "function") scanToast(`Bulk edit: ${n} unit${n === 1 ? "" : "s"} updated.`, 5000);
+      else if (m) m.textContent = `Bulk edit: ${n} unit(s) updated.`;
+    });
+    return;
+  }
   if (which === "editbatch") {
     /* Edit batch (2026-10-05): bulk-update every unit carrying one batch code.
      * Blank field = no change. Applied per unit via journaled calls. */
@@ -1664,8 +1882,12 @@ function invLookupSuggest() {
   const q = QBR.invSerialKey(lq.value.trim());
   if (!inv || q.length < 2) { invLookupCloseDd(); return; }
   const hits = inv.assets.filter(a => a.key.indexOf(q) !== -1).slice(0, 8);
-  if (!hits.length) { invLookupCloseDd(); return; }
-  dd.innerHTML = hits.map(a =>
+  const groups = QBR.invGroupSearch(lq.value.trim(), 6);   // DR # / SQ / batch code (2026-10-05)
+  if (!hits.length && !groups.length) { invLookupCloseDd(); return; }
+  dd.innerHTML = groups.map(g =>
+    `<button type="button" class="inv-ac-item" data-gkind="${escAttr(g.kind)}" data-gval="${escAttr(g.value)}" role="option">` +
+    `<span class="inv-chip-k">${esc({ dr: "DR", sq: "SQ", batch: "Batch" }[g.kind])}</span> <code>${esc(g.value)}</code>` +
+    `<span class="text-muted small"> ${g.n} unit${g.n === 1 ? "" : "s"}</span></button>`).join("") + hits.map(a =>
     `<button type="button" class="inv-ac-item" data-key="${esc(a.key)}" role="option">` +
     `<code>${esc(a.sn)}</code>` +
     `<span class="text-muted small"> ${esc(a.client || "In stock")}${a.model ? " · " + esc(a.model) : ""}</span></button>`
@@ -1675,7 +1897,8 @@ function invLookupSuggest() {
   dd.querySelectorAll(".inv-ac-item").forEach(b => b.addEventListener("mousedown", e => {
     e.preventDefault(); /* before blur closes the dropdown */
     invLookupCloseDd();
-    openAsset360(b.dataset.key);
+    if (b.dataset.gkind) invApplyGroup({ kind: b.dataset.gkind, value: b.dataset.gval });
+    else openAsset360(b.dataset.key);
   }));
 }
 /* Searchable client filter: a text input whose dropdown lists clients
@@ -1721,18 +1944,28 @@ function invClientFilterBind(input) {
     if (d && !d.classList.contains("d-none")) { close(); apply(); }
   }, 150));
 }
+// Filter the Assets list to one DR / SQ / batch group (chip in the bulk bar clears it).
+function invApplyGroup(g) {
+  const ui = QBR._invUI;
+  ui.group = g; ui.q = ""; ui.showAll = false; ui.form = null; ui.view = "assets";
+  renderInventory();
+  const t = $("inv-card-assets"); if (t) t.scrollIntoView({ block: "start" });
+}
 function invLookupSerial() {
   const inv = invModel();
   const box = $("inv-lookup"), msg = $("inv-lookup-msg");
   if (!inv || !box) return;
   const raw = box.value.trim();
   const say = t => { if (msg) msg.innerHTML = t; };
-  if (!raw) { say("Type a serial number first."); box.focus(); return; }
+  if (!raw) { say("Type a serial, DR #, SQ or batch code first."); box.focus(); return; }
   const q = QBR.invSerialKey(raw);
   const hit = inv.assets.find(x => x.key === q);
   if (hit) { openAsset360(hit.key); return; }
   const subs = inv.assets.filter(x => x.key.indexOf(q) !== -1);
   if (subs.length === 1) { openAsset360(subs[0].key); return; }
+  // exact DR # / SQ / batch code → filter the list to that group
+  const gx = QBR.invGroupSearch(raw, 20).filter(g => g.value.toUpperCase() === raw.toUpperCase());
+  if (!subs.length && gx.length) { invApplyGroup(gx[0]); return; }
   if (subs.length > 1) {
     QBR._invUI.q = raw; QBR._invUI.showAll = false; QBR._invUI.form = null;
     renderInventory();
