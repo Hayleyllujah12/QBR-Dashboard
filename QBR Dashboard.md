@@ -68,6 +68,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >   data: URL in localStorage `rct-logo-v1`, applied to the img + favicon; a broken stored logo self-clears. Shown via
 >   `<img>` so an uploaded SVG can't execute. API `window.RCT_BRAND.{apply,reset}`. `QBR.*` identifiers, zip names,
 >   inventory/supplies/scan/patch/persist untouched. Suites green (105/23/71/37/12).
+>   **2026-10-05 — Inventory fixes (INV 1.22.0 · SCAN 1.3.0 · PERSIST 1.9.0)**: (1) **.xlsm corruption** — `fsSaveKind` wrote
+>   `bookType:"xlsx"` into linked .xlsm files (workbook content type `spreadsheetml.sheet.main+xml` ≠ `.xlsm` → Excel refuses;
+>   VBA dropped). Now `fsBookType(name)` picks xlsm/xlsx, `fsEnsureVba` re-reads once with `bookVBA` to carry `vbaraw`,
+>   write uses `bookVBA:true`, and `fsVerifyBytes` (CFB: content type matches extension, `/xl/vbaProject.bin` present
+>   when expected, all sheets readable) gates every write → else `download-unsafe`. External-change path no longer
+>   rebuilds over the link (`download-changed` + re-link prompt). Picker accepts the macro MIME. (2) **Dead serial
+>   links** — `invSerialCell` (ticket list) / Ticket 360 tag unregistered serials "Not in inventory"; `#asset/<unknown>`
+>   renders a not-found card in Asset 360 (suggestions + `data-inv-register` → `QBR.invRegisterSerial` → intake
+>   prefilled); New ticket form live hint + 2nd-click confirm. `QBR.invLooseKey`/`invSuggestSerials` (A–Z0–9, edit
+>   distance ≤ 1) only SUGGEST — join keys never change. (3) **Scan batch** — `scanBatchTagDialog(mode)`: deploy review
+>   (new/stock/same/other/assigned/dup, per-row Add|Update/Skip, warranty fill/overwrite) applied via journaled
+>   `invIntake`/`invDeploy`/`invUpdateAsset`/`invLog` (old code mutated `contact`/`remarks` unjournaled); stocktake
+>   (found/missing/other/unknown, export .xlsx, fixes). Dup dialog: "Add anyway" under Advanced when the serial is in
+>   inventory. Tests: `tests/ui-save.cjs` (16, mocked FS handle, synthetic .xlsm from `tests/make-xlsm-fixture.cjs`),
+>   `tests/ui-inv-fixes.cjs` (28). Suites: 105/23/71/37/12/16/28.
 > - **Live / production version is `QBR-Dashboard_1.8.5`** — app label **1.8.5** (promoted
 >   2026-09-17). In-place fixes are dated patches, **not version bumps** — the label stays 1.8.5.
 >   Recent behavior: security-default status shows as "Not Enabled" (was "Disabled"; canonical model

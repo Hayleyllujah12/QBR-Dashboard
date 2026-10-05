@@ -22,7 +22,7 @@ var QBR = window.QBR = window.QBR || {};
 /* Delivery package version (semver MAJOR.MINOR.PATCH — see VERSIONING.md).
  * Single source of truth for the shipped zip name qbr-inventory-app-<ver>.zip
  * and the version badge on the Inventory page. */
-QBR.INV_VERSION = "1.21.0";
+QBR.INV_VERSION = "1.22.0";
 
 /* ---------- Lenovo warranty lookup ---------------------------------------
  * Generic lookup page (per Pedro): paste any serial number. Deep per-unit
@@ -355,6 +355,56 @@ function invTixLink(tno, label) {
 }
 function invAssetLink(key, label) {
   return `<a href="#asset/${encodeURIComponent(key)}" target="_blank" rel="noopener" class="inv-link"><code>${esc(label)}</code></a>`;
+}
+/* 2026-10-05: serials that aren't in 02 DEVICES no longer render as dead links.
+ * Loose key (letters+digits only) is used ONLY to suggest close matches —
+ * stored serials and the join key are never changed or merged. */
+QBR.invLooseKey = function (s) { return QBR.invSerialKey(s).replace(/[^A-Z0-9]/g, ""); };
+const _invKeySetCache = new WeakMap();
+function invHasAsset(key) {
+  const inv = invModel(); if (!inv) return false;
+  let set = _invKeySetCache.get(inv.assets);
+  if (!set) { set = new Set(inv.assets.map(a => a.key)); _invKeySetCache.set(inv.assets, set); }
+  return set.has(key);
+}
+function invEdit1(a, b) { // true when edit distance <= 1
+  if (a === b) return true;
+  const la = a.length, lb = b.length; if (Math.abs(la - lb) > 1) return false;
+  let i = 0, j = 0, d = 0;
+  while (i < la && j < lb) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++d > 1) return false;
+    if (la > lb) i++; else if (lb > la) j++; else { i++; j++; }
+  }
+  return d + (la - i) + (lb - j) <= 1;
+}
+QBR.invSuggestSerials = function (raw, max) {
+  const inv = invModel(), lk = QBR.invLooseKey(raw);
+  if (!inv || lk.length < 4) return [];
+  const exact = inv.assets.filter(a => QBR.invLooseKey(a.sn) === lk);
+  const near = lk.length >= 6 ? inv.assets.filter(a => exact.indexOf(a) < 0 && invEdit1(QBR.invLooseKey(a.sn), lk)) : [];
+  return exact.concat(near).slice(0, max || 3);
+};
+function invSerialCell(key, sn) {
+  return invHasAsset(key) ? invAssetLink(key, sn)
+    : `<code>${esc(sn)}</code> <span class="inv-notinv" title="This serial isn't in 02 DEVICES">Not in inventory</span>`;
+}
+// Open the Register assets (intake) form prefilled with a serial — from any page.
+QBR.invRegisterSerial = function (sn) {
+  QBR._invUI.form = "intake";
+  if (typeof goToTab === "function") goToTab("dash-inventory");
+  try { history.replaceState(null, "", location.pathname + location.search + "#inventory"); } catch (e) {}
+  renderInventory();
+  const ta = $("in-serials");
+  if (ta) { ta.value = String(sn || ""); ta.focus(); }
+  const fh = $("inv-form-host");
+  if (fh) fh.scrollIntoView({ block: "center" });
+};
+if (typeof document !== "undefined" && document.addEventListener) {
+  document.addEventListener("click", e => {
+    const b = e.target && e.target.closest && e.target.closest("[data-inv-register]");
+    if (b) { e.preventDefault(); QBR.invRegisterSerial(b.getAttribute("data-inv-register")); }
+  });
 }
 function invPrioPill(p) {
   const tone = { "High": "red", "Medium": "orange", "Low": "blue" }[p] || "gray";
@@ -923,7 +973,7 @@ function invTicketsCard(inv, ui, flags, today) {
       const open = invTixOpen(t), st = invTixStatus(t);
       const days = open && t.repEdtech ? invDaysBetween(t.repEdtech, today) : (t.completed && t.repEdtech ? invDaysBetween(t.repEdtech, t.completed) : null);
       return `<tr><td>${invTixLink(t.tno)}</td>
-        <td>${invAssetLink(t.key, t.sn)}</td>
+        <td>${invSerialCell(t.key, t.sn)}</td>
         <td>${esc(t.client || "—")}</td><td>${invPrioPill(t.priority)}</td><td>${invPill(st)}</td>
         <td>${invFmtDate(t.repEdtech)}</td><td class="text-end">${days == null ? "—" : fmt(days)}</td>
         <td>${esc(t.issue || "—")}</td><td>${esc(t.pic || "—")}</td>
@@ -1274,7 +1324,8 @@ function invShowForm(which) {
     host.innerHTML = `<div class="card-box"><h6>New support ticket</h6>
       <div class="row g-2">
         <div class="col-md-3"><label class="form-label small">Serial *</label>
-          <input id="tk-sn" class="form-control form-control-sm" value="${esc(pre)}" placeholder="PF4ABC123"></div>
+          <input id="tk-sn" class="form-control form-control-sm" value="${esc(pre)}" placeholder="PF4ABC123" autocomplete="off">
+          <div id="tk-sn-hint" class="small mt-1" aria-live="polite"></div></div>
         <div class="col-md-3"><label class="form-label small">Requested by *</label>
           <input id="tk-req" class="form-control form-control-sm" placeholder="e.g. Juan Dela Cruz"></div>
         <div class="col-md-3"><label class="form-label small">Category</label>
@@ -1290,9 +1341,33 @@ function invShowForm(which) {
       <div class="mt-2 d-flex gap-2"><button type="button" class="btn btn-sm btn-primary" id="tk-go">Open ticket</button>${close}</div>
       <div id="tk-msg" class="small mt-1" aria-live="polite"></div></div>`;
     ui.prefillSn = null;
+    // 2026-10-05: live check — is this serial registered? suggest close matches.
+    let tkAck = "";
+    const tkHint = () => {
+      const h = $("tk-sn-hint"), raw = $("tk-sn").value.trim(); if (!h) return;
+      tkAck = "";
+      if (!raw) { h.innerHTML = ""; return; }
+      const inv0 = invModel(), hit = inv0 ? inv0.assets.find(x => x.key === QBR.invSerialKey(raw)) : null;
+      if (hit) { h.innerHTML = `<span class="text-success">✓ In inventory</span><span class="text-muted"> · ${esc(hit.client || "in stock")}${hit.model ? " · " + esc(hit.model) : ""}</span>`; return; }
+      const sg = QBR.invSuggestSerials(raw);
+      h.innerHTML = `<span class="inv-notinv">Not in inventory</span>` +
+        (sg.length ? ` Did you mean ${sg.map(a => `<button type="button" class="btn btn-sm btn-link p-0" data-tk-use="${escAttr(a.sn)}"><code>${esc(a.sn)}</code></button>`).join(", ")}?` : "") +
+        ` <button type="button" class="btn btn-sm btn-link p-0" data-inv-register="${escAttr(raw)}">Register this unit</button>`;
+      h.querySelectorAll("[data-tk-use]").forEach(b => b.addEventListener("click", () => { $("tk-sn").value = b.dataset.tkUse; tkHint(); }));
+    };
+    $("tk-sn").addEventListener("input", tkHint);
+    tkHint();
     $("tk-go").addEventListener("click", () => {
       const sn = $("tk-sn").value.trim(), issue = $("tk-issue").value.trim(), req = $("tk-req").value.trim();
       if (!sn || !issue || !req) { $("tk-msg").textContent = "Serial, requester and issue are required."; return; }
+      const invC = invModel(), known = invC && invC.assets.some(x => x.key === QBR.invSerialKey(sn));
+      if (!known && tkAck !== sn) {
+        tkAck = sn;
+        const sg = QBR.invSuggestSerials(sn);
+        $("tk-msg").innerHTML = `<span class="text-warning">${esc(sn)} isn't in the inventory${sg.length ? ` — did you mean <code>${esc(sg[0].sn)}</code>?` : "."}
+          Click <b>Open ticket</b> again to open it with the serial as typed.</span>`;
+        return;
+      }
       const inv2 = invModel(), a = inv2 ? inv2.assets.find(x => x.key === QBR.invSerialKey(sn)) : null;
       const tno = QBR.invAddTicket({ sn, client: a ? a.client : null, model: a ? a.model : null,
         cat: $("tk-cat").value, priority: $("tk-prio").value || null, requester: req,
@@ -1551,6 +1626,23 @@ function renderAsset360Panel() {
     return;
   }
   const a = inv.assets.find(x => x.key === key);
+  if (!a && key) {
+    const sugg = QBR.invSuggestSerials(key);
+    host.innerHTML = `<div class="card-box inv-notfound"><h6>Unit not in inventory</h6>
+      <p class="mb-1">Serial <code>${esc(key)}</code> isn't in the inventory (sheet <b>02 DEVICES</b>), so there's no unit page to show.</p>
+      <p class="small text-muted mb-2">This usually means a ticket was opened for a unit that was never registered, or the serial was typed differently
+        (for example with a hyphen or space).</p>
+      ${sugg.length ? `<p class="mb-2">Did you mean ${sugg.map(s => `<a href="#asset/${encodeURIComponent(s.key)}" class="inv-link"><code>${esc(s.sn)}</code></a>${s.client ? ` <span class="text-muted small">(${esc(s.client)})</span>` : ""}`).join(", ")}?</p>` : ""}
+      <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-sm btn-primary" data-inv-register="${escAttr(key)}">Register this unit</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="a360-nf-back">Back to Inventory</button></div></div>`;
+    $("a360-nf-back").addEventListener("click", () => {
+      QBR._invA360 = null;
+      try { history.replaceState(null, "", location.pathname + location.search + "#inventory"); } catch (e) {}
+      goToTab("dash-inventory");
+    });
+    return;
+  }
   if (!a) {
     host.innerHTML = `<div class="card-box"><h6>Asset 360</h6>
       <p class="text-muted">Pick an asset from the Inventory table, or search by serial below.</p>
@@ -1705,7 +1797,8 @@ function renderTicket360Panel() {
   /* at-a-glance overview: who requested, customer, device, issue summary */
   const facts = [
     ["Requested by", esc(t.requester || "—")], ["Customer", esc(t.client || "—")],
-    ["Device", a ? invAssetLink(a.key, a.sn) : `<code>${esc(t.sn)}</code>`],
+    ["Device", a ? invAssetLink(a.key, a.sn) : `<code>${esc(t.sn)}</code> <span class="inv-notinv">Not in inventory</span>
+      <button type="button" class="btn btn-sm btn-link p-0 ms-1" data-inv-register="${escAttr(t.sn)}">Register this unit</button>`],
     ["Model", esc(t.model || (a && a.model) || "—")],
     ["Issue", `<b>${esc(t.issue || "—")}</b>`],
     ["Category", esc(t.cat || "—")], ["Person in-charge", esc(t.pic || "—")],
@@ -1817,7 +1910,7 @@ function invApplyHash() {
     const key = decodeURIComponent(m[1]);
     if (QBR._invA360 === key) return true;
     const inv = invModel();
-    if (inv && inv.assets.some(a => a.key === key)) { openAsset360(key); return true; }
+    if (inv && inv.assets.length) { openAsset360(key); return true; }   // unknown serial → "not in inventory" page
   }
   return false;
 }

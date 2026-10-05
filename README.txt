@@ -6,6 +6,30 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-05 — Inventory fixes: safe Save to Excel, batch tagging, stocktake, serial links
+  - SAVE TO EXCEL NO LONGER BREAKS .xlsm FILES. Saving into a linked macro workbook (.xlsm) used to
+    write it in the wrong format, so Excel refused to open it ("file format or file extension is
+    not valid") and the macros were lost. It now saves in the right format and keeps the macros.
+    Every save is checked first; if anything looks wrong, the linked file is NOT touched and a
+    separate copy downloads instead.
+  - If the linked file was changed in Excel after you linked it, the dashboard no longer overwrites
+    it. Your changes download as a separate copy; click "Link file" again to keep saving directly.
+  - A file damaged by the old version: restore it from OneDrive/SharePoint Version history (keeps
+    macros), or copy it and rename the copy from .xlsm to .xlsx to see the data.
+  - SCAN › TAG BATCH now shows one review for the whole batch: new units are registered, units
+    already in inventory (in stock, same school or another school) are updated instead of skipped,
+    and units scanned twice count once. Units moving from another school are highlighted, and each
+    row can be set to Skip. School, SQ, DR #, owner and date are entered once for all of them.
+    Warranty start is filled only where it's empty, unless you tick "overwrite".
+  - SCAN › STOCKTAKE (new, check only): scan everything at a school and compare it with the
+    inventory — found, missing, belongs to another school, not in inventory. Nothing changes unless
+    you apply a fix (move here / register). "Export stocktake" downloads the list as Excel.
+  - "Add anyway" for a serial that's already in inventory is now under "Advanced".
+  - TICKETS: the New ticket form warns when a serial isn't in inventory and suggests close matches
+    (e.g. PF-4J4PRJ → PF4J4PRJ). Serials that aren't registered show a "Not in inventory" tag
+    instead of a link that went nowhere, and opening such a link shows a clear message with
+    "Register this unit".
+
 UPDATE — 2026-10-05 — New name and logo: RCT OpsDesk
   - The app is now called RCT OpsDesk. The top bar shows the new logo and "RCT OpsDesk", and the
     browser tab reads "RCT OpsDesk — IT Operations Hub" with the logo as its icon.
