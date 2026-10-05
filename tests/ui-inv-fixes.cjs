@@ -24,6 +24,11 @@ async function load(b) {
 async function serialFixes(b) {
   console.log("== unregistered serials");
   const p = await load(b);
+  await p.evaluate(() => { goToTab("dash-inventory"); QBR._invUI.view = "assets"; renderInventory(); }); await p.waitForTimeout(300);
+  const cnt = () => p.evaluate(() => document.querySelectorAll("#inv-col-assets tbody tr.inv-row").length);
+  const all0 = await cnt(); await p.selectOption("#inv-f-status", { index: 1 }); await p.waitForTimeout(150);
+  await p.selectOption("#inv-f-status", { index: 0 }); await p.waitForTimeout(150);
+  ok((await cnt()) === all0, "choosing 'All statuses' again restores the list (was empty before the fix)");
   const sn = await p.evaluate(() => invModel().assets[0].sn);
   const typo = sn.slice(0, 2) + "-" + sn.slice(2);
   await p.evaluate(() => { goToTab("dash-inventory"); QBR._invUI.view = "tickets"; QBR._invUI.form = "ticket"; renderInventory(); });
@@ -89,6 +94,8 @@ async function batchTests(b) {
   // skip one of the moves
   await p.click(`[data-sb-act="${pick.moving[1].toUpperCase()}|other"][data-v="skip"]`); await p.waitForTimeout(150);
   ok(/add 3 · update 3/.test(await p.textContent("#sb-go")), "per-row Skip updates the totals (update 3)");
+  const code = await p.inputValue("#sb-batch");
+  ok(/^B-\d{8}-01$/.test(code), "batch code auto-generated (" + code + ")");
   await p.fill("#sb-sq", "SQ-TEST-1"); await p.fill("#sb-owner", "Test Owner"); await p.fill("#sb-dr", "DR-TEST");
   // warranty: known batch end date for all units + one per-row exception
   await p.fill("#sb-wend", "2029-06-30"); await p.waitForTimeout(100);
@@ -114,10 +121,29 @@ async function batchTests(b) {
   ok(after.wend[1] === "2027-12-31", "per-row warranty end overrides the batch date");
   ok(after.wyears > 2.5 && after.wyears < 3, "warranty years derived from start → end (" + after.wyears + ")");
   ok(!(await p.isVisible("#scan-batch-modal")), "dialog closes after apply");
+  const inBatch = await p.evaluate(c => invModel().assets.filter(a => a.batch === c).map(a => a.sn), code);
+  ok(inBatch.length === 6 && !inBatch.includes(pick.moving[1]), "batch code stored on the 6 added/updated units (skipped unit excluded)");
+  // Batches view + Edit batch
+  await p.evaluate(() => { goToTab("dash-inventory"); QBR._invUI.view = "assets"; QBR._invUI.form = null; renderInventory(); });
+  await p.waitForTimeout(300);
+  ok(await p.isVisible(`[data-inv-batch-edit="${code}"]`), "Batches card lists " + code);
+  await p.click(`[data-inv-batch-show="${code}"]`); await p.waitForTimeout(300);
+  const shown = await p.evaluate(() => document.querySelectorAll("#inv-col-assets tbody tr.inv-row").length);
+  ok(shown === 6, "Show units filters the asset list to the batch (" + shown + ")");
+  await p.click(`[data-inv-batch-edit="${code}"]`); await p.waitForTimeout(300);
+  ok(await p.isVisible("#eb-go"), "Edit batch form opens");
+  await p.fill("#eb-owner", "Batch Owner"); await p.fill("#eb-we", "2030-01-31");
+  await p.uncheck(`.eb-u[value="${fresh[2]}"]`);
+  await p.click("#eb-go"); await p.waitForTimeout(300);
+  const eb = await p.evaluate(a => { const A = invModel().assets, f = sn => A.find(x => x.sn === sn) || {}, d = x => x ? x.toISOString().slice(0, 10) : null;
+    return { o0: f(a[0]).contact, e0: d(f(a[0]).wend), o2: f(a[2]).contact, e2: d(f(a[2]).wend) }; }, fresh);
+  ok(eb.o0 === "Batch Owner" && eb.e0 && eb.e0.startsWith("2030-01"), "Edit batch updated owner + warranty end");
+  ok(eb.o2 !== "Batch Owner", "unticked unit left unchanged");
+  if (SHOTS) await shot(p, "edit-batch");
 
   console.log("== stocktake");
   await p.evaluate(list => {
-    const ui = QBR._scanUI; ui.rows = [];
+    goToTab("dash-scan"); const ui = QBR._scanUI; ui.rows = [];
     list.forEach(sn => ui.rows.push({ id: ui.nextId++, file: null, dataUrl: "", fp: "s" + Math.random(), model: "", serial: sn, productKey: "", barcodeRaw: "", status: "done", dup: null, sel: false }));
     renderScan();
   }, [pick.same[0], pick.moving[1], "ZZUNKNOWN9"]);
@@ -140,6 +166,18 @@ async function batchTests(b) {
   ok(fixed[0] === pick.target && fixed[1] === pick.target, "fixes applied: moved + registered to " + pick.target);
   ok(/Applied: 1 registered, 1 moved/.test(await p.textContent("#sb-msg")), "dialog stays open with a confirmation");
   ok(/3 found/.test(await p.textContent("#sb-sum")), "re-check after fixes: all 3 scanned units found");
+  // stocktake by batch code
+  await p.evaluate(list => {
+    goToTab("dash-scan"); const ui = QBR._scanUI; ui.rows = [];
+    list.forEach(sn => ui.rows.push({ id: ui.nextId++, file: null, dataUrl: "", fp: "b" + Math.random(), model: "", serial: sn, productKey: "", barcodeRaw: "", status: "done", dup: null, sel: false }));
+    renderScan();
+  }, [fresh[0], pick.moving[1]]);
+  await p.waitForTimeout(200);
+  await p.click("#scan-stocktake"); await p.waitForTimeout(200);
+  await p.selectOption("#sb-target", "batch"); await p.waitForTimeout(100);
+  await p.fill("#sb-batchq", code); await p.waitForTimeout(200);
+  const bs = (await p.textContent("#sb-sum")).replace(/\s+/g, " ");
+  ok(/1 found/.test(bs) && /5 missing/.test(bs) && /1 belong elsewhere/.test(bs), "stocktake by batch: 1 found · 5 missing · 1 elsewhere (" + bs.slice(0, 90) + ")");
   ok(p._errs.length === 0, "no page errors" + (p._errs.length ? ": " + p._errs.join(" | ") : ""));
   await p.close();
 }

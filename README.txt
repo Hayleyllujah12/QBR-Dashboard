@@ -6,6 +6,20 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-05 — Batch codes: find and bulk-update the units of one batch
+  - Every Tag batch now gets a batch code, e.g. B-20261005-01 (date + running number for that day).
+    It's filled in automatically; type your own, or pick an existing code to add units to that
+    batch, or clear it for no batch.
+  - The code is saved on each unit. The first time you use "Save to Excel", a "Batch Code"
+    column is added at the end of the 02 DEVICES sheet (no other column moves).
+  - INVENTORY › ASSETS has a new Batches list (code, date, school, number of units):
+      · "Show units" filters the asset list to that batch (also via the new Batch filter).
+      · "Edit batch" changes school, owner, DR #, warranty start/end or condition for all units
+        of the batch at once. Leave a field blank to keep it; untick units to leave them out.
+  - STOCKTAKE can now check a whole batch: choose "Compare against: A batch code".
+  - Asset 360 shows the unit's batch code.
+  - Fixed: choosing "All types" or "All statuses" again in the asset filters showed an empty list.
+
 UPDATE — 2026-10-05 — Inventory fixes: safe Save to Excel, batch tagging, stocktake, serial links
   - SAVE TO EXCEL NO LONGER BREAKS .xlsm FILES. Saving into a linked macro workbook (.xlsm) used to
     write it in the wrong format, so Excel refused to open it ("file format or file extension is
