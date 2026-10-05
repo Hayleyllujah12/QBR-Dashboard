@@ -105,6 +105,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >   (client && !delivered && In Stock). Groups `{kind: dr|sq|batch, value}`: `QBR.invGroupKeys/GroupSearch/GroupLabel`,
 >   lookup suggestions + exact-match Open → `invApplyGroup` (`ui.group`, chip `#inv-group-x`). Tests: ui-inv-fixes 58,
 >   ui-save 20 (SQ row appended to 04 RAKSO INV.).
+>   **All-fields edit (INV 1.25.0)**: `ui.form` "bulkedit" and "editbatch" share one form (ids `bk-*`, tick list `.bk-u`,
+>   preview gate). `invBulkPlan` handles every DEVICES field (text: "-" clears; `delivered` sets for all unless In Stock;
+>   `wyears` + start → end recomputed via months). Asset 360 edit gains `ae-batch` / `ae-sq` (SQ → `invAddDeployment`).
+>   ui-inv-fixes 64.
 > - **Live / production version is `QBR-Dashboard_1.8.5`** — app label **1.8.5** (promoted
 >   2026-09-17). In-place fixes are dated patches, **not version bumps** — the label stays 1.8.5.
 >   Recent behavior: security-default status shows as "Not Enabled" (was "Disabled"; canonical model

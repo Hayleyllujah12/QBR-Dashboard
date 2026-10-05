@@ -22,7 +22,7 @@ var QBR = window.QBR = window.QBR || {};
 /* Delivery package version (semver MAJOR.MINOR.PATCH — see VERSIONING.md).
  * Single source of truth for the shipped zip name qbr-inventory-app-<ver>.zip
  * and the version badge on the Inventory page. */
-QBR.INV_VERSION = "1.24.0";
+QBR.INV_VERSION = "1.25.0";
 
 /* ---------- Lenovo warranty lookup ---------------------------------------
  * Generic lookup page (per Pedro): paste any serial number. Deep per-unit
@@ -917,15 +917,17 @@ QBR.invBulkPlan = function (keys, f) {
       patch[field] = to;
       changes.push({ label, from: fromTxt != null ? fromTxt : (cur instanceof Date ? fd(cur) : (cur || "—")), to: toTxt != null ? toTxt : (to === "" || to == null ? "—" : (to instanceof Date ? fd(to) : String(to))) });
     };
-    if (f.client) set("client", "Client", f.client);
-    if (f.owner) set("contact", "Owner", f.owner);
-    if (f.dr) set("dr", "DR #", f.dr);
-    if (f.batch) set("batch", "Batch", f.batch);
-    if (f.cond) set("cond", "Condition", f.cond);
+    // text fields: blank = keep, a single "-" clears
+    const TXT = [["client", "client", "Client"], ["owner", "contact", "Contact person"], ["dr", "dr", "DR #"], ["batch", "batch", "Batch"],
+      ["cond", "cond", "Condition"], ["model", "model", "Model"], ["cat", "cat", "Category"], ["desc", "desc", "Description"],
+      ["brand", "brand", "Brand"], ["supplier", "supplier", "Supplier"], ["addr", "addr", "Address"], ["phone", "phone", "Contact details"]];
+    TXT.forEach(([k, field, label]) => { if (f[k]) set(field, label, f[k] === "-" ? "" : f[k]); });
+    const newClient = f.client === "-" ? "" : (f.client || a.client || "");
+    if (f.delivered && f.status !== "In Stock") set("delivered", "Date delivered", f.delivered, a.delivered ? fd(a.delivered) : "—", f.delivered);
     if (f.status === "Deployed") {
-      if (!f.client && !String(a.client || "").trim()) warn.push("needs a client to be Deployed");
+      if (!String(newClient).trim()) warn.push("needs a client to be Deployed");
       else {
-        if (!a.delivered) set("delivered", "Date delivered", f.delivered || invFmtDate(invToday()), "—", f.delivered || invFmtDate(invToday()));
+        if (!a.delivered && !f.delivered) set("delivered", "Date delivered", invFmtDate(invToday()), "—", invFmtDate(invToday()));
         if (badCond(a.cond) && !f.cond) set("cond", "Condition", "No Issue");
       }
     } else if (f.status === "In Stock") {
@@ -934,12 +936,16 @@ QBR.invBulkPlan = function (keys, f) {
       if (badCond(a.cond) && !f.cond) set("cond", "Condition", "No Issue");
     } else if (f.status === "In Repair") { if (!f.cond) set("cond", "Condition", "For Repair"); }
     else if (f.status === "Retired") { if (!f.cond) set("cond", "Condition", "Retired"); }
-    if (f.wstart) {
-      set("wstart", "Warranty start", f.wstart);
-      if (!f.wend && patch.wstart !== undefined) {
-        const d = new Date(f.wstart + "T00:00:00"), y = a.wyears || 3;
-        const we = new Date(d.getFullYear() + y, d.getMonth(), Math.min(d.getDate(), 28));
-        set("wend", "Warranty end", we);
+    const yrs = f.wyears !== "" && f.wyears != null && isFinite(Number(f.wyears)) ? Number(f.wyears) : null;
+    if (yrs != null && Number(a.wyears) !== yrs) { patch.wyears = yrs; changes.push({ label: "Warranty years", from: a.wyears == null ? "—" : String(a.wyears), to: String(yrs) }); }
+    if (f.wstart) set("wstart", "Warranty start", f.wstart);
+    // end = start + years when start or years changed and no explicit end was typed
+    if (!f.wend && (patch.wstart !== undefined || patch.wyears !== undefined)) {
+      const st = patch.wstart !== undefined ? new Date(f.wstart + "T00:00:00") : a.wstart;
+      const y = yrs != null ? yrs : (a.wyears || 3);
+      if (st instanceof Date && !isNaN(st)) {
+        const months = Math.round(y * 12);
+        set("wend", "Warranty end", new Date(st.getFullYear(), st.getMonth() + months, Math.min(st.getDate(), 28)));
       }
     }
     let wend = null;
@@ -1480,51 +1486,78 @@ function invShowForm(which) {
   const clients = inv ? invClients(inv) : [];
   const dl = `<datalist id="dl-inv-clients">${clients.map(c => `<option value="${esc(c)}"></option>`).join("")}</datalist>`;
   const close = `<button type="button" class="btn btn-sm btn-outline-secondary" data-inv-form="">Close ✕</button>`;
-  if (which === "bulkedit") {
-    /* Bulk edit (2026-10-05): selected units → preview of every change → apply. */
-    const keys = [...(ui.sel || [])];
-    const conds = [...new Set((inv ? inv.assets : []).map(a => a.cond).filter(Boolean))].sort();
-    const batches = QBR.invBatches();
-    const today = invFmtDate(invToday());
-    host.innerHTML = `<div class="card-box"><h6>Bulk edit <span class="text-muted small fw-normal">(${keys.length} selected unit${keys.length === 1 ? "" : "s"})</span></h6>
-      <p class="small text-muted mb-2">Fill in only what should change; blank fields are left as they are. Click <b>Preview changes</b> to see exactly what will change before anything is saved.</p>
+  if (which === "bulkedit" || which === "editbatch") {
+    /* Bulk edit / Edit batch (2026-10-05, all intake fields): one form for a
+     * batch or any selected units → tick list → preview of every change → apply.
+     * Blank = keep; a single "-" clears a text field. */
+    const code = which === "editbatch" ? (ui.editBatch || "") : "";
+    const keys = which === "editbatch" ? (inv ? inv.assets.filter(a => invSameBatch(a, code)).map(a => a.key) : []) : [...(ui.sel || [])];
+    const units = keys.map(k => inv.assets.find(a => a.key === k)).filter(Boolean);
+    const uniq = f => [...new Set((inv ? inv.assets : []).map(a => a[f]).filter(Boolean))].sort();
+    const dlist = (id, vals) => `<datalist id="${id}">${vals.map(v => `<option value="${escAttr(v)}"></option>`).join("")}</datalist>`;
+    const fd = d => (d instanceof Date && !isNaN(d)) ? invFmtDate(d) : "—";
+    const TX = (id, label, extra) => `<div class="col-md-3"><label class="form-label small" for="${id}">${label}</label><input id="${id}" class="form-control form-control-sm" autocomplete="off"${extra || ""}></div>`;
+    const DT = (id, label, title) => `<div class="col-md-3"><label class="form-label small" for="${id}">${label}</label><input id="${id}" type="date" class="form-control form-control-sm"${title ? ` title="${escAttr(title)}"` : ""}></div>`;
+    host.innerHTML = `<div class="card-box"><h6>${code ? `Edit batch <code>${esc(code)}</code>` : "Bulk edit"} <span class="text-muted small fw-normal">(${units.length} unit${units.length === 1 ? "" : "s"})</span></h6>
+      <p class="small text-muted mb-2">Fill in only what should change; blank fields are left as they are. Type a single <b>-</b> to clear a text field.
+        Untick units to leave them out, then <b>Preview changes</b> to see exactly what will change before anything is saved.</p>
+      <div class="small fw-semibold text-muted mt-1">Status &amp; deployment</div>
       <div class="row g-2">
         <div class="col-md-3"><label class="form-label small" for="bk-status">Status</label>
           <select id="bk-status" class="form-select form-select-sm"><option value="">— keep —</option>${QBR.INV_STATUS.map(t => `<option value="${escAttr(t)}">${esc(t)}</option>`).join("")}</select></div>
-        <div class="col-md-3" id="bk-del-wrap" hidden><label class="form-label small" for="bk-del">Date delivered</label>
-          <input id="bk-del" type="date" class="form-control form-control-sm" value="${escAttr(today === "—" ? "" : today)}" title="Used for units that have no Date Delivered yet"></div>
+        ${TX("bk-client", "School / Client", ` list="dl-inv-clients"`)}${dl}
+        ${DT("bk-del", "Date delivered", "Sets the date for every selected unit. With Status = Deployed and no date, today is used for units without one.")}
         <div class="col-md-3 align-items-end d-none" id="bk-clr-wrap"><label class="small"><input type="checkbox" id="bk-clr"> Also clear the client</label></div>
-        <div class="col-md-3"><label class="form-label small" for="bk-client">School / Client</label><input id="bk-client" class="form-control form-control-sm" list="dl-inv-clients" autocomplete="off">${dl}</div>
-        <div class="col-md-3"><label class="form-label small" for="bk-owner">Owner (assigned to)</label><input id="bk-owner" class="form-control form-control-sm"></div>
-        <div class="col-md-3"><label class="form-label small" for="bk-dr">DR #</label><input id="bk-dr" class="form-control form-control-sm"></div>
-        <div class="col-md-3"><label class="form-label small" for="bk-sq">SQ</label><input id="bk-sq" class="form-control form-control-sm" title="Adds a deployment row in 04 RAKSO INV.; older rows stay as history"></div>
-        <div class="col-md-3"><label class="form-label small" for="bk-batch">Batch code</label><input id="bk-batch" class="form-control form-control-sm" list="dl-bk-batches" autocomplete="off">
-          <datalist id="dl-bk-batches">${batches.map(b => `<option value="${escAttr(b.code)}"></option>`).join("")}</datalist></div>
-        <div class="col-md-3"><label class="form-label small" for="bk-ws">Warranty start</label><input id="bk-ws" type="date" class="form-control form-control-sm"></div>
-        <div class="col-md-3"><label class="form-label small" for="bk-we">Warranty end</label><input id="bk-we" type="date" class="form-control form-control-sm"></div>
-        <div class="col-md-3"><label class="form-label small" for="bk-cond">Condition</label><input id="bk-cond" class="form-control form-control-sm" list="dl-bk-cond" autocomplete="off">
-          <datalist id="dl-bk-cond">${conds.map(c => `<option value="${escAttr(c)}"></option>`).join("")}</datalist></div>
+        ${TX("bk-dr", "DR #")}${TX("bk-sq", "SQ", ` title="Adds a deployment row in 04 RAKSO INV.; older rows stay as history"`)}
+        ${TX("bk-batch", "Batch code", ` list="dl-bk-batches"`)}${dlist("dl-bk-batches", QBR.invBatches().map(b => b.code))}
       </div>
+      <div class="small fw-semibold text-muted mt-2">Unit details</div>
+      <div class="row g-2">
+        ${TX("bk-model", "Model", ` list="dl-bk-model"`)}${dlist("dl-bk-model", uniq("model"))}
+        <div class="col-md-3"><label class="form-label small" for="bk-cat">Category</label>
+          <select id="bk-cat" class="form-select form-select-sm"><option value="">— keep —</option><option>Laptop</option><option>Desktop</option><option>Monitor</option></select></div>
+        ${TX("bk-desc", "Description / specifications")}
+        ${TX("bk-brand", "Brand", ` list="dl-bk-brand"`)}${dlist("dl-bk-brand", uniq("brand"))}
+        ${TX("bk-supplier", "Supplier", ` list="dl-bk-supplier"`)}${dlist("dl-bk-supplier", uniq("supplier"))}
+        ${TX("bk-cond", "Condition", ` list="dl-bk-cond"`)}${dlist("dl-bk-cond", uniq("cond"))}
+      </div>
+      <div class="small fw-semibold text-muted mt-2">Warranty</div>
+      <div class="row g-2">
+        ${DT("bk-ws", "Warranty start")}${DT("bk-we", "Warranty end", "Known end date; years are worked out from the start date")}
+        ${TX("bk-wy", "Warranty years", ` type="number" min="0" max="10" step="0.5" title="End = start + years when no end date is given"`)}
+      </div>
+      <div class="small fw-semibold text-muted mt-2">Contact</div>
+      <div class="row g-2">
+        ${TX("bk-owner", "Contact person / owner")}${TX("bk-addr", "Address")}${TX("bk-phone", "Contact details")}
+      </div>
+      <div class="table-responsive scan-review mt-3"><table class="table table-sm inv-tbl mb-0"><thead><tr>
+        <th style="width:36px"><input type="checkbox" id="bk-all" checked aria-label="Select all units"></th><th>Serial</th><th>Client</th><th>Model</th><th>Status</th><th>DR #</th><th>Warranty</th></tr></thead><tbody>` +
+      units.map(a => `<tr><td><input type="checkbox" class="bk-u" value="${escAttr(a.key)}" checked aria-label="Include ${escAttr(a.sn)}"></td>
+        <td><code>${esc(a.sn)}</code></td><td>${esc(a.client || "—")}</td><td>${esc(a.model || "—")}</td><td>${invPill(QBR.invAssetStatus(a, QBR.invOpenByKey(inv.tickets)))}</td>
+        <td>${esc(a.dr || "—")}</td><td>${fd(a.wstart)} → ${fd(a.wend)}</td></tr>`).join("") +
+      `</tbody></table></div>
       <div class="mt-2 d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-primary" id="bk-preview">Preview changes</button>
         <button type="button" class="btn btn-sm btn-primary" id="bk-go" disabled>Apply</button>${close}</div>
       <div id="bk-msg" class="small mt-1" aria-live="polite"></div>
       <div id="bk-plan" class="mt-2"></div></div>`;
     let plan = null, form = null;
-    const read = () => {
-      const v = id => $(id).value.trim();
-      return { status: v("bk-status"), delivered: v("bk-del"), clearClient: $("bk-clr").checked, client: v("bk-client"), owner: v("bk-owner"),
-        dr: v("bk-dr"), sq: v("bk-sq"), batch: v("bk-batch"), wstart: v("bk-ws"), wend: v("bk-we"), cond: v("bk-cond") };
-    };
+    const FIELDS = ["status", "client", "delivered", "dr", "sq", "batch", "model", "cat", "desc", "brand", "supplier", "cond", "wstart", "wend", "wyears", "owner", "addr", "phone"];
+    const IDS = { status: "bk-status", client: "bk-client", delivered: "bk-del", dr: "bk-dr", sq: "bk-sq", batch: "bk-batch", model: "bk-model", cat: "bk-cat",
+      desc: "bk-desc", brand: "bk-brand", supplier: "bk-supplier", cond: "bk-cond", wstart: "bk-ws", wend: "bk-we", wyears: "bk-wy", owner: "bk-owner", addr: "bk-addr", phone: "bk-phone" };
+    const read = () => { const f = {}; FIELDS.forEach(k => { f[k] = $(IDS[k]).value.trim(); }); f.clearClient = $("bk-clr").checked; return f; };
     const invalidate = () => { plan = null; $("bk-go").disabled = true; $("bk-go").textContent = "Apply"; $("bk-plan").innerHTML = ""; };
-    host.querySelectorAll("input,select").forEach(el => el.addEventListener("input", invalidate));
+    host.querySelectorAll("input,select").forEach(el => { el.addEventListener("input", invalidate); el.addEventListener("change", invalidate); });
+    $("bk-all").addEventListener("change", e => host.querySelectorAll(".bk-u").forEach(c => { c.checked = e.target.checked; }));
     $("bk-status").addEventListener("change", () => {
       const st = $("bk-status").value;
-      $("bk-del-wrap").hidden = st !== "Deployed"; $("bk-clr-wrap").classList.toggle("d-none", st !== "In Stock"); $("bk-clr-wrap").classList.toggle("d-flex", st === "In Stock"); invalidate();
+      $("bk-clr-wrap").classList.toggle("d-none", st !== "In Stock"); $("bk-clr-wrap").classList.toggle("d-flex", st === "In Stock");
     });
     $("bk-preview").addEventListener("click", () => {
       form = read();
-      if (!Object.keys(form).some(k => k !== "delivered" && k !== "clearClient" && form[k])) { $("bk-msg").textContent = "Fill in at least one field to change."; return; }
-      plan = QBR.invBulkPlan(keys, form);
+      const picked = [...host.querySelectorAll(".bk-u:checked")].map(c => c.value);
+      if (!picked.length) { $("bk-msg").textContent = "Tick at least one unit."; return; }
+      if (!FIELDS.some(k => form[k])) { $("bk-msg").textContent = "Fill in at least one field to change."; return; }
+      plan = QBR.invBulkPlan(picked, form);
       const changing = plan.filter(p => p.changes.length), warns = plan.filter(p => p.warn.length);
       $("bk-msg").innerHTML = `${changing.length} of ${plan.length} unit${plan.length === 1 ? "" : "s"} will change` +
         (warns.length ? ` · <span class="text-warning">${warns.length} with a note</span>` : "") + ".";
@@ -1537,69 +1570,10 @@ function invShowForm(which) {
     $("bk-go").addEventListener("click", () => {
       if (!plan) return;
       const n = QBR.invBulkApply(plan.filter(p => p.changes.length), form);
+      if (code) QBR.invLog("batch edit", `${code}: ${n} unit${n === 1 ? "" : "s"}`);
       ui.sel = new Set(); ui.form = null;
       renderAll();
-      const m = $("inv-lookup-msg");
-      if (typeof scanToast === "function") scanToast(`Bulk edit: ${n} unit${n === 1 ? "" : "s"} updated.`, 5000);
-      else if (m) m.textContent = `Bulk edit: ${n} unit(s) updated.`;
-    });
-    return;
-  }
-  if (which === "editbatch") {
-    /* Edit batch (2026-10-05): bulk-update every unit carrying one batch code.
-     * Blank field = no change. Applied per unit via journaled calls. */
-    const code = ui.editBatch || "";
-    const units = inv ? inv.assets.filter(a => invSameBatch(a, code)) : [];
-    const conds = [...new Set((inv ? inv.assets : []).map(a => a.cond).filter(Boolean))].sort();
-    const fd = d => (d instanceof Date && !isNaN(d)) ? invFmtDate(d) : "—";
-    host.innerHTML = `<div class="card-box"><h6>Edit batch <code>${esc(code)}</code> <span class="text-muted small fw-normal">(${units.length} unit${units.length === 1 ? "" : "s"})</span></h6>
-      <p class="small text-muted mb-2">Fill in only what should change; blank fields are left as they are. Untick units to leave them out.</p>
-      <div class="row g-2">
-        <div class="col-md-4"><label class="form-label small" for="eb-client">School / Client</label><input id="eb-client" class="form-control form-control-sm" list="dl-inv-clients" autocomplete="off">${dl}</div>
-        <div class="col-md-4"><label class="form-label small" for="eb-owner">Owner (assigned to)</label><input id="eb-owner" class="form-control form-control-sm"></div>
-        <div class="col-md-4"><label class="form-label small" for="eb-dr">DR #</label><input id="eb-dr" class="form-control form-control-sm"></div>
-        <div class="col-md-4"><label class="form-label small" for="eb-ws">Warranty start</label><input id="eb-ws" type="date" class="form-control form-control-sm"></div>
-        <div class="col-md-4"><label class="form-label small" for="eb-we">Warranty end</label><input id="eb-we" type="date" class="form-control form-control-sm" title="Blank + a new start = start + warranty years"></div>
-        <div class="col-md-4"><label class="form-label small" for="eb-cond">Condition</label><input id="eb-cond" class="form-control form-control-sm" list="dl-eb-cond" autocomplete="off">
-          <datalist id="dl-eb-cond">${conds.map(c => `<option value="${escAttr(c)}"></option>`).join("")}</datalist></div>
-      </div>
-      <div class="table-responsive scan-review mt-2"><table class="table table-sm inv-tbl mb-0"><thead><tr>
-        <th style="width:36px"><input type="checkbox" id="eb-all" checked aria-label="Select all units"></th><th>Serial</th><th>Client</th><th>Owner</th><th>DR #</th><th>Warranty</th></tr></thead><tbody>` +
-      units.map(a => `<tr><td><input type="checkbox" class="eb-u" value="${escAttr(a.key)}" checked aria-label="Include ${escAttr(a.sn)}"></td>
-        <td><code>${esc(a.sn)}</code></td><td>${esc(a.client || "—")}</td><td>${esc(a.contact || "—")}</td><td>${esc(a.dr || "—")}</td>
-        <td>${fd(a.wstart)} → ${fd(a.wend)}</td></tr>`).join("") +
-      `</tbody></table></div>
-      <div class="mt-2 d-flex gap-2"><button type="button" class="btn btn-sm btn-primary" id="eb-go">Apply to selected units</button>${close}</div>
-      <div id="eb-msg" class="small mt-1" aria-live="polite"></div></div>`;
-    $("eb-all").addEventListener("change", e => host.querySelectorAll(".eb-u").forEach(c => { c.checked = e.target.checked; }));
-    $("eb-go").addEventListener("click", () => {
-      const v = id => $(id).value.trim();
-      const patch = {};
-      if (v("eb-client")) patch.client = v("eb-client");
-      if (v("eb-owner")) patch.contact = v("eb-owner");
-      if (v("eb-dr")) patch.dr = v("eb-dr");
-      if (v("eb-cond")) patch.cond = v("eb-cond");
-      const ws = v("eb-ws"), we = v("eb-we");
-      const keys = [...host.querySelectorAll(".eb-u:checked")].map(c => c.value);
-      if (!keys.length) { $("eb-msg").textContent = "Tick at least one unit."; return; }
-      if (!Object.keys(patch).length && !ws && !we) { $("eb-msg").textContent = "Fill in at least one field to change."; return; }
-      let n = 0;
-      keys.forEach(k => {
-        const a = inv.assets.find(x => x.key === k); if (!a) return;
-        const p = Object.assign({}, patch);
-        if (ws) {
-          p.wstart = ws;
-          if (!we) { const d = new Date(ws + "T00:00:00"), y = a.wyears || 3; p.wend = new Date(d.getFullYear() + y, d.getMonth(), Math.min(d.getDate(), 28)); }
-        }
-        let ok = Object.keys(p).length ? QBR.invUpdateAsset(k, p) : false;
-        if (we) ok = QBR.invSetWarrantyEnd(k, we) || ok;
-        if (ok) n++;
-      });
-      const what = Object.keys(patch).map(k => ({ client: "client", contact: "owner", dr: "DR #", cond: "condition" }[k]))
-        .concat(ws ? ["warranty start"] : [], we ? ["warranty end"] : []).join(", ");
-      QBR.invLog("batch edit", `${code}: ${what} → ${n} unit${n === 1 ? "" : "s"}`);
-      renderAll();   // the form re-renders with the new values; confirm there
-      const m = $("eb-msg"); if (m) m.innerHTML = `<span class="text-success">Updated ${n} unit${n === 1 ? "" : "s"} in ${esc(code)} (${esc(what)}).</span>`;
+      if (typeof scanToast === "function") scanToast(`${code ? "Batch " + code : "Bulk edit"}: ${n} unit${n === 1 ? "" : "s"} updated.`, 5000);
     });
     return;
   }
@@ -1840,15 +1814,18 @@ function invToggleAssetEdit(a) {
       ${T("ae-contact", "Contact person", a.contact)}
       ${T("ae-addr", "Address", a.addr)}
       ${T("ae-phone", "Contact details", a.phone)}
+      ${T("ae-batch", "Batch code", a.batch, ` list="dl-ae-batches" autocomplete="off"`)}
+      ${T("ae-sq", "SQ", QBR.invCurrentSq(a.key), ` title="Changing it adds a deployment row in 04 RAKSO INV.; older rows stay as history"`)}
+      <datalist id="dl-ae-batches">${QBR.invBatches().map(b => `<option value="${E(b.code)}"></option>`).join("")}</datalist>
     </div>\n    <datalist id="dl-ae-clients">${invClients(invModel() || { assets: [] }).map(c => `<option value="${E(c)}"></option>`).join("")}</datalist>\n    <div class="mt-2 d-flex gap-2"><button type="button" class="btn btn-sm btn-primary" id="ae-save">Save changes</button>\n    <button type="button" class="btn btn-sm btn-outline-secondary" id="ae-cancel">Cancel</button></div>\n    <div id="ae-msg" class="small mt-1" aria-live="polite"></div></div>`;
   $("ae-cancel").addEventListener("click", () => { host.innerHTML = ""; });
   $("ae-save").addEventListener("click", () => {
     const val = id => $(id).value.trim();
     const patch = {};
-    const cur = { client: a.client, model: a.model, desc: a.desc, brand: a.brand, supplier: a.supplier, dr: a.dr, cond: a.cond, contact: a.contact, addr: a.addr, phone: a.phone };
+    const cur = { client: a.client, model: a.model, desc: a.desc, brand: a.brand, supplier: a.supplier, dr: a.dr, cond: a.cond, contact: a.contact, addr: a.addr, phone: a.phone, batch: a.batch };
     [["client", "ae-client"], ["model", "ae-model"], ["desc", "ae-desc"], ["brand", "ae-brand"],
      ["supplier", "ae-supplier"], ["dr", "ae-dr"], ["cond", "ae-cond"], ["contact", "ae-contact"],
-     ["addr", "ae-addr"], ["phone", "ae-phone"]].forEach(([f, id]) => {
+     ["addr", "ae-addr"], ["phone", "ae-phone"], ["batch", "ae-batch"]].forEach(([f, id]) => {
       const v = val(id), c = cur[f] == null ? "" : String(cur[f]);
       if (v !== c) patch[f] = v;
     });
@@ -1859,8 +1836,12 @@ function invToggleAssetEdit(a) {
     });
     const wy = val("ae-wyears"), wyc = a.wyears == null ? "" : String(a.wyears);
     if (wy !== wyc) patch.wyears = wy;
-    if (!Object.keys(patch).length) { $("ae-msg").textContent = "No changes to save."; return; }
-    if (QBR.invUpdateAsset(a.key, patch)) { host.innerHTML = ""; renderAsset360Panel(); }
+    const sqNew = val("ae-sq"), sqOld = QBR.invCurrentSq(a.key) || "";
+    const sqChanged = !!sqNew && sqNew.toUpperCase() !== sqOld.toUpperCase();
+    if (!Object.keys(patch).length && !sqChanged) { $("ae-msg").textContent = "No changes to save."; return; }
+    let okSave = Object.keys(patch).length ? QBR.invUpdateAsset(a.key, patch) : true;
+    if (okSave && sqChanged) okSave = QBR.invAddDeployment({ sn: a.sn, sq: sqNew, client: a.client, delivered: a.delivered, remarks: "SQ set via Asset 360" });
+    if (okSave) { host.innerHTML = ""; renderAsset360Panel(); }
     else $("ae-msg").textContent = "Could not save — please try again.";
   });
 }

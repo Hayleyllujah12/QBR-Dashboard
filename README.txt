@@ -6,6 +6,17 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-05 — Edit batch / Bulk edit now show every field
+  - Edit batch and Bulk edit use one form with all the unit fields, grouped as:
+      · Status & deployment: Status, School/client, Date delivered, DR #, SQ, Batch code
+      · Unit details: Model, Category, Description, Brand, Supplier, Condition
+      · Warranty: Warranty start, Warranty end, Warranty years (end = start + years when no end
+        date is typed)
+      · Contact: Contact person/owner, Address, Contact details
+  - Blank fields are left as they are; type a single "-" to clear a text field.
+  - Edit batch now also has "Preview changes" before Apply, like Bulk edit.
+  - Asset 360 › Edit (one unit) now also has Batch code and SQ.
+
 UPDATE — 2026-10-05 — Bulk select & bulk edit, "Assigned, not delivered" flag, look up by DR / SQ / batch
   - INVENTORY › ASSETS now has a tick box on every row. Tick units, or filter the list (client,
     flag, status, batch, DR, SQ) and click "Select all N shown", then "Bulk edit".
