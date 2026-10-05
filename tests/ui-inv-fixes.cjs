@@ -90,11 +90,18 @@ async function batchTests(b) {
   await p.click(`[data-sb-act="${pick.moving[1].toUpperCase()}|other"][data-v="skip"]`); await p.waitForTimeout(150);
   ok(/add 3 · update 3/.test(await p.textContent("#sb-go")), "per-row Skip updates the totals (update 3)");
   await p.fill("#sb-sq", "SQ-TEST-1"); await p.fill("#sb-owner", "Test Owner"); await p.fill("#sb-dr", "DR-TEST");
+  // warranty: known batch end date for all units + one per-row exception
+  await p.fill("#sb-wend", "2029-06-30"); await p.waitForTimeout(100);
+  ok(await p.isChecked('input[name="sb-wmode"][value="end"]'), "typing an end date selects 'Known end date'");
+  await p.selectOption("#sb-wend-scope", "all"); await p.waitForTimeout(100);
+  await p.fill(`[data-sb-end="${fresh[1]}"]`, "2027-12-31"); await p.dispatchEvent(`[data-sb-end="${fresh[1]}"]`, "change");
   if (process.env.SHOTS_DIR || SHOTS) await shot(p, "batch-review");
   await p.click("#sb-go"); await p.waitForTimeout(800);
   const after = await p.evaluate(a => {
     const A = invModel().assets, f = sn => A.find(x => x.sn === sn) || {};
     return { fresh: a.fresh.map(s => f(s).client), dupCount: A.filter(x => x.sn === a.fresh[0]).length,
+      wend: [a.fresh[0], a.fresh[1], a.same[0], a.moving[0]].map(s => { const d = f(s).wend; return d ? d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0") : null; }),
+      wyears: f(a.fresh[0]).wyears, skippedEnd: (f(a.moving[1]).wend || "") + "",
       moved: f(a.moving[0]).client, kept: f(a.moving[1]).client, owner: f(a.same[0]).contact, dr: f(a.same[0]).dr,
       j: (JSON.parse(localStorage.getItem("qbr-inv-journal-v1") || "null") ? 1 : 0), log: (QBR._invLog || invModel().log || []).slice(-6).map(l => JSON.stringify(l)).join(" ") };
   }, { fresh, moving: pick.moving, same: pick.same });
@@ -103,6 +110,9 @@ async function batchTests(b) {
   ok(after.moved === pick.target, "moved unit now at " + pick.target);
   ok(after.kept === pick.moveFrom, "skipped unit left at " + pick.moveFrom);
   ok(after.owner === "Test Owner" && after.dr === "DR-TEST", "owner + DR applied to existing units");
+  ok(after.wend[0] === "2029-06-30" && after.wend[2] === "2029-06-30" && after.wend[3] === "2029-06-30", "batch warranty end 2029-06-30 set on new + existing units");
+  ok(after.wend[1] === "2027-12-31", "per-row warranty end overrides the batch date");
+  ok(after.wyears > 2.5 && after.wyears < 3, "warranty years derived from start → end (" + after.wyears + ")");
   ok(!(await p.isVisible("#scan-batch-modal")), "dialog closes after apply");
 
   console.log("== stocktake");

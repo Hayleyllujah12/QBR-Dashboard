@@ -83,6 +83,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >   (found/missing/other/unknown, export .xlsx, fixes). Dup dialog: "Add anyway" under Advanced when the serial is in
 >   inventory. Tests: `tests/ui-save.cjs` (16, mocked FS handle, synthetic .xlsm from `tests/make-xlsm-fixture.cjs`),
 >   `tests/ui-inv-fixes.cjs` (28). Suites: 105/23/71/37/12/16/28.
+>   **Known warranty end** (same day): `QBR.invSetWarrantyEnd(key, end)` (inventory.js) sets `wend` + derives `wyears` from
+>   `wstart` via `invUpdateAsset` (journaled). Tag batch Warranty fieldset: keep / start = batch date (+overwrite) /
+>   known end date (scope: units without an end date | all); per-row `[data-sb-end]` date overrides. Intake form
+>   `#in-we` (new units only). ui-inv-fixes now 32 checks.
 > - **Live / production version is `QBR-Dashboard_1.8.5`** — app label **1.8.5** (promoted
 >   2026-09-17). In-place fixes are dated patches, **not version bumps** — the label stays 1.8.5.
 >   Recent behavior: security-default status shows as "Not Enabled" (was "Disabled"; canonical model

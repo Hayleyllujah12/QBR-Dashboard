@@ -831,6 +831,7 @@ function scanRefreshBatchUI() {
  *                   school (found / missing / other school / not in
  *                   inventory); export to .xlsx; optional fixes. */
 function scanSameClient(a, b) { return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase() && !!String(a || "").trim(); }
+function scanDateStr(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
 function scanTodayStr() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
 function scanBatchClassify(rows, client) {
   const seen = new Set(), out = [];
@@ -861,7 +862,8 @@ function scanBatchTagDialog(mode, preset) {
   if (!inv) { scanToast("Load an inventory workbook first."); return; }
   const clients = [...new Set(inv.assets.map(a => a.client).filter(Boolean))].sort();
   const st = { mode: mode === "stocktake" ? "stocktake" : "deploy", choice: {}, filter: "all", fixes: {} };
-  const f = { client: "", date: scanTodayStr(), sq: "", dr: "", owner: "", loc: "", wFill: true, wOver: false };
+  const f = { client: "", date: scanTodayStr(), sq: "", dr: "", owner: "", loc: "", wMode: "start", wOver: false, wEnd: "", wScope: "empty" };
+  st.rowEnd = {};
   const noSerial = scanSelRows().length - sel.length;
   host.innerHTML = `<div class="modal-overlay open" id="scan-batch-modal"><div class="scan-dialog scan-dialog-wide card-box" role="dialog" aria-modal="true" aria-labelledby="sb-title">
       <h6 id="sb-title" class="mb-1"></h6><p class="small text-muted mb-2" id="sb-sub"></p>
@@ -878,9 +880,16 @@ function scanBatchTagDialog(mode, preset) {
         <div class="col-md-4 sb-dep"><label class="form-label small" for="sb-owner">Owner (assigned to)</label><input id="sb-owner" class="form-control form-control-sm" placeholder="Person receiving the units"></div>
         <div class="col-md-4 sb-dep"><label class="form-label small" for="sb-loc">Purchase location</label><input id="sb-loc" class="form-control form-control-sm" placeholder="e.g. Megamall"></div>
       </div>
-      <div class="sb-dep mt-2">
-        <label class="small d-block"><input type="checkbox" id="sb-wfill" checked> Set warranty start to the batch date for units that don't have one</label>
-        <label class="small d-block"><input type="checkbox" id="sb-wover"> Also overwrite warranty start dates that are already filled <span id="sb-wover-n" class="text-muted"></span></label></div>
+      <fieldset class="sb-dep scan-warr mt-2"><legend class="small fw-semibold mb-1">Warranty</legend>
+        <label class="small d-block"><input type="radio" name="sb-wmode" value="keep"> Don't change warranty dates</label>
+        <label class="small d-block"><input type="radio" name="sb-wmode" value="start" checked> Start = batch date, for units without one <span class="text-muted">(end = start + warranty years)</span></label>
+        <label class="small d-block ms-4" id="sb-wover-row"><input type="checkbox" id="sb-wover"> Also overwrite start dates that are already filled <span id="sb-wover-n" class="text-muted"></span></label>
+        <div class="small d-flex flex-wrap align-items-center gap-2"><label><input type="radio" name="sb-wmode" value="end"> Known end date:</label>
+          <input type="date" id="sb-wend" class="form-control form-control-sm" style="--w:160px" aria-label="Known warranty end date">
+          <select id="sb-wend-scope" class="form-select form-select-sm" style="--w:250px" aria-label="Which units get this end date">
+            <option value="empty">units without an end date</option><option value="all">all units in this batch</option></select></div>
+        <div class="small text-muted mt-1">A few units end on a different date? Type it in that row's <b>Warranty end</b> box below; it overrides the option above.</div>
+      </fieldset>
       <div class="scan-sum" id="sb-sum"></div>
       <div class="table-responsive scan-review"><table class="table table-sm inv-tbl mb-0"><thead id="sb-thead"></thead><tbody id="sb-body"></tbody></table></div>
       <div class="d-flex flex-wrap gap-2 mt-3" id="sb-actions"></div>
@@ -891,7 +900,9 @@ function scanBatchTagDialog(mode, preset) {
   const read = () => {
     f.client = $("sb-client").value.trim(); f.date = $("sb-date").value; f.sq = $("sb-sq").value.trim();
     f.dr = $("sb-dr").value.trim(); f.owner = $("sb-owner").value.trim(); f.loc = $("sb-loc").value.trim();
-    f.wFill = $("sb-wfill").checked; f.wOver = $("sb-wover").checked;
+    const wm = host.querySelector('input[name="sb-wmode"]:checked'); f.wMode = wm ? wm.value : "start";
+    f.wOver = $("sb-wover").checked; f.wEnd = $("sb-wend").value; f.wScope = $("sb-wend-scope").value;
+    $("sb-wover").disabled = f.wMode !== "start"; $("sb-wover-row").classList.toggle("text-muted", f.wMode !== "start");
   };
   const act = it => st.choice[it.key + "|" + it.kind] || (it.kind === "dup" ? "skip" : it.kind === "new" ? "add" : "update");
 
@@ -913,7 +924,7 @@ function scanBatchTagDialog(mode, preset) {
       cnt("dup") && scanPill("dup", cnt("dup") + " scanned twice (counted once)"),
     ].filter(Boolean).join(" ") +
       `<span class="scan-filter">Show: ${["all", "new", "update", "moves", "skipped"].map(k => `<button type="button" class="btn btn-sm btn-link p-0${st.filter === k ? " fw-bold" : ""}" data-sb-filter="${k}">${k[0].toUpperCase() + k.slice(1)}</button>`).join(" · ")}</span>`;
-    $("sb-thead").innerHTML = `<tr><th>Serial</th><th>Model</th><th>Found</th><th>Change</th><th>Action</th></tr>`;
+    $("sb-thead").innerHTML = `<tr><th>Serial</th><th>Found</th><th>Change</th><th>Warranty end</th><th>Action</th></tr>`;
     const show = items.filter(i => st.filter === "all" ? true : st.filter === "new" ? i.kind === "new" :
       st.filter === "update" ? (i.kind !== "new" && i.kind !== "dup") : st.filter === "moves" ? (i.kind === "other" || i.kind === "assigned") : act(i) === "skip");
     $("sb-body").innerHTML = show.map(i => {
@@ -923,7 +934,10 @@ function scanBatchTagDialog(mode, preset) {
         `<span class="scan-move">${esc(a.client)} → ${esc(to)}</span>`;
       const opts = i.kind === "dup" ? "" : (i.kind === "new" ? ["add", "skip"] : ["update", "skip"]).map(o =>
         `<button type="button" class="${act(i) === o ? "on" : ""}" data-sb-act="${escAttr(i.key + "|" + i.kind)}" data-v="${o}" aria-pressed="${act(i) === o}">${o[0].toUpperCase() + o.slice(1)}</button>`).join("");
-      return `<tr><td><code>${esc(i.sn)}</code></td><td>${esc(i.model || "—")}</td><td>${scanPill(i.kind)}</td><td>${change}</td><td>${opts ? `<span class="scan-seg">${opts}</span>` : ""}</td></tr>`;
+      const cur = a && a.wend instanceof Date && !isNaN(a.wend) ? scanDateStr(a.wend) : "";
+      const endCell = i.kind === "dup" ? "" : `<input type="date" class="form-control form-control-sm scan-rowend" data-sb-end="${escAttr(i.key)}" value="${escAttr(st.rowEnd[i.key] || "")}" aria-label="Warranty end for ${escAttr(i.sn)}">` +
+        `<div class="small text-muted">${cur ? "now " + cur : "none yet"}</div>`;
+      return `<tr><td><code>${esc(i.sn)}</code>${i.model ? `<div class="small text-muted">${esc(i.model)}</div>` : ""}</td><td>${scanPill(i.kind)}</td><td class="scan-chg">${change}</td><td>${endCell}</td><td>${opts ? `<span class="scan-seg">${opts}</span>` : ""}</td></tr>`;
     }).join("") || `<tr><td colspan="5" class="text-muted">Nothing in this view.</td></tr>`;
     $("sb-actions").innerHTML = `<button type="button" class="btn btn-sm btn-primary" id="sb-go"${willAdd.length + willUpd.length ? "" : " disabled"}>Apply: add ${willAdd.length} · update ${willUpd.length}</button>
       <button type="button" class="btn btn-sm btn-outline-secondary" id="sb-cancel">Cancel</button>`;
@@ -938,22 +952,30 @@ function scanBatchTagDialog(mode, preset) {
     const adds = items.filter(i => i.kind === "new" && act(i) === "add");
     const upds = items.filter(i => i.kind !== "new" && i.kind !== "dup" && act(i) === "update");
     if (!adds.length && !upds.length) { $("sb-msg").textContent = "Nothing to apply — every row is set to Skip."; return; }
+    if (f.wMode === "end" && !f.wEnd && !Object.values(st.rowEnd).some(Boolean)) {
+      $("sb-msg").textContent = "Pick the known warranty end date, or choose another warranty option."; return;
+    }
     if (adds.length) QBR.invIntake(adds.map(i => ({ sn: i.sn, model: i.model || null, cat: "Laptop", dr: f.dr || null,
-      client: f.client, wstart: f.wFill ? f.date : null })));
+      client: f.client, wstart: f.wMode === "keep" ? null : f.date })));
     const moves = upds.filter(i => i.asset && i.asset.client && !scanSameClient(i.asset.client, f.client)).map(i => ({ sn: i.sn, from: i.asset.client }));
     QBR.invDeploy(adds.concat(upds).map(i => i.sn), f.client, f.date, f.sq || null);
     const inv2 = scanInv(), ws = f.date ? new Date(f.date + "T00:00:00") : null;
+    let nEnd = 0;
     adds.concat(upds).forEach(i => {
       const a = inv2.assets.find(x => x.key === i.key); if (!a) return;
       const patch = {};
       if (f.owner) patch.contact = f.owner;
       if (f.dr && i.kind !== "new") patch.dr = f.dr;
-      if (ws && i.kind !== "new" && ((f.wFill && !a.wstart) || (f.wOver && a.wstart))) {
+      const hadEnd = i.kind !== "new" && !!a.wend;   // before this batch
+      if (ws && f.wMode === "start" && i.kind !== "new" && (!a.wstart || f.wOver)) {
         const yrs = a.wyears || 3;
         patch.wstart = f.date;
         patch.wend = new Date(ws.getFullYear() + yrs, ws.getMonth(), Math.min(ws.getDate(), 28));
       }
       if (Object.keys(patch).length) QBR.invUpdateAsset(a.key, patch);
+      // known warranty end: the row's own date wins; else the batch date (per scope)
+      const end = st.rowEnd[i.key] || (f.wMode === "end" && f.wEnd && (f.wScope === "all" || !hadEnd) ? f.wEnd : "");
+      if (end && QBR.invSetWarrantyEnd(a.key, end)) nEnd++;
     });
     moves.forEach(m => QBR.invLog("move", m.sn + ": " + m.from + " → " + f.client));
     QBR.invLog("scan batch tag", `${adds.length} new + ${upds.length} updated → ${f.client}` + (f.sq ? ` (SQ ${f.sq})` : "") + (f.loc ? ` · Purchased: ${f.loc}` : ""));
@@ -962,7 +984,7 @@ function scanBatchTagDialog(mode, preset) {
     if (typeof renderAll === "function") renderAll();
     const skipped = items.filter(i => act(i) === "skip" && i.kind !== "dup").length, dups = items.filter(i => i.kind === "dup").length;
     scanToast(`Tagged to ${f.client}: ${adds.length} added, ${upds.length} updated${moves.length ? ` (${moves.length} moved from another school)` : ""}` +
-      (skipped ? `, ${skipped} skipped` : "") + (dups ? `, ${dups} duplicate scan${dups === 1 ? "" : "s"} ignored` : "") + ".", 6000);
+      (nEnd ? `, warranty end set on ${nEnd}` : "") + (skipped ? `, ${skipped} skipped` : "") + (dups ? `, ${dups} duplicate scan${dups === 1 ? "" : "s"} ignored` : "") + ".", 6000);
   }
 
   function stocktake() {
@@ -1045,7 +1067,9 @@ function scanBatchTagDialog(mode, preset) {
   });
   host.querySelector(".scan-dialog").addEventListener("change", e => {
     const fx = e.target.closest("[data-sb-fix]"); if (fx) { st.fixes[fx.dataset.sbFix] = fx.checked; render(); return; }
-    if (e.target.id === "sb-wfill" || e.target.id === "sb-wover") render();
+    const re = e.target.closest("[data-sb-end]"); if (re) { st.rowEnd[re.dataset.sbEnd] = re.value; return; }
+    if (e.target.name === "sb-wmode" || e.target.id === "sb-wover" || e.target.id === "sb-wend-scope") render();
+    if (e.target.id === "sb-wend") { if (e.target.value) { const r = host.querySelector('input[name="sb-wmode"][value="end"]'); if (r) r.checked = true; } render(); }
   });
   $("sb-client").addEventListener("input", render);
   document.addEventListener("keydown", function onKey(e) {
