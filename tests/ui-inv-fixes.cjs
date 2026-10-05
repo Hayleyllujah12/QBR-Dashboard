@@ -131,13 +131,18 @@ async function batchTests(b) {
   const shown = await p.evaluate(() => document.querySelectorAll("#inv-col-assets tbody tr.inv-row").length);
   ok(shown === 6, "Show units filters the asset list to the batch (" + shown + ")");
   await p.click(`[data-inv-batch-edit="${code}"]`); await p.waitForTimeout(300);
-  ok(await p.isVisible("#eb-go"), "Edit batch form opens");
-  await p.fill("#eb-owner", "Batch Owner"); await p.fill("#eb-we", "2030-01-31");
-  await p.uncheck(`.eb-u[value="${fresh[2]}"]`);
-  await p.click("#eb-go"); await p.waitForTimeout(300);
+  ok(await p.isVisible("#bk-preview"), "Edit batch form opens");
+  const allFields = ["bk-status","bk-client","bk-del","bk-dr","bk-sq","bk-batch","bk-model","bk-cat","bk-desc","bk-brand","bk-supplier","bk-cond","bk-ws","bk-we","bk-wy","bk-owner","bk-addr","bk-phone"];
+  const vis = await p.evaluate(ids => ids.filter(id => { const e = document.getElementById(id); return e && e.offsetParent !== null; }).length, allFields);
+  ok(vis === allFields.length, "Edit batch shows every intake field incl. Address and Contact details (" + vis + "/" + allFields.length + ")");
+  await p.fill("#bk-owner", "Batch Owner"); await p.fill("#bk-we", "2030-01-31"); await p.fill("#bk-addr", "123 Test Street, Batch City");
+  await p.uncheck(`.bk-u[value="${fresh[2]}"]`);
+  await p.click("#bk-preview"); await p.waitForTimeout(200);
+  ok(/Address — → 123 Test Street/.test(await p.textContent("#bk-plan")), "preview lists the address change");
+  await p.click("#bk-go"); await p.waitForTimeout(300);
   const eb = await p.evaluate(a => { const A = invModel().assets, f = sn => A.find(x => x.sn === sn) || {}, d = x => x ? x.toISOString().slice(0, 10) : null;
-    return { o0: f(a[0]).contact, e0: d(f(a[0]).wend), o2: f(a[2]).contact, e2: d(f(a[2]).wend) }; }, fresh);
-  ok(eb.o0 === "Batch Owner" && eb.e0 && eb.e0.startsWith("2030-01"), "Edit batch updated owner + warranty end");
+    return { o0: f(a[0]).contact, e0: invFmtDate(f(a[0]).wend), ad0: f(a[0]).addr, o2: f(a[2]).contact, e2: d(f(a[2]).wend) }; }, fresh);
+  ok(eb.o0 === "Batch Owner" && eb.e0 === "2030-01-31" && eb.ad0 === "123 Test Street, Batch City", "Edit batch updated owner, warranty end and address");
   ok(eb.o2 !== "Batch Owner", "unticked unit left unchanged");
   if (SHOTS) await shot(p, "edit-batch");
 
@@ -243,6 +248,19 @@ async function bulkTests(b) {
   await p.click("#bk-preview"); await p.waitForTimeout(150); await p.click("#bk-go"); await p.waitForTimeout(400);
   const back = await p.evaluate(key => { const a = invModel().assets.find(x => x.key === key); return [QBR.invAssetStatus(a, QBR.invOpenByKey(invModel().tickets)), a.delivered, a.client]; }, keys[0]);
   ok(back[0] === "In Stock" && !back[1] && !back[2], "In Stock clears Date Delivered and (ticked) the client");
+  await p.evaluate(k => { QBR._invUI.sel = new Set([k]); QBR._invUI.form = "bulkedit"; renderInventory(); }, keys[1]); await p.waitForTimeout(300);
+  await p.fill("#bk-ws", "2026-01-15"); await p.fill("#bk-wy", "2"); await p.fill("#bk-phone", "-"); await p.fill("#bk-supplier", "Test Supplier");
+  await p.click("#bk-preview"); await p.waitForTimeout(150); await p.click("#bk-go"); await p.waitForTimeout(400);
+  const wy = await p.evaluate(key => { const a = invModel().assets.find(x => x.key === key); return [invFmtDate(a.wstart), invFmtDate(a.wend), a.wyears, a.phone, a.supplier]; }, keys[1]);
+  ok(wy[0] === "2026-01-15" && wy[1] === "2028-01-15" && wy[2] === 2, "start + warranty years recompute the end (" + wy.slice(0, 3).join(" · ") + ")");
+  ok(!wy[3] && wy[4] === "Test Supplier", "'-' clears a field; supplier set");
+  // Asset 360 single edit: batch code + SQ
+  await p.evaluate(k => openAsset360(k), keys[2]); await p.waitForTimeout(300);
+  await p.evaluate(() => { const b = [...document.querySelectorAll("#a360-body button")].find(x => /Edit/.test(x.textContent)); if (b) b.click(); }); await p.waitForTimeout(300);
+  ok(await p.isVisible("#ae-batch") && await p.isVisible("#ae-sq") && await p.isVisible("#ae-addr"), "Asset 360 edit has Batch code, SQ and Address");
+  await p.fill("#ae-batch", "B-20261005-99"); await p.fill("#ae-sq", "SQ-A360-1"); await p.click("#ae-save"); await p.waitForTimeout(300);
+  const a3 = await p.evaluate(k => [invModel().assets.find(x => x.key === k).batch, QBR.invCurrentSq(k)], keys[2]);
+  ok(a3[0] === "B-20261005-99" && a3[1] === "SQ-A360-1", "Asset 360 saves batch code + SQ");
   ok(p._errs.length === 0, "no page errors" + (p._errs.length ? ": " + p._errs.join(" | ") : ""));
   await p.close();
 }
