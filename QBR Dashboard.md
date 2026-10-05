@@ -87,6 +87,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 >   `wstart` via `invUpdateAsset` (journaled). Tag batch Warranty fieldset: keep / start = batch date (+overwrite) /
 >   known end date (scope: units without an end date | all); per-row `[data-sb-end]` date overrides. Intake form
 >   `#in-we` (new units only). ui-inv-fixes now 32 checks.
+>   **Batch codes (INV 1.23.0 · SCAN 1.4.0)**: asset field `batch` (devices header "Batch Code"/"Batch"; `invUpdateAsset`
+>   TEXT, `invIntake` r.batch, rebuild export column). `QBR.invNextBatchCode(date)` → `B-YYYYMMDD-NN`, `QBR.invBatches()`.
+>   patch.js `pEnsureCol(ws, cols, "batch", "Batch Code")` appends the header after the last used column (style from
+>   left neighbour, registered in the shared cols map) when intake/update writes a batch. Tag batch `#sb-batch`
+>   (auto unless edited), stocktake `#sb-target` school|batch. Inventory: Batches card (`data-inv-batch-show/-edit`),
+>   `#inv-f-batch` filter, `ui.form = "editbatch"` bulk form (blank = keep; per-unit untick), Asset 360 "Batch code".
+>   Fixed latent bug: Type/Status `<option>`s had no `value`, so "All …" set ui.type/status to the label → empty list.
+>   Tests: ui-inv-fixes 41, ui-save 18 (Batch Code column appended + filled).
 > - **Live / production version is `QBR-Dashboard_1.8.5`** — app label **1.8.5** (promoted
 >   2026-09-17). In-place fixes are dated patches, **not version bumps** — the label stays 1.8.5.
 >   Recent behavior: security-default status shows as "Not Enabled" (was "Disabled"; canonical model

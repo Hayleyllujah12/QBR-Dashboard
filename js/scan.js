@@ -28,7 +28,7 @@
  * ==========================================================================*/
 var QBR = window.QBR = window.QBR || {};
 
-QBR.SCAN_VERSION = "1.3.0";
+QBR.SCAN_VERSION = "1.4.0";
 /* v1.2.0 fixes (2026-10-04):
  *  1. Barcodes on Windows/Linux: Chrome/Edge only ship window.BarcodeDetector on macOS, ChromeOS and
  *     Android, so the barcode path was dead on Windows PCs. ZXing (vendored, Apache-2.0, pure JS —
@@ -862,7 +862,7 @@ function scanBatchTagDialog(mode, preset) {
   if (!inv) { scanToast("Load an inventory workbook first."); return; }
   const clients = [...new Set(inv.assets.map(a => a.client).filter(Boolean))].sort();
   const st = { mode: mode === "stocktake" ? "stocktake" : "deploy", choice: {}, filter: "all", fixes: {} };
-  const f = { client: "", date: scanTodayStr(), sq: "", dr: "", owner: "", loc: "", wMode: "start", wOver: false, wEnd: "", wScope: "empty" };
+  const f = { client: "", date: scanTodayStr(), sq: "", dr: "", owner: "", loc: "", wMode: "start", wOver: false, wEnd: "", wScope: "empty", batch: "", target: "school", batchQ: "" };
   st.rowEnd = {};
   const noSerial = scanSelRows().length - sel.length;
   host.innerHTML = `<div class="modal-overlay open" id="scan-batch-modal"><div class="scan-dialog scan-dialog-wide card-box" role="dialog" aria-modal="true" aria-labelledby="sb-title">
@@ -871,7 +871,11 @@ function scanBatchTagDialog(mode, preset) {
         <button type="button" role="tab" class="scan-tab" data-sb-mode="deploy">Deploy / tag</button>
         <button type="button" role="tab" class="scan-tab" data-sb-mode="stocktake">Stocktake (check only)</button></div>
       <div class="row g-2 mt-1">
-        <div class="col-md-4"><label class="form-label small" for="sb-client">School / Client *</label>
+        <div class="col-md-4 sb-stk"><label class="form-label small" for="sb-target">Compare against</label>
+          <select id="sb-target" class="form-select form-select-sm"><option value="school">A school</option><option value="batch">A batch code</option></select></div>
+        <div class="col-md-4 sb-stk" id="sb-batchq-wrap" hidden><label class="form-label small" for="sb-batchq">Batch code *</label>
+          <input id="sb-batchq" class="form-control form-control-sm" list="dl-sb-batches" autocomplete="off"></div>
+        <div class="col-md-4" id="sb-client-wrap"><label class="form-label small" for="sb-client">School / Client *</label>
           <input id="sb-client" class="form-control form-control-sm" list="dl-sb-clients" autocomplete="off">
           <datalist id="dl-sb-clients">${clients.map(c => `<option value="${escAttr(c)}"></option>`).join("")}</datalist></div>
         <div class="col-md-4 sb-dep"><label class="form-label small" for="sb-date">Date *</label><input id="sb-date" type="date" class="form-control form-control-sm" value="${f.date}"></div>
@@ -879,6 +883,8 @@ function scanBatchTagDialog(mode, preset) {
         <div class="col-md-4 sb-dep"><label class="form-label small" for="sb-dr">DR #</label><input id="sb-dr" class="form-control form-control-sm"></div>
         <div class="col-md-4 sb-dep"><label class="form-label small" for="sb-owner">Owner (assigned to)</label><input id="sb-owner" class="form-control form-control-sm" placeholder="Person receiving the units"></div>
         <div class="col-md-4 sb-dep"><label class="form-label small" for="sb-loc">Purchase location</label><input id="sb-loc" class="form-control form-control-sm" placeholder="e.g. Megamall"></div>
+        <div class="col-md-4 sb-dep"><label class="form-label small" for="sb-batch">Batch code</label>
+          <input id="sb-batch" class="form-control form-control-sm" list="dl-sb-batches" autocomplete="off" title="Auto-generated; type an existing code to add these units to that batch, or clear it for no batch"></div>
       </div>
       <fieldset class="sb-dep scan-warr mt-2"><legend class="small fw-semibold mb-1">Warranty</legend>
         <label class="small d-block"><input type="radio" name="sb-wmode" value="keep"> Don't change warranty dates</label>
@@ -890,6 +896,7 @@ function scanBatchTagDialog(mode, preset) {
             <option value="empty">units without an end date</option><option value="all">all units in this batch</option></select></div>
         <div class="small text-muted mt-1">A few units end on a different date? Type it in that row's <b>Warranty end</b> box below; it overrides the option above.</div>
       </fieldset>
+      <datalist id="dl-sb-batches">${(QBR.invBatches ? QBR.invBatches() : []).map(b => `<option value="${escAttr(b.code)}">${esc(b.n + " unit" + (b.n === 1 ? "" : "s"))}</option>`).join("")}</datalist>
       <div class="scan-sum" id="sb-sum"></div>
       <div class="table-responsive scan-review"><table class="table table-sm inv-tbl mb-0"><thead id="sb-thead"></thead><tbody id="sb-body"></tbody></table></div>
       <div class="d-flex flex-wrap gap-2 mt-3" id="sb-actions"></div>
@@ -900,6 +907,7 @@ function scanBatchTagDialog(mode, preset) {
   const read = () => {
     f.client = $("sb-client").value.trim(); f.date = $("sb-date").value; f.sq = $("sb-sq").value.trim();
     f.dr = $("sb-dr").value.trim(); f.owner = $("sb-owner").value.trim(); f.loc = $("sb-loc").value.trim();
+    f.batch = $("sb-batch").value.trim(); f.target = $("sb-target").value; f.batchQ = $("sb-batchq").value.trim();
     const wm = host.querySelector('input[name="sb-wmode"]:checked'); f.wMode = wm ? wm.value : "start";
     f.wOver = $("sb-wover").checked; f.wEnd = $("sb-wend").value; f.wScope = $("sb-wend-scope").value;
     $("sb-wover").disabled = f.wMode !== "start"; $("sb-wover-row").classList.toggle("text-muted", f.wMode !== "start");
@@ -956,7 +964,7 @@ function scanBatchTagDialog(mode, preset) {
       $("sb-msg").textContent = "Pick the known warranty end date, or choose another warranty option."; return;
     }
     if (adds.length) QBR.invIntake(adds.map(i => ({ sn: i.sn, model: i.model || null, cat: "Laptop", dr: f.dr || null,
-      client: f.client, wstart: f.wMode === "keep" ? null : f.date })));
+      client: f.client, wstart: f.wMode === "keep" ? null : f.date, batch: f.batch || null })));
     const moves = upds.filter(i => i.asset && i.asset.client && !scanSameClient(i.asset.client, f.client)).map(i => ({ sn: i.sn, from: i.asset.client }));
     QBR.invDeploy(adds.concat(upds).map(i => i.sn), f.client, f.date, f.sq || null);
     const inv2 = scanInv(), ws = f.date ? new Date(f.date + "T00:00:00") : null;
@@ -965,6 +973,7 @@ function scanBatchTagDialog(mode, preset) {
       const a = inv2.assets.find(x => x.key === i.key); if (!a) return;
       const patch = {};
       if (f.owner) patch.contact = f.owner;
+      if (f.batch && i.kind !== "new" && String(a.batch || "") !== f.batch) patch.batch = f.batch;
       if (f.dr && i.kind !== "new") patch.dr = f.dr;
       const hadEnd = i.kind !== "new" && !!a.wend;   // before this batch
       if (ws && f.wMode === "start" && i.kind !== "new" && (!a.wstart || f.wOver)) {
@@ -978,48 +987,52 @@ function scanBatchTagDialog(mode, preset) {
       if (end && QBR.invSetWarrantyEnd(a.key, end)) nEnd++;
     });
     moves.forEach(m => QBR.invLog("move", m.sn + ": " + m.from + " → " + f.client));
-    QBR.invLog("scan batch tag", `${adds.length} new + ${upds.length} updated → ${f.client}` + (f.sq ? ` (SQ ${f.sq})` : "") + (f.loc ? ` · Purchased: ${f.loc}` : ""));
+    QBR.invLog("scan batch tag", (f.batch ? `[${f.batch}] ` : "") + `${adds.length} new + ${upds.length} updated → ${f.client}` + (f.sq ? ` (SQ ${f.sq})` : "") + (f.loc ? ` · Purchased: ${f.loc}` : ""));
     QBR._scanUI.rows.forEach(r => { r.sel = false; });
     scanFlagDuplicates(); scanRenderRows(); close();
     if (typeof renderAll === "function") renderAll();
     const skipped = items.filter(i => act(i) === "skip" && i.kind !== "dup").length, dups = items.filter(i => i.kind === "dup").length;
-    scanToast(`Tagged to ${f.client}: ${adds.length} added, ${upds.length} updated${moves.length ? ` (${moves.length} moved from another school)` : ""}` +
+    scanToast(`${f.batch ? "Batch " + f.batch + " · " : ""}Tagged to ${f.client}: ${adds.length} added, ${upds.length} updated${moves.length ? ` (${moves.length} moved from another school)` : ""}` +
       (nEnd ? `, warranty end set on ${nEnd}` : "") + (skipped ? `, ${skipped} skipped` : "") + (dups ? `, ${dups} duplicate scan${dups === 1 ? "" : "s"} ignored` : "") + ".", 6000);
   }
 
   function stocktake() {
-    const school = f.client;
-    const scanned = scanBatchClassify(sel.length ? sel : allRows, school).filter(i => i.kind !== "dup");
+    const byBatch = f.target === "batch";
+    const school = byBatch ? f.batchQ : f.client;   // in batch mode this holds the batch code
+    const isIn = a => byBatch ? (!!school && String(a.batch || "").trim().toUpperCase() === school.toUpperCase()) : scanSameClient(a.client, school);
+    const scanned = scanBatchClassify(sel.length ? sel : allRows, byBatch ? "" : school).filter(i => i.kind !== "dup");
     const sk = new Set(scanned.map(i => i.key));
-    const expected = school ? inv.assets.filter(a => scanSameClient(a.client, school)) : [];
+    const expected = school ? inv.assets.filter(isIn) : [];
     const res = [];
     scanned.forEach(i => {
       if (!i.asset) res.push({ sn: i.sn, key: i.key, model: i.model, r: "unknown", label: "Not in inventory", fix: "register" });
-      else if (scanSameClient(i.asset.client, school)) res.push({ sn: i.sn, key: i.key, model: i.model, r: "found", label: "Found" });
+      else if (isIn(i.asset)) res.push({ sn: i.sn, key: i.key, model: i.model, r: "found", label: "Found" });
+      else if (byBatch) res.push({ sn: i.sn, key: i.key, model: i.model, r: "other", label: i.asset.batch ? "In batch " + i.asset.batch : "No batch", from: i.asset.batch || "", fix: "move" });
       else res.push({ sn: i.sn, key: i.key, model: i.model, r: "other", label: i.asset.client ? "At " + i.asset.client : "In stock", from: i.asset.client || "", fix: "move" });
     });
     expected.filter(a => !sk.has(a.key)).forEach(a => res.push({ sn: a.sn, key: a.key, model: a.model, r: "missing", label: "Missing" }));
-    return { school, res, expected: expected.length, scanned: scanned.length };
+    return { school, byBatch, res, expected: expected.length, scanned: scanned.length };
   }
   function renderStocktake() {
     const t = stocktake(), c = k => t.res.filter(x => x.r === k).length;
-    $("sb-title").textContent = t.school ? `Stocktake result: ${t.school}` : "Stocktake";
-    $("sb-sub").innerHTML = `Check only: compares the ${t.scanned} scanned serial${t.scanned === 1 ? "" : "s"}${sel.length ? " (selected rows)" : ""} with what inventory says is at this school. <b>Nothing is changed</b> unless you apply a fix.`;
+    const what = t.byBatch ? "in this batch" : "at this school";
+    $("sb-title").textContent = t.school ? `Stocktake result: ${t.byBatch ? "batch " : ""}${t.school}` : "Stocktake";
+    $("sb-sub").innerHTML = `Check only: compares the ${t.scanned} scanned serial${t.scanned === 1 ? "" : "s"}${sel.length ? " (selected rows)" : ""} with what inventory says is ${what}. <b>Nothing is changed</b> unless you apply a fix.`;
     if (!t.school) {
       $("sb-sum").innerHTML = ""; $("sb-thead").innerHTML = "";
-      $("sb-body").innerHTML = `<tr><td class="text-muted">Pick the school you're checking to compare.</td></tr>`;
+      $("sb-body").innerHTML = `<tr><td class="text-muted">Pick the ${t.byBatch ? "batch code" : "school"} you're checking to compare.</td></tr>`;
       $("sb-actions").innerHTML = `<button type="button" class="btn btn-sm btn-outline-secondary" id="sb-cancel">Close</button>`;
       $("sb-cancel").addEventListener("click", close); return;
     }
     $("sb-sum").innerHTML = [scanPill("same", c("found") + " found"), c("missing") && `<span class="scan-pill scan-p-miss">${c("missing")} missing (in inventory, not scanned)</span>`,
       c("other") && scanPill("other", c("other") + " belong elsewhere"), c("unknown") && scanPill("new", c("unknown") + " not in inventory")].filter(Boolean).join(" ") +
-      `<span class="text-muted small ms-1">· inventory lists ${t.expected} unit${t.expected === 1 ? "" : "s"} at this school</span>`;
+      `<span class="text-muted small ms-1">· inventory lists ${t.expected} unit${t.expected === 1 ? "" : "s"} ${what}</span>`;
     $("sb-thead").innerHTML = `<tr><th>Serial</th><th>Model</th><th>Result</th><th>Fix</th></tr>`;
     const order = { other: 0, unknown: 1, missing: 2, found: 3 };   // actionable rows first
     $("sb-body").innerHTML = t.res.slice().sort((a, b) => order[a.r] - order[b.r]).map(x => {
       const pill = x.r === "missing" ? `<span class="scan-pill scan-p-miss">Missing</span>` : x.r === "found" ? scanPill("same", "Found") :
         x.r === "other" ? scanPill("other", x.label) : scanPill("new", "Not in inventory");
-      const fix = x.fix ? `<label class="small"><input type="checkbox" data-sb-fix="${escAttr(x.key)}"${st.fixes[x.key] ? " checked" : ""}> ${x.fix === "move" ? "Move here" : "Register here"}</label>` :
+      const fix = x.fix ? `<label class="small"><input type="checkbox" data-sb-fix="${escAttr(x.key)}"${st.fixes[x.key] ? " checked" : ""}> ${x.fix === "move" ? (t.byBatch ? "Add to this batch" : "Move here") : (t.byBatch ? "Register in this batch" : "Register here")}</label>` :
         x.r === "missing" ? `<span class="small text-muted">Follow up (in export)</span>` : "";
       return `<tr><td><code>${esc(x.sn)}</code></td><td>${esc(x.model || "—")}</td><td>${pill}</td><td>${fix}</td></tr>`;
     }).join("") || `<tr><td colspan="4" class="text-muted">No units to compare.</td></tr>`;
@@ -1029,9 +1042,9 @@ function scanBatchTagDialog(mode, preset) {
       <button type="button" class="btn btn-sm btn-outline-secondary" id="sb-cancel">Close</button>`;
     $("sb-cancel").addEventListener("click", close);
     $("sb-export").addEventListener("click", () => {
-      const rows = [["Serial", "Model", "Result", "Inventory school", "Scanned"]].concat(t.res.map(x =>
+      const rows = [["Serial", "Model", "Result", t.byBatch ? "Inventory batch" : "Inventory school", "Scanned"]].concat(t.res.map(x =>
         [x.sn, x.model || "", x.r === "found" ? "Found" : x.r === "missing" ? "Missing" : x.r === "other" ? "Belongs elsewhere" : "Not in inventory",
-          x.r === "other" ? (x.from || "In stock") : x.r === "unknown" ? "" : t.school, x.r === "missing" ? "No" : "Yes"]));
+          x.r === "other" ? (x.from || (t.byBatch ? "No batch" : "In stock")) : x.r === "unknown" ? "" : t.school, x.r === "missing" ? "No" : "Yes"]));
       const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "Stocktake");
       const safe = t.school.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "_").slice(0, 40) || "school";
       XLSX.writeFile(wb, `Stocktake_${safe}_${scanTodayStr()}.xlsx`);
@@ -1040,16 +1053,22 @@ function scanBatchTagDialog(mode, preset) {
     $("sb-fix").addEventListener("click", () => {
       const todo = t.res.filter(x => x.fix && st.fixes[x.key]);
       const reg = todo.filter(x => x.fix === "register"), mv = todo.filter(x => x.fix === "move");
-      if (reg.length) QBR.invIntake(reg.map(x => ({ sn: x.sn, model: x.model || null, cat: "Laptop", client: t.school })));
-      if (mv.length) {
-        QBR.invDeploy(mv.map(x => x.sn), t.school, scanTodayStr(), null);
-        mv.forEach(x => QBR.invLog("move", x.sn + ": " + (x.from || "stock") + " → " + t.school + " (stocktake)"));
+      if (t.byBatch) {
+        if (reg.length) QBR.invIntake(reg.map(x => ({ sn: x.sn, model: x.model || null, cat: "Laptop", batch: t.school })));
+        mv.forEach(x => { QBR.invUpdateAsset(x.key, { batch: t.school }); QBR.invLog("batch", x.sn + ": " + (x.from || "no batch") + " → " + t.school + " (stocktake)"); });
+      } else {
+        if (reg.length) QBR.invIntake(reg.map(x => ({ sn: x.sn, model: x.model || null, cat: "Laptop", client: t.school })));
+        if (mv.length) {
+          QBR.invDeploy(mv.map(x => x.sn), t.school, scanTodayStr(), null);
+          mv.forEach(x => QBR.invLog("move", x.sn + ": " + (x.from || "stock") + " → " + t.school + " (stocktake)"));
+        }
       }
       QBR.invLog("stocktake", `${t.school}: ${c("found")} found, ${c("missing")} missing, ${c("other")} elsewhere, ${c("unknown")} unknown`);
       // renderAll() rebuilds the Scan page (and this dialog's host) — reopen on the same school.
       if (typeof renderAll === "function") renderAll();
       scanFlagDuplicates(); scanRenderRows();
-      scanBatchTagDialog("stocktake", { client: t.school, msg: `Applied: ${reg.length} registered, ${mv.length} moved to ${t.school}.` });
+      scanBatchTagDialog("stocktake", { client: t.byBatch ? f.client : t.school, target: f.target, batchQ: f.batchQ,
+        msg: `Applied: ${reg.length} registered, ${mv.length} ${t.byBatch ? "added to batch" : "moved to"} ${t.school}.` });
     });
   }
 
@@ -1057,6 +1076,10 @@ function scanBatchTagDialog(mode, preset) {
     read();
     host.querySelectorAll("[data-sb-mode]").forEach(b => { const on = b.dataset.sbMode === st.mode; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); });
     host.querySelectorAll(".sb-dep").forEach(el => { el.hidden = st.mode !== "deploy"; });
+    host.querySelectorAll(".sb-stk").forEach(el => { el.hidden = st.mode !== "stocktake"; });
+    const byBatch = st.mode === "stocktake" && f.target === "batch";
+    $("sb-batchq-wrap").hidden = !byBatch; $("sb-client-wrap").hidden = byBatch;
+    if (st.mode === "deploy" && !st.batchTouched) $("sb-batch").value = f.batch = (QBR.invNextBatchCode ? QBR.invNextBatchCode(f.date) : "");
     $("sb-msg").textContent = "";
     if (st.mode === "deploy") renderDeploy(); else renderStocktake();
   }
@@ -1068,15 +1091,20 @@ function scanBatchTagDialog(mode, preset) {
   host.querySelector(".scan-dialog").addEventListener("change", e => {
     const fx = e.target.closest("[data-sb-fix]"); if (fx) { st.fixes[fx.dataset.sbFix] = fx.checked; render(); return; }
     const re = e.target.closest("[data-sb-end]"); if (re) { st.rowEnd[re.dataset.sbEnd] = re.value; return; }
-    if (e.target.name === "sb-wmode" || e.target.id === "sb-wover" || e.target.id === "sb-wend-scope") render();
+    if (e.target.name === "sb-wmode" || e.target.id === "sb-wover" || e.target.id === "sb-wend-scope" || e.target.id === "sb-target") render();
     if (e.target.id === "sb-wend") { if (e.target.value) { const r = host.querySelector('input[name="sb-wmode"][value="end"]'); if (r) r.checked = true; } render(); }
   });
   $("sb-client").addEventListener("input", render);
+  $("sb-batchq").addEventListener("input", render);
+  $("sb-batch").addEventListener("input", () => { st.batchTouched = true; });
+  $("sb-date").addEventListener("change", render);
   document.addEventListener("keydown", function onKey(e) {
     if (!$("scan-batch-modal")) { document.removeEventListener("keydown", onKey); return; }
     if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); }
   });
   if (preset && preset.client) $("sb-client").value = preset.client;
+  if (preset && preset.target) $("sb-target").value = preset.target;
+  if (preset && preset.batchQ) $("sb-batchq").value = preset.batchQ;
   render();
   if (preset && preset.msg) $("sb-msg").textContent = preset.msg;
   setTimeout(() => { const c = $("sb-client"); if (c) c.focus(); }, 60);

@@ -125,6 +125,24 @@ function sheetMetaFor(fp, kind) {
   }
   return null;
 }
+/* Batch Code column (2026-10-05): when a batch code must be written and the
+ * devices sheet has no such column yet, add "Batch Code" right after the last
+ * used column of the header row (no existing column moves), copy the header
+ * style from its left neighbour, and register it in the shared cols map so
+ * later ops in the same save find it. */
+function pEnsureCol(ws, cols, key, header) {
+  if (!ws || !cols) return -1;
+  if (colOf(cols, key) >= 0) return cols[key];
+  let last = 0;
+  try { last = XLSX.utils.decode_range(ws["!ref"] || "A1").e.c; } catch (e) {}
+  const c = last + 1;
+  pSet(ws, 1, c, header);
+  const left = ws[XLSX.utils.encode_cell({ r: 0, c: last })], me = ws[XLSX.utils.encode_cell({ r: 0, c: c })];
+  if (left && me) { if (left.s) me.s = left.s; }
+  if (ws["!cols"] && ws["!cols"][last] && !ws["!cols"][c]) ws["!cols"][c] = Object.assign({}, ws["!cols"][last]);
+  cols[key] = c;
+  return c;
+}
 function colOf(cols, key) {
   const i = cols ? cols[key] : -1;
   return (typeof i === "number" && i >= 0) ? i : -1;
@@ -258,10 +276,10 @@ function patchInvIntake(wb, fp, args) {
   let ws, cols, sheetName;
   if (sm) { ws = pSheet(wb, sm.name); cols = sm.cols; sheetName = sm.name; }
   if (!ws) {
-    const headers = ["Serial Number", "Client / Organization", "Model", "Description / Specifications", "Category", "Brand", "Supplier", "DR #", "Date Delivered", "Warranty Start", "Warranty End", "Warranty Years", "Condition", "Contact Person", "Address", "Contact Details"];
+    const headers = ["Serial Number", "Client / Organization", "Model", "Description / Specifications", "Category", "Brand", "Supplier", "DR #", "Date Delivered", "Warranty Start", "Warranty End", "Warranty Years", "Condition", "Contact Person", "Address", "Contact Details", "Batch Code"];
     const made = pEnsureSheet(wb, fp, "devices", "02 DEVICES", headers);
     ws = made.ws; sheetName = made.name;
-    cols = { sn: 0, client: 1, model: 2, desc: 3, cat: 4, brand: 5, supplier: 6, dr: 7, delivered: 8, wstart: 9, wend: 10, wyears: 11, cond: 12, contact: 13, addr: 14, phone: 15 };
+    cols = { sn: 0, client: 1, model: 2, desc: 3, cat: 4, brand: 5, supplier: 6, dr: 7, delivered: 8, wstart: 9, wend: 10, wyears: 11, cond: 12, contact: 13, addr: 14, phone: 15, batch: 16 };
   }
   const inv = pModel("assets");
   let n = 0;
@@ -293,6 +311,7 @@ function patchInvIntake(wb, fp, args) {
     put("contact", src.contact || "");
     put("addr", src.addr || "");
     put("phone", src.phone || "");
+    if (src.batch) { pEnsureCol(ws, cols, "batch", "Batch Code"); put("batch", src.batch); }
     const r = pAppendRow(ws, cells);
     pBumpRanges(wb, sheetName, r - 1, r);
     if (a) a._src = { fp, sheet: sheetName, row: r };
@@ -395,7 +414,8 @@ function patchInvUpdateAsset(wb, fp, args) {
   const key = (typeof QBR.invSerialKey === "function") ? QBR.invSerialKey(rawKey) : String(rawKey || "").trim().toUpperCase();
   const ar = patchAssetRow(wb, fp, key);
   if (!ar) return "skip: asset row not in linked file";
-  const map = { client: "client", model: "model", desc: "desc", cat: "cat", brand: "brand", supplier: "supplier", dr: "dr", cond: "cond", contact: "contact", addr: "addr", phone: "phone", wyears: "wyears" };
+  if (patch.batch) pEnsureCol(ar.ws, ar.cols, "batch", "Batch Code");
+  const map = { client: "client", model: "model", desc: "desc", cat: "cat", brand: "brand", supplier: "supplier", dr: "dr", cond: "cond", contact: "contact", addr: "addr", phone: "phone", wyears: "wyears", batch: "batch" };
   Object.keys(map).forEach(k => {
     if (patch[k] !== undefined) pSet(ar.ws, ar.row, colOf(ar.cols, map[k]), patch[k] == null ? "" : patch[k]);
   });
