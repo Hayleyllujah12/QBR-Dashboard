@@ -2173,6 +2173,7 @@ function renderAll() {
   if (typeof renderAsset360Panel === "function") renderAsset360Panel();
   if (typeof renderScan === "function") renderScan();
   if (typeof QBR.renderAudit === "function") QBR.renderAudit();
+  if (typeof QBR.renderAdmin === "function") QBR.renderAdmin();
   if (APP.activeTab === "dash-fulldata") { if (APP.fd.applyFilters) APP.fd.page = 1; renderFullData(); }
   makeTablesResizable();
   updateNavBadges();
@@ -2229,6 +2230,7 @@ const TAB_FILTERS = {
   "dash-ticket360":  [],                          // single-ticket page; opened via #ticket/<tno> deep link
   "dash-scan":       [],                          // scan page; own upload UI, no shared filters
   "dash-audit":      [],                          // audit editor; own month picker inside the panel
+  "dash-admin":      [],                          // v1.31.0 admin panel (feature flags, appearance)
 };
 const GLOBAL_FILTER_IDS = { quarter: "f-quarter-chips", month: "f-month", org: "f-org", school: "f-school" };
 
@@ -2472,7 +2474,9 @@ function processBuffers(buffers, meta) {
 function loadItems(items, meta) {
   const prev = APP.files || [];
   APP.files = items;
-  return Promise.all(items.map(it => readU8(it.blob, it.name))).then(buffers => {
+  // v1.30.0: wait for the journal's IndexedDB backup to merge before replaying (bounded wait).
+  const jReady = (typeof QBR !== "undefined" && QBR.journalReady) || Promise.resolve();
+  return Promise.all([Promise.all(items.map(it => readU8(it.blob, it.name))), jReady]).then(([buffers]) => {
     // Fingerprints let persist.js key journal entries to exact file bytes and
     // map each file to the inventory kinds it contributed.
     try {

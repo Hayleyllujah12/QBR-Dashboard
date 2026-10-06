@@ -795,9 +795,9 @@ function pBumpRanges(wb, srcSheet, oldLast, newLast) {
 QBR.patchWorkbookFromJournal = function (kind, wb, fp) {
   const report = { ok: true, applied: 0, skipped: 0, appended: 0, bumped: 0, notes: [] };
   if (!wb || !fp || typeof XLSX === "undefined") return Object.assign(report, { ok: false, error: "no workbook" });
-  let store = {};
-  try { store = JSON.parse(localStorage.getItem("qbr-inv-journal-v1")) || {}; }
-  catch (e) { return Object.assign(report, { ok: false, error: "no journal" }); }
+  // v1.30.0: read through the journal module (in-memory store survives a full localStorage).
+  if (typeof QBR.journalEntries !== "function") return Object.assign(report, { ok: false, error: "no journal" });
+  const store = QBR.journalEntries() || {};
   const entry = store[fp];
   const ops = entry && entry.ops ? entry.ops.filter(o => o && o.kind === kind) : [];
   const logRows = [];

@@ -18,7 +18,7 @@
 (function () {
   "use strict";
 
-  QBR.AUDIT_VERSION = "1.29.0";
+  QBR.AUDIT_VERSION = "1.31.0";
   // Base used to resolve Excel-stored relative hyperlink targets (e.g.
   // "../../../../../../:x:/r/sites/..." -> "file:///C:/:x:/r/sites/..."). The
   // browser cannot see the workbook's local folder, so relative links are
@@ -964,9 +964,7 @@
     // Journaled (pending) edits, keyed by sheet|row|colKey.
     let pending = {};
     try {
-      const store = JSON.parse(localStorage.getItem("qbr-inv-journal-v1") || "{}");
-      const entry = store[a.fp];
-      (entry && entry.ops || []).forEach(o => {
+      (QBR.journalOpsFor ? QBR.journalOpsFor(a.fp) : []).forEach(o => {
         if (o && o.kind === "audit" && o.op === "auditUpdateCell" && o.args) {
           pending[o.args[1] + "|" + o.args[2] + "|" + o.args[3]] = o.args[4];
         }

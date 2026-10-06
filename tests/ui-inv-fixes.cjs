@@ -110,7 +110,7 @@ async function batchTests(b) {
       wend: [a.fresh[0], a.fresh[1], a.same[0], a.moving[0]].map(s => { const d = f(s).wend; return d ? d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0") : null; }),
       wyears: f(a.fresh[0]).wyears, skippedEnd: (f(a.moving[1]).wend || "") + "",
       moved: f(a.moving[0]).client, kept: f(a.moving[1]).client, owner: f(a.same[0]).contact, dr: f(a.same[0]).dr,
-      j: (JSON.parse(localStorage.getItem("qbr-inv-journal-v1") || "null") ? 1 : 0), log: (QBR._invLog || invModel().log || []).slice(-6).map(l => JSON.stringify(l)).join(" ") };
+      j: (Object.keys(QBR.journalEntries()).length ? 1 : 0), log: (QBR._invLog || invModel().log || []).slice(-6).map(l => JSON.stringify(l)).join(" ") };
   }, { fresh, moving: pick.moving, same: pick.same });
   ok(after.fresh.every(c => c === pick.target), "3 new units registered to " + pick.target);
   ok(after.dupCount === 1, "duplicate scan registered once");

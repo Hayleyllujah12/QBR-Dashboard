@@ -6,6 +6,45 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-06 — v1.31.0 [BETA] Admin panel (feature flags + appearance) + "Beta version" label
+  - Hidden Admin panel: press Ctrl+Alt+Shift+A, or just type the word  rctadmin  while not in a
+    text box (Ctrl+Shift+A is already used by Chrome/Edge). The first time, you set an admin password (typed in
+    a masked box; only a hash is kept in this browser). After that the password is asked each time.
+  - Admin › Feature flags: switch whole sections of the menu on or off (Security & identity, Tenant
+    health, Adoption & capacity, Domains & email, Reporting, Inventory, Audit, Data). Hidden
+    sections keep all their data. "Reset to defaults" turns everything back on. Settings are per
+    browser. Note: the password only stops casual changes — it is not real security.
+  - Admin › Appearance: Light / Dark theme, page background, card and accent colours, heading
+    text colour, and body-text and heading size (90–150 %). A "Hard to read" note appears if the
+    chosen colours have too little contrast. "Reset appearance" undoes everything. Exports and
+    printing always use the standard look.
+  - A label next to the logo shows which copy you are using: "Beta version" (develop branch:
+    the beta site, the QBR-Dashboard_dev test folder, or ?beta) or "Preview · <branch>" (feature
+    preview sites). The live version shows no label. (Replaces the old "DEV · develop branch" label.)
+  - Beta and preview SITES (on netlify.app) now ask you to sign in first (invite-only Netlify
+    login). The live version and the offline folders are unchanged — no login, nothing downloaded.
+UPDATE — 2026-10-06 — v1.30.0 Unsaved edits are safer (nothing is dropped silently)
+  - Edits waiting to be saved to Excel are now also backed up inside the browser. If browser
+    storage is full, a red bar says so, the edits stay in the backup, and closing the tab asks
+    first. Next time you open the dashboard they are restored ("Recovered N unsaved edits").
+  - No more limits: the old 500-edit cap and the 90-day clean-up are gone. The "● N unsaved"
+    badge turns red above 400 edits for one file — save to Excel soon.
+  - Click the "● N unsaved" badge (or "Review edits" in the yellow bar) for the Unsaved edits panel:
+      · Made on an older copy of a file — e.g. you re-uploaded the workbook after editing it in
+        Excel. "Apply to loaded file" puts them back by school / serial number (not by row
+        number); anything that can't be matched stays listed. Or Export / Discard.
+      · In another dashboard folder — each dashboard folder (live, _dev test copy…) now keeps its
+        OWN edits, so testing in a copy can no longer clear the live folder's edits. "Move to this
+        dashboard" brings them over if you need them.
+      · Couldn't be placed during a merge — edits Excel's changes made impossible to place (row
+        deleted, heading renamed) are now KEPT here so you can re-enter them, then Dismiss.
+      · Export all (JSON) / Import… — take pending edits to another PC or browser, or keep a copy.
+        Exports contain school names and contacts: store them like the workbook.
+      · Backups — edits cleared after a save are kept 14 days and can be exported.
+  - First open after the update: your existing unsaved edits are picked up automatically when
+    you load their workbook. Open the LIVE folder first; a test copy opened first would take
+    them (they then show in the live folder under "In another dashboard folder" → Move).
+
 UPDATE — 2026-10-06 — v1.29.0 Save to Excel works after the file was edited in Excel (no re-linking)
   - If a Direct-save workbook was changed in Excel after you loaded it, Save no longer refuses
     and downloads a copy. The dashboard reads the file as it is now and puts your edits into it:
@@ -16,7 +55,8 @@ UPDATE — 2026-10-06 — v1.29.0 Save to Excel works after the file was edited 
       · If the SAME cell was changed in Excel and in the dashboard, a short list asks which
         value to keep (Excel or dashboard) — or Cancel to save nothing.
       · An edit that can't be placed (its row was deleted, or its column heading renamed in
-        Excel) is listed and not saved, so nothing lands in the wrong cell.
+        Excel) is listed and not saved, so nothing lands in the wrong cell (since v1.30.0 it is
+        kept under Unsaved edits → "Couldn't be placed").
   - After saving, the dashboard reloads the file, so you see the changes made in Excel too.
   - ↻ next to a Direct-save workbook now reloads it straight from the file — no file picker.
   - If the file is open in desktop Excel, Save says "close it there, then click Save again";

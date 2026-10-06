@@ -49,7 +49,7 @@ async function open(b, file) {
   return { p, errs, name };
 }
 const fileNow = async p => new Uint8Array(Buffer.from(await p.evaluate(() => window.__getFile()), "base64"));
-const pending = p => p.evaluate(() => { const s = JSON.parse(localStorage.getItem("qbr-inv-journal-v1") || "{}"); return Object.values(s).reduce((n, e) => n + ((e && e.ops) || []).length, 0); });
+const pending = p => p.evaluate(() => { const s = QBR.journalEntries(); return Object.values(s).reduce((n, e) => n + ((e && e.ops) || []).length, 0); });
 
 (async () => {
   const b = await chromium.launch();
@@ -151,6 +151,18 @@ const pending = p => p.evaluate(() => { const s = JSON.parse(localStorage.getIte
   wb = read(await fileNow(p));
   ok(r.mode === "file" && r.merged, "audit save merged (" + JSON.stringify(r.merged) + ")");
   ok(String(cellBy(wb, res.sheet, "SCHOOL", res.s0, "TOTAL RISKY USERS")) === "77" && cellBy(wb, res.sheet, "SCHOOL", res.s0, "CASES") === "n1", "risky count under its header; Excel's new column kept");
+  ok(errs.length === 0, "no page errors" + (errs.length ? ": " + errs.join(" | ") : "")); await p.close();
+
+  console.log("== H. Row deleted in Excel → that edit is parked (v1.30.0), the rest saved");
+  ({ p, errs } = await open(b, INV));
+  await p.evaluate(sns => { const A = APP.model.inventory.assets; QBR.invUpdateAsset(A.find(a => a.sn === sns[0]).key, { client: "KEEP ME" }); QBR.invUpdateAsset(A.find(a => a.sn === sns[1]).key, { cond: "ON A DELETED ROW" }); }, [SN1, SN2]);
+  { const wbd = XLSX.read(inv0, { type: "array" }); const a2 = XLSX.utils.sheet_to_json(wbd.Sheets[DEV], { header: 1, defval: null }); a2.splice(2, 1);
+    wbd.Sheets[DEV] = XLSX.utils.aoa_to_sheet(a2); await p.evaluate(d => window.__setFile(d), b64(new Uint8Array(XLSX.write(wbd, { bookType: "xlsx", type: "array" })))); }
+  r = await p.evaluate(async () => { QBR._mergeAutoResolve = m => { window.__un = m.unresolved.length; return {}; }; const r = await QBR.fsSaveKind("assets"); delete QBR._mergeAutoResolve;
+    return { mode: r.mode, un: window.__un, parked: QBR.journalParked().map(x => x.value + "|" + x.why) }; });
+  ok(r.mode === "file" && cellBy(read(await fileNow(p)), DEV, "Serial Number", SN1, "Client / Organization") === "KEEP ME", "placeable edit saved");
+  ok(r.un >= 1 && r.parked.some(x => /ON A DELETED ROW/.test(x)), "unplaceable edit kept under 'Couldn't be placed' (" + r.parked.join("; ") + ")");
+  ok(await pending(p) === 0, "pending journal cleared after the save");
   ok(errs.length === 0, "no page errors" + (errs.length ? ": " + errs.join(" | ") : "")); await p.close();
 
   await b.close();
