@@ -18,7 +18,7 @@
 (function () {
   "use strict";
 
-  QBR.AUDIT_VERSION = "1.29.0";
+  QBR.AUDIT_VERSION = "1.31.0";
   // Base used to resolve Excel-stored relative hyperlink targets (e.g.
   // "../../../../../../:x:/r/sites/..." -> "file:///C:/:x:/r/sites/..."). The
   // browser cannot see the workbook's local folder, so relative links are

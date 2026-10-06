@@ -33,6 +33,8 @@ const ok = (c, m, x) => { c ? pass++ : fail++; console.log((c ? "  âœ“ " : "  âœ
   await page.waitForTimeout(800);
   ok(await page.evaluate(() => document.body.classList.contains("has-data")), "body.has-data set");
   ok(await page.isVisible("#app-sidebar"), "sidebar visible after data");
+  // v1.31.0: the Admin group is hidden until Ctrl+Shift+A (password); reveal it so its nav item is covered too
+  await page.evaluate(() => document.body.classList.add("show-admin"));
   const tabs = await page.$$eval("#app-sidebar .sb-item[data-tab]", b => b.map(x => x.dataset.tab));
   // detail pages open from other pages and have no nav item by design (Asset 360, Ticket 360 in the inventory build)
   const DETAIL_PAGES = ["dash-asset360", "dash-ticket360"];

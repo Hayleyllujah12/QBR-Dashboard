@@ -6,6 +6,21 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-06 — v1.31.0 [BETA] Admin panel (feature flags + appearance) + "Beta version" label
+  - Hidden Admin panel: press Ctrl+Shift+A. The first time, you set an admin password (typed in
+    a masked box; only a hash is kept in this browser). After that the password is asked each time.
+  - Admin › Feature flags: switch whole sections of the menu on or off (Security & identity, Tenant
+    health, Adoption & capacity, Domains & email, Reporting, Inventory, Audit, Data). Hidden
+    sections keep all their data. "Reset to defaults" turns everything back on. Settings are per
+    browser. Note: the password only stops casual changes — it is not real security.
+  - Admin › Appearance: Light / Dark theme, page background, card and accent colours, heading
+    text colour, and body-text and heading size (90–150 %). A "Hard to read" note appears if the
+    chosen colours have too little contrast. "Reset appearance" undoes everything. Exports and
+    printing always use the standard look.
+  - A label next to the logo shows which copy you are using: "Beta version" (develop branch:
+    the beta site, the QBR-Dashboard_dev test folder, or ?beta) or "Preview · <branch>" (feature
+    preview sites). The live version shows no label. (Replaces the old "DEV · develop branch" label.)
+
 UPDATE — 2026-10-06 — v1.29.0 Save to Excel works after the file was edited in Excel (no re-linking)
   - If a Direct-save workbook was changed in Excel after you loaded it, Save no longer refuses
     and downloads a copy. The dashboard reads the file as it is now and puts your edits into it:

@@ -118,6 +118,9 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-ui);f
 .brand-menu-n.err{color:var(--bad-fg)}
 @media print{.brand-menu{display:none!important}}
 .dev-badge{display:inline-block;margin-right:6px;padding:0 6px;border-radius:8px;font-size:11px;font-weight:700;line-height:16px;background:var(--warn-fill,#F7630C);color:#fff;vertical-align:1px}
+.dev-badge.env-beta{background:var(--brand,#0F6CBD)}
+.dev-badge.env-preview{background:var(--warn-fill,#F7630C)}
+@media print{.dev-badge{display:none!important}}
 .icon-btn{width:32px;height:32px;display:inline-grid;place-items:center;border:1px solid transparent;border-radius:var(--radius-sm);
   background:transparent;color:var(--ink);cursor:pointer;padding:0;flex:none}
 .icon-btn:hover{background:var(--tab-hover)}
@@ -913,3 +916,29 @@ tr.audit-exempted>td{background-color:#f1f3f5;color:#6c757d}
 .merge-warn{background:var(--warn-bg,#FFF9F5);color:var(--warn-fg,#BC4B09);border-radius:4px;padding:8px 12px;margin:8px 0;font-size:13px}
 .merge-warn ul{margin:4px 0 0 18px;padding:0}
 .merge-act{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+
+/* ---- Discreet Admin panel (v1.31.0): per-module feature flags ---- */
+.sb-group.sb-admin{display:none}
+body.show-admin .sb-group.sb-admin{display:block}
+.admin-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.admin-list{display:grid;gap:6px;max-width:640px}
+.admin-row{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--border,#dee2e6);border-radius:8px;background:var(--surface,#fff)}
+.admin-row-txt{flex:1}
+.admin-row-label{font-size:14px;font-weight:600}
+.admin-row-desc{font-size:12px;color:var(--muted,#6c757d)}
+.admin-row .btn{min-width:64px}
+
+/* ---- Admin password modal ---- */
+.admin-pw-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;display:flex;align-items:center;justify-content:center}
+.admin-pw-box{background:var(--surface,#fff);color:var(--ink,#242424);border-radius:10px;padding:20px;width:320px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.25)}
+.admin-pw-title{font-size:15px;font-weight:700;margin-bottom:12px}
+.admin-pw-input{width:100%;padding:8px 10px;border:1px solid var(--border,#ced4da);background:var(--surface,#fff);color:var(--ink,#242424);border-radius:6px;font-size:14px;box-sizing:border-box}
+.admin-pw-input:focus{outline:none;border-color:#0d6efd;box-shadow:0 0 0 2px rgba(13,110,253,.25)}
+.admin-pw-err{color:var(--bad-fg,#dc3545);font-size:12px;min-height:18px;margin-top:6px}
+.admin-pw-btns{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+
+/* ---- Admin appearance controls (v1.31.0; sizes in css/type-scale.css) ---- */
+.admin-color{width:40px;height:28px;border:1px solid var(--border,#ced4da);border-radius:6px;padding:2px;cursor:pointer;background:var(--surface,#fff)}
+.admin-range{width:160px;accent-color:var(--brand,#0F6CBD)}
+:root[data-qbr-headink] :is(h1,h2,h3,h4,h5,h6,.dash-h,.app-title){color:var(--qbr-head-ink,inherit)}
+@media print{body[data-print="ALL"] #dash-admin{display:none !important}}
