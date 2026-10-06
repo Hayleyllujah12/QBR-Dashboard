@@ -71,7 +71,7 @@ function set(ws, ref, v) {
     const out = r.bytes;
     { const why = await S.verifySurgical(orig, out, work); ok(!why, "read-back verify passes" + (why ? " — " + why : "")); }
     const changed = r.stats.changedParts;
-    const allowed = ["xl/worksheets/sheet2.xml", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "[Content_Types].xml", "xl/styles.xml", "xl/tables/table1.xml"];
+    const allowed = ["xl/worksheets/_rels/sheet2.xml.rels", "xl/worksheets/sheet2.xml", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "[Content_Types].xml", "xl/styles.xml", "xl/tables/table1.xml"];
     ok(changed.every(p => allowed.includes(p) || /^xl\/worksheets\/sheet\d+\.xml$/.test(p)), "only expected parts changed: " + changed.join(", "));
     const bad = untouchedIdentical(orig, out, changed);
     ok(bad.length === 0, "all other parts byte-identical (" + (S.zipRead(orig).entries.length - changed.filter(c => S.zipRead(orig).byName.has(c)).length) + " parts)" + (bad.length ? " BAD: " + bad : ""));
@@ -147,6 +147,49 @@ function set(ws, ref, v) {
       try { cp.execFileSync("soffice", ["--headless", "--convert-to", "csv", "--outdir", tmp, f], { stdio: "pipe", timeout: 120000 }); ok(fs.existsSync(path.join(tmp, "out.csv")), "LibreOffice opens + converts output"); }
       catch (e) { ok(false, "LibreOffice failed: " + e.message); }
     }
+  }
+
+  // 6b. hyperlinks (audit Reference column writes cell.l): add, update, repair
+  {
+    console.log("== hyperlinks");
+    const fx = FX("SAMPLE_Lenovo_Inventory_RICH.xlsx"), orig = new Uint8Array(fs.readFileSync(fx));
+    let base = read(orig), work = read(orig);
+    const U1 = "https://example.sharepoint.com/:x:/r/sites/a/Doc.aspx?id=9&web=1&e=Q", U2 = "https://example.com/report?a=1&b=<2>";
+    work.Sheets["06 PIPELINE"].B2.l = { Target: U1 };                       // sheet without any rels yet
+    work.Sheets["02 DEVICES"].H3.l = { Target: U2 };                        // sheet with table+comment rels
+    const po = work.Sheets["07 PURCHASE ORDER"], pc = Object.keys(po).find(k => k[0] !== "!" && po[k].l);
+    const U3 = "https://example.sharepoint.com/sites/x/New.aspx?id=2&web=1"; po[pc].l = { Target: U3 };  // update existing
+    let r = await S.surgicalSave(orig, base, work);
+    ok(r.ok && r.stats.links === 3, "3 link edits written (" + (r.ok ? r.stats.links : r.reason) + ")");
+    if (r.ok) {
+      const why = await S.verifySurgical(orig, r.bytes, work); ok(!why, "read-back verify incl. hyperlinks" + (why ? " — " + why : ""));
+      const back = XLSX.read(r.bytes, { type: "array" }), dec = S._decodeStable;
+      ok(dec(back.Sheets["06 PIPELINE"].B2.l.Target) === U1, "new link on a sheet with no rels file");
+      ok(dec(back.Sheets["02 DEVICES"].H3.l.Target) === U2, "new link on a sheet with table/comment rels (special chars)");
+      ok(dec(back.Sheets["07 PURCHASE ORDER"][pc].l.Target) === U3, "existing link updated in place");
+      const z1 = S.zipRead(r.bytes), relN = n => S.zipText(z1, n);
+      const poRels = await relN("xl/worksheets/_rels/sheet6.xml.rels"), devRels = await relN("xl/worksheets/_rels/sheet2.xml.rels");
+      ok(!/&amp;amp;/.test(poRels + devRels) && /web=1&amp;e=/.test(await relN("xl/worksheets/_rels/sheet5.xml.rels") || ""), "targets escaped exactly once");
+      ok(/<Relationship[^>]*\/table"/.test(devRels) && /comments/.test(devRels), "table + comment relationships kept");
+      const dx = await S.zipText(z1, "xl/worksheets/sheet2.xml");
+      ok(dx.indexOf("<hyperlinks>") > dx.indexOf("</sheetData>") && dx.indexOf("<hyperlinks>") < dx.indexOf("<pageMargins") && dx.indexOf("<hyperlinks>") > dx.lastIndexOf("</dataValidations>"), "<hyperlinks> placed in schema order");
+      if (process.env.VALIDATE) {
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "hl-")), f = path.join(tmp, "hl.xlsx"); fs.writeFileSync(f, r.bytes);
+        let py = ""; try { py = cp.execFileSync("python3", ["-c", "import openpyxl,sys;wb=openpyxl.load_workbook(sys.argv[1]);print(wb['06 PIPELINE']['B2'].hyperlink.target,'|',wb['02 DEVICES']['H3'].hyperlink.target)", f]).toString().trim(); } catch (e) { py = "ERR " + e.message.slice(0, 200); }
+        ok(py === U1 + " | " + U2, "openpyxl reads the links: " + py.slice(0, 120));
+        try { cp.execFileSync("soffice", ["--headless", "--convert-to", "csv", "--outdir", tmp, f], { stdio: "pipe", timeout: 120000 }); ok(fs.existsSync(path.join(tmp, "hl.csv")), "LibreOffice opens it"); } catch (e) { ok(false, "LibreOffice: " + e.message); }
+      }
+    }
+    // repair: a file damaged by the old engine (&amp;amp;) is fixed on the next save
+    const z0 = S.zipRead(orig), rn = "xl/worksheets/_rels/sheet6.xml.rels";
+    const bad = (await S.zipText(z0, rn)).replace(/&amp;/g, "&amp;amp;amp;");
+    const damaged = await S.zipWrite(z0, new Map([[rn, bad]]));
+    base = read(damaged); work = read(damaged);
+    work.Sheets["02 DEVICES"].B5.v = "REPAIR TEST"; work.Sheets["02 DEVICES"].B5.t = "s";
+    r = await S.surgicalSave(damaged, base, work);
+    const fixed = r.ok ? await S.zipText(S.zipRead(r.bytes), rn) : "";
+    ok(r.ok && r.stats.linksRepaired >= 1 && !/&amp;amp;/.test(fixed) && /&amp;web=1/.test(fixed), "double-encoded links repaired on save (" + (r.ok ? r.stats.linksRepaired : r.reason) + ")");
+    const why2 = r.ok ? await S.verifySurgical(damaged, r.bytes, work) : "n/a"; ok(!why2, "verify passes after repair" + (why2 ? " — " + why2 : ""));
   }
 
   // 7. guard rails
