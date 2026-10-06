@@ -6,6 +6,21 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-06 — [DEVELOP / TEST ONLY] "Save to Excel" keeps your workbook's formatting
+  - Not live yet: this is only in the develop branch and the QBR-Dashboard_dev test folder.
+  - Save to Excel now writes only the cells you changed and leaves the rest of the file as it
+    was. Colours, fonts, column widths, conditional formatting, drop-down lists, Excel tables,
+    charts, comments, links and macros (.xlsm) are kept. The save message ends in
+    "· formatting kept" when this engine was used.
+  - New rows placed directly under an Excel table extend the table, and a new "Batch Code"
+    column is added to the table.
+  - If the file contains something this engine can't edit safely, nothing is written to it.
+    A separate copy downloads instead, and the message gives the reason.
+  - To switch back to the old save (browser console):
+    localStorage.setItem("qbr-save-engine","legacy")
+  - Also fixed: a second "Save to Excel" in the same session could report "No changes to save"
+    and leave edits to existing rows unsaved until the page was reloaded.
+
 UPDATE — 2026-10-05 — Edit batch / Bulk edit now show every field
   - Edit batch and Bulk edit use one form with all the unit fields, grouped as:
       · Status & deployment: Status, School/client, Date delivered, DR #, SQ, Batch code

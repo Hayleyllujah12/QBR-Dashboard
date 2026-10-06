@@ -352,6 +352,43 @@ function fsVerifyBytes(bytes, bookType, wb) {
 }
 QBR._fsBookType = fsBookType; QBR._fsVerifyBytes = fsVerifyBytes;   // exposed for tests
 
+/* ---------- format-safe save engine (develop prototype, 2026-10-06) ---------- */
+QBR.saveEngine = function () {
+  let v = null; try { v = localStorage.getItem("qbr-save-engine"); } catch (e) {}
+  return (v === "legacy" || !QBR.xlsxSurgical) ? "legacy" : "format-safe";
+};
+async function fsSaveSurgical(kind, link, cur) {
+  const S = QBR.xlsxSurgical;
+  const buf = new Uint8Array(await cur.arrayBuffer());
+  // Two parses of the SAME bytes with the SAME options: one stays the baseline,
+  // the other receives the journal; their difference is exactly what to write.
+  const base = XLSX.read(buf, { type: "array", cellStyles: true });
+  const work = XLSX.read(buf, { type: "array", cellStyles: true });
+  if (typeof QBR.patchWorkbookFromJournal !== "function") return QBR.fsDownloadKind(kind, "download-fallback");
+  const res = QBR.patchWorkbookFromJournal(kind, work, link.fp);
+  if (!res.ok) { console.warn("[QBR] patch failed:", res.error); return QBR.fsDownloadKind(kind, "download-fallback"); }
+  if (res.applied === 0) return { mode: "no-changes", name: link.name };
+  const out = await S.surgicalSave(buf, base, work);
+  const bookType = fsBookType(link.name);
+  let why = !out.ok ? "format-safe save can't handle this file yet (" + out.reason + ")" : null;
+  if (!why && out.noChanges) return { mode: "no-changes", name: link.name };
+  if (!why) why = await S.verifySurgical(buf, out.bytes, work);
+  if (!why) why = fsVerifyBytes(out.bytes, bookType, work);
+  if (why) {
+    console.warn("[QBR] format-safe save blocked — " + why, out.stats);
+    const r = QBR.fsDownloadKind(kind, "download-unsafe");
+    return Object.assign(r, { name: link.name, reason: why });
+  }
+  const w = await link.handle.createWritable();
+  await w.write(out.bytes);
+  await w.close();
+  (QBR._origWb || (QBR._origWb = {}))[link.fp] = work; // retained copy now matches the file
+  const fresh = await link.handle.getFile();
+  await QBR.fsAfterSave(kind, link, fresh);
+  console.info("[QBR] format-safe save:", out.stats);
+  return { mode: "file", name: link.name, applied: res.applied, skipped: res.skipped, notes: res.notes, engine: "format-safe", stats: out.stats };
+}
+
 /* Rebuild-download path (classic Export). Used when no file is linked, when the
  * browser lacks the File System Access API, and as a fallback. NOTE: this
  * regenerates the workbook from parsed data — formulas/layout of the original
@@ -418,6 +455,11 @@ QBR.fsSaveKind = async function (kind) {
       const r = QBR.fsDownloadKind(kind, "download-changed");
       return Object.assign(r, { name: link.name });
     }
+    // DEVELOP 2026-10-06: format-safe save (js/xlsx-surgical.js). Writes only the
+    // changed cells into the file and copies every other part untouched, so
+    // styles, conditional formatting, validation, tables, charts and macros
+    // survive. Opt out per browser: localStorage "qbr-save-engine" = "legacy".
+    if (QBR.saveEngine() === "format-safe") return await fsSaveSurgical(kind, link, cur);
     // Patch-in-place: replay the journal as cell writes into the ORIGINAL
     // workbook, preserving its formulas, layout and helper columns.
     let wb = (QBR._origWb || {})[link.fp];
@@ -507,7 +549,7 @@ QBR.supSaveDone = function (r) {
   if (!r) return;
   if (r.mode === "file") {
     const extra = (r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "");
-    QBR.persistNote("supplies", `Saved ✓ ${r.name}${extra}`, 5000);
+    QBR.persistNote("supplies", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}`, 5000);
   }
   else if (r.mode === "no-changes") QBR.persistNote("supplies", "No changes to save", 3000);
   else if (r.mode === "download" || r.mode === "download-fallback")
@@ -525,7 +567,7 @@ QBR.invSaveDone = function (r) {
   if (!r) return;
   if (r.mode === "file") {
     const extra = (r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "");
-    QBR.persistNote("assets", `Saved ✓ ${r.name}${extra}`, 5000);
+    QBR.persistNote("assets", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}`, 5000);
   }
   else if (r.mode === "no-changes") QBR.persistNote("assets", "No changes to save", 3000);
   else if (r.mode === "download" || r.mode === "download-fallback")
