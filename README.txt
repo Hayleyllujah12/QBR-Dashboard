@@ -6,6 +6,25 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-06 — v1.29.0 Save to Excel works after the file was edited in Excel (no re-linking)
+  - If a Direct-save workbook was changed in Excel after you loaded it, Save no longer refuses
+    and downloads a copy. The dashboard reads the file as it is now and puts your edits into it:
+      · Edits made in Excel are kept.
+      · Your edits go to the right place even if columns were added or moved in Excel (matched
+        by the column heading) or rows were sorted or added (matched by serial number, school,
+        item ID, ticket number…).
+      · If the SAME cell was changed in Excel and in the dashboard, a short list asks which
+        value to keep (Excel or dashboard) — or Cancel to save nothing.
+      · An edit that can't be placed (its row was deleted, or its column heading renamed in
+        Excel) is listed and not saved, so nothing lands in the wrong cell.
+  - After saving, the dashboard reloads the file, so you see the changes made in Excel too.
+  - ↻ next to a Direct-save workbook now reloads it straight from the file — no file picker.
+  - If the file is open in desktop Excel, Save says "close it there, then click Save again";
+    nothing is written and your edits are kept (no extra download).
+  - If OneDrive updates the file while you save, the dashboard notices and merges again.
+  - Tip: avoid saving from the dashboard while someone is typing in the same file in Excel
+    Online — OneDrive may then keep both versions as a conflict copy.
+
 UPDATE — 2026-10-06 — Audit editor, guided audit wizard, exempt schools (v1.26–1.28)
   - NEW PAGE: Audit › Risky sign-ins editor. Load RISKY_USERS_AND_DOMAIN.xlsx (12 month sheets):
       · Edit each school's organization, risky-user count, domain health and reference link.

@@ -85,3 +85,34 @@ Pre-existing fix included: `QBR.fsCarryPatchState` now re-points model rows' `_s
 7. Supplies workbook: record a transaction and save. Expect: same checks as step 1.
 8. Edit the file in Excel while it's linked, then Save. Expect: the dashboard refuses and downloads a copy.
 9. Escape hatch: set `qbr-save-engine=legacy`, then save. Expect: the old behaviour.
+
+
+## 6. Merge on save — file edited in Excel (v1.29.0, `js/xlsx-merge.js`)
+Before: any outside change made Save refuse ("changed outside the dashboard") and download a copy; the user re-linked.
+Now (format-safe engine only): **three-way, cell-level merge** of
+- **base** — the bytes the dashboard parsed (kept in memory: `QBR._fsBase`, set by `loadItems` via `QBR.fsRememberBase` and after
+  every save; a disk-backed `File` becomes unreadable once Excel changes the file, so `APP.files` now holds in-memory copies after saves),
+- **mine** — base + the journal (`patchWorkbookFromJournal`, coordinates valid for base),
+- **theirs** — the file now (`handle.getFile()`, no picker).
+
+`rebase()` diffs base→mine and maps each edit onto theirs: sheet by name, column by normalized **header text**, row by a **key column**
+(registry `QBR.mergeKeys` + defaults: serial number, ticket no, item id, school, client, PO#, SQ, domain, timestamp; else the first column unique in
+both). Rows the dashboard appended go after theirs' last row; columns the dashboard added (e.g. Batch Code, EXEMPT) after theirs' last column.
+Per cell: theirs==base → apply · theirs==mine → skip · else **conflict** → review dialog (`QBR.fsMergeReview`, per cell Excel/Dashboard,
+"keep all", Cancel = write nothing). Unplaceable edits (row deleted, header renamed, sheet removed) → listed, not written.
+`final` = theirs + applied edits → `surgicalSave(theirsBytes, theirs, final)` (only those cells written; Excel's edits + formatting kept).
+Then: last-moment re-read (file changed mid-save → merge again, ≤3 tries) → write → new base → `loadItems` reload (fresh coordinates,
+Excel's edits visible).
+
+Write failures: `close()` rejecting (`NoModificationAllowedError` / `InvalidStateError` / `InvalidModificationError` — desktop Excel lock)
+→ mode `locked`, note "close it in Excel", journal kept, no download. ↻ on a linked workbook = `QBR.fsReloadFromFile` (asks to save
+pending edits first). Audit watcher: only real content changes (hash) raise the badge.
+
+Research notes (2026-10-06): FS Access writes go to a `.crswap` file and are moved over the target on `close()` (atomic; original untouched
+on failure); Chromium maps Windows sharing/lock violations to `NoModificationAllowedError`. OneDrive: a non-Office writer overwriting a file
+co-authored in Excel Online can produce a conflict copy — nothing merges it automatically. `FileSystemObserver` (Chrome 133+) could replace
+the 30-s polling later.
+
+Tests: `tests/merge-save.cjs` (26: cell fixes, same-row, conflict + resolve, inserted column, renamed header, sorted rows, deleted row, appended
+rows/columns, new sheets, audit K/L + links, formatting kept) · `tests/ui-merge-save.cjs` (30, real app: merge without prompt, 2nd save,
+conflict cancel/resolve, dialog escaping, inserted column, locked file, ↻ without picker, change mid-save, audit merge).
