@@ -676,7 +676,7 @@
       <div id="audit-body"></div>
     </section>
 
-    <!-- ADMIN (discreet feature flags; Ctrl+Shift+A, password-gated) -->
+    <!-- ADMIN (discreet feature flags; Ctrl+Alt+Shift+A or type "rctadmin", password-gated) -->
     <section id="dash-admin" class="dash-panel d-none" data-deck="skip">
       <h3 class="dash-h">Admin</h3>
       <div id="admin-body"></div>
@@ -755,6 +755,7 @@
   <script src="js/audit.js"></script>  <!-- v1.26.0: audit workbook editor -->
   <script src="libs/tesseract/tesseract.min.js"></script>
   <script src="js/scan.js"></script>
+  <script src="js/identity.js"></script>  <!-- v1.31.0: Netlify Identity login on *.netlify.app only (loads its widget there; no-op offline/live) -->
   <script src="js/admin.js"></script>  <!-- v1.31.0: discreet admin panel (feature flags) -->
   <script src="js/app.js"></script>
   <script src="js/xlsx-surgical.js"></script>  <!-- 2026-10-06: format-safe Save to Excel -->

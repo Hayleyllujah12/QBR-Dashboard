@@ -8,7 +8,7 @@ const WB = path.join(__dirname, "fixture.xlsx");
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail++; console.log("  ✗ " + m); } };
 const vis = (p, sel) => p.evaluate(s => { const el = document.querySelector(s); return !!el && el.getClientRects().length > 0 && getComputedStyle(el).display !== "none"; }, sel);
-const shortcut = p => p.keyboard.press("Control+Shift+A");
+const shortcut = p => p.keyboard.press("Control+Alt+Shift+KeyA");
 
 async function boot(ctx, url) {
   const p = await ctx.newPage(); p._errs = []; p.on("pageerror", e => p._errs.push(e.message));
@@ -49,6 +49,18 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
     ok(!(await vis(p, ".sb-group.sb-admin")), "wrong password → stays hidden");
     await shortcut(p); await p.waitForTimeout(200); await p.fill("#admin-pw-1", "s3cret"); await p.keyboard.press("Enter"); await p.waitForTimeout(300);
     ok(await vis(p, ".sb-group.sb-admin"), "right password (Enter) → Admin shown");
+    await shortcut(p); await p.waitForTimeout(150);
+    ok(!(await vis(p, ".sb-group.sb-admin")), "Ctrl+Alt+Shift+A hides it again");
+    await p.keyboard.press("Control+Shift+KeyA"); await p.waitForTimeout(150);
+    ok(!(await p.$(".admin-pw-overlay")), "Ctrl+Shift+A (browser tab search) no longer triggers the panel");
+    await p.evaluate(() => { if (document.activeElement) document.activeElement.blur(); }); await p.keyboard.type("rctadmin"); await p.waitForTimeout(200);
+    ok(await p.$$eval(".admin-pw-overlay input", x => x.length) === 1, "typing 'rctadmin' outside a text box opens the password prompt");
+    await p.fill("#admin-pw-1", "s3cret"); await p.keyboard.press("Enter"); await p.waitForTimeout(300);
+    ok(await vis(p, ".sb-group.sb-admin"), "…and the right password shows Admin");
+    await p.evaluate(() => { const i = document.createElement("input"); i.id = "tmp-in"; document.body.appendChild(i); });
+    await shortcut(p); await p.waitForTimeout(150); await p.focus("#tmp-in"); await p.keyboard.type("rctadmin"); await p.waitForTimeout(200);
+    ok(!(await p.$(".admin-pw-overlay")), "typing 'rctadmin' inside a text box does nothing");
+    await shortcut(p); await p.waitForTimeout(200); await p.fill("#admin-pw-1", "s3cret"); await p.keyboard.press("Enter"); await p.waitForTimeout(300);
     await p.click("#admin-reset"); await p.waitForTimeout(150);
     ok(await vis(p, '[data-module="inventory"]') && await vis(p, '[data-module="security"]'), "Reset to defaults turns every module back on");
     ok(p._errs.length === 0, "no page errors" + (p._errs.length ? ": " + p._errs.join(" | ") : ""));
@@ -118,6 +130,38 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
     ok(r.t === null, "Netlify production URL → no badge");
     try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) {}
     await ctx.close();
+  }
+  console.log("== Netlify Identity gate");
+  {
+    const FAKE = `(function(){var h={},u=localStorage.getItem("fakeUser");function f(e,x){(h[e]||[]).forEach(function(c){c(x)})}
+      window.netlifyIdentity={on:function(e,c){(h[e]=h[e]||[]).push(c)},init:function(){setTimeout(function(){f("init",u?{email:u}:null)},10)},
+      open:function(){window.__opened=1;localStorage.setItem("fakeUser","pedro@example.com");f("login",{email:"pedro@example.com"})},
+      close:function(){},logout:function(){localStorage.removeItem("fakeUser");f("logout")}};})();`;
+    const mk = async (blockWidget) => {
+      const ctx = await b.newContext(); const reqs = [];
+      ctx.on("request", r => reqs.push(r.url()));
+      await ctx.route(/netlify\.app\//, route => { const u = new URL(route.request().url()); const f = path.join(APPDIR, u.pathname === "/" ? "index.html" : decodeURIComponent(u.pathname)); route.fulfill(fs.existsSync(f) ? { path: f } : { status: 404, body: "" }); });
+      await ctx.route(/identity\.netlify\.com/, route => blockWidget ? route.abort() : route.fulfill({ contentType: "application/javascript", body: FAKE }));
+      return { ctx, reqs };
+    };
+    const hidden = p => p.evaluate(() => getComputedStyle(document.querySelector(".app-header")).visibility === "hidden" && getComputedStyle(document.querySelector("main")).visibility === "hidden");
+    // offline / live: nothing loaded, no gate
+    { const { ctx, reqs } = await mk(false); const p = await boot(ctx, "file://" + path.join(APPDIR, "index.html"));
+      ok(!(await p.$("#identity-gate")) && !reqs.some(u => /identity\.netlify\.com/.test(u)), "file:// (live/offline): no gate and the Netlify widget is NOT downloaded");
+      await ctx.close(); }
+    { const { ctx } = await mk(false); const p = await boot(ctx, "https://develop--rct-opsdesk.netlify.app/"); await p.waitForTimeout(300);
+      ok(await p.isVisible("#identity-gate") && await hidden(p), "Netlify beta, signed out: login gate shown, dashboard hidden");
+      await p.click("#identity-login-btn"); await p.waitForTimeout(200);
+      ok(!(await p.isVisible("#identity-gate")) && !(await hidden(p)) && await p.isVisible("#identity-logout-btn"), "after login: dashboard shown + Log out button");
+      await p.reload(); await p.waitForTimeout(400);
+      ok(!(await p.isVisible("#identity-gate")), "stays signed in after reload");
+      await p.click("#identity-logout-btn"); await p.waitForTimeout(200);
+      ok(await p.isVisible("#identity-gate") && await hidden(p) && !(await p.$("#identity-logout-btn")), "Log out → gate back, dashboard hidden");
+      ok(p._errs.length === 0, "no page errors" + (p._errs.length ? ": " + p._errs.join(" | ") : ""));
+      await ctx.close(); }
+    { const { ctx } = await mk(true); const p = await boot(ctx, "https://feature-admin-panel--rct-opsdesk.netlify.app/"); await p.waitForTimeout(500);
+      ok(await p.isVisible("#identity-gate") && await hidden(p) && /unavailable/i.test(await p.textContent("#identity-note")), "widget blocked → stays locked with 'Login service unavailable'");
+      await ctx.close(); }
   }
   await b.close();
   console.log(`RESULT: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

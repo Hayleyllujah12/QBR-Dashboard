@@ -2,7 +2,8 @@
  * RCT OpsDesk — Discreet Admin Panel: per-module feature flags (js/admin.js)
  * v1.31.0 (2026-10-06)
  *
- * Hidden by default. Press Ctrl+Shift+A to reveal the Admin sidebar section.
+ * Hidden by default. Press Ctrl+Alt+Shift+A (or type "rctadmin" outside a text box) to reveal
+ * the Admin sidebar section. (Ctrl+Shift+A from the patch is taken by Chrome/Edge tab search.)
  * Optional password gate: first use prompts to set one; only the SHA-256
  * hash is stored (localStorage "qbr-admin-pw"). Deterrent against casual
  * snoopers — not real security (client-side, bypassable via devtools).
@@ -166,7 +167,7 @@
         if (ev.key === "Escape") done(null);
         if (ev.key === "Enter") submit();
       });
-      // Don't let Ctrl+Shift+A re-trigger while the modal is open.
+      // Don't let the admin shortcut re-trigger while the modal is open.
       ov.addEventListener("keydown", ev => ev.stopPropagation());
       function submit() {
         const v1 = inp1.value;
@@ -224,7 +225,7 @@
   };
 
   // Hide sidebar groups for disabled modules. The Admin group itself is
-  // only visible when body.show-admin is set (via Ctrl+Shift+A).
+  // only visible when body.show-admin is set (via the admin shortcut).
   QBR.adminApplyFlags = function () {
     const flags = loadFlags();
     Object.keys(MODULES).forEach(key => {
@@ -272,7 +273,7 @@
       `<div class="audit-actions"><button type="button" class="btn btn-sm btn-outline-secondary" id="admin-reset">Reset to defaults</button> ` +
       `<button type="button" class="btn btn-sm btn-outline-secondary" id="admin-pw">Change password</button></div></div>` +
       `<div class="admin-list">${rows}</div>` +
-      `<div class="small text-muted mt-2">Stored in this browser only. Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> again to hide this panel.</div>`;
+      `<div class="small text-muted mt-2">Stored in this browser only. Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> again (or type <kbd>rctadmin</kbd>) to hide this panel.</div>`;
 
     host.querySelectorAll("[data-admin-toggle]").forEach(b =>
       b.addEventListener("click", () => {
@@ -352,10 +353,22 @@
 
   QBR.renderAdmin = renderAdminPanel;
 
-  // Ctrl+Shift+A: password gate, then toggle the Admin section.
+  // Admin shortcut. Ctrl+Shift+A is taken by Chrome/Edge (tab search), so:
+  //  - Ctrl+Alt+Shift+A — matched on e.code (KeyA) because Alt changes e.key on some layouts;
+  //  - or type the word "rctadmin" anywhere outside a text box (works on any keyboard/browser).
+  const SEQ = "rctadmin"; let typed = "";
+  function inField(t) { return !!(t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))); }
+  QBR.adminShortcutHit = function (e) {
+    if (e.ctrlKey && e.altKey && e.shiftKey && !e.metaKey && (e.code === "KeyA" || /^a$/i.test(e.key))) return true;
+    if (e.ctrlKey || e.altKey || e.metaKey || inField(e.target) || !e.key || e.key.length !== 1) { if (!e.shiftKey) typed = ""; return false; }
+    typed = (typed + e.key.toLowerCase()).slice(-SEQ.length);
+    if (typed === SEQ) { typed = ""; return true; }
+    return false;
+  };
+  // Password gate, then toggle the Admin section.
   async function onKey(e) {
     try {
-      if (e.ctrlKey && e.shiftKey && (e.key === "A" || e.key === "a")) {
+      if (QBR.adminShortcutHit(e)) {
         e.preventDefault();
         const showing = document.body.classList.contains("show-admin");
         if (showing) {

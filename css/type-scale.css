@@ -151,3 +151,7 @@
 :root[data-qbr-fs] .admin-pw-title{font-size:calc(15px * var(--fs-h,1))}
 :root[data-qbr-fs] .admin-pw-input{font-size:calc(14px * var(--fs-t,1))}
 :root[data-qbr-fs] .admin-pw-err{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .identity-logo{font-size:calc(22px * var(--fs-h,1))}
+:root[data-qbr-fs] .identity-sub{font-size:calc(14px * var(--fs-t,1))}
+:root[data-qbr-fs] .identity-box .btn{font-size:calc(15px * var(--fs-t,1))}
+:root[data-qbr-fs] .identity-note{font-size:calc(12px * var(--fs-t,1))}

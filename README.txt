@@ -7,7 +7,8 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    number is cut only for a deliberate major release. **
 
 UPDATE — 2026-10-06 — v1.31.0 [BETA] Admin panel (feature flags + appearance) + "Beta version" label
-  - Hidden Admin panel: press Ctrl+Shift+A. The first time, you set an admin password (typed in
+  - Hidden Admin panel: press Ctrl+Alt+Shift+A, or just type the word  rctadmin  while not in a
+    text box (Ctrl+Shift+A is already used by Chrome/Edge). The first time, you set an admin password (typed in
     a masked box; only a hash is kept in this browser). After that the password is asked each time.
   - Admin › Feature flags: switch whole sections of the menu on or off (Security & identity, Tenant
     health, Adoption & capacity, Domains & email, Reporting, Inventory, Audit, Data). Hidden
@@ -20,6 +21,8 @@ UPDATE — 2026-10-06 — v1.31.0 [BETA] Admin panel (feature flags + appearance
   - A label next to the logo shows which copy you are using: "Beta version" (develop branch:
     the beta site, the QBR-Dashboard_dev test folder, or ?beta) or "Preview · <branch>" (feature
     preview sites). The live version shows no label. (Replaces the old "DEV · develop branch" label.)
+  - Beta and preview SITES (on netlify.app) now ask you to sign in first (invite-only Netlify
+    login). The live version and the offline folders are unchanged — no login, nothing downloaded.
 
 UPDATE — 2026-10-06 — v1.29.0 Save to Excel works after the file was edited in Excel (no re-linking)
   - If a Direct-save workbook was changed in Excel after you loaded it, Save no longer refuses
