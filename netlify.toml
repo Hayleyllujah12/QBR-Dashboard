@@ -1,0 +1,17 @@
+# Netlify = BETA / TESTING host only (live = GitHub Pages from main). v1.31.0, 2026-10-06.
+# Branch deploys: <branch>--qbr-dashboard-development.netlify.app (previews, "Preview" label);
+# the main address and develop-- are beta ("Beta version" label, js/branding.js).
+#
+# Publish ONLY the app. The repo root also holds README.txt, "QBR Dashboard.md", docs/ and tests/
+# (school names, synthetic fixtures). The Identity login in js/identity.js only hides the UI, so
+# anything published would still be downloadable by direct link - keep it out of the deploy.
+[build]
+  publish = "dist"
+  command = "rm -rf dist && mkdir dist && cp -r index.html css js libs assets dist/"
+
+# Beta/preview sites must not show up in search engines.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Referrer-Policy = "same-origin"

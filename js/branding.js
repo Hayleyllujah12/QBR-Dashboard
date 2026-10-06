@@ -32,15 +32,17 @@
 
   // Environment badge (2026-10-06, v1.31.0). Detected from where the app runs, so the
   // same code is safe on every branch (nothing shows on the live folder / GitHub Pages):
-  //   Beta version — develop branch: Netlify "develop--<site>" URL, the QBR-Dashboard_dev
-  //                  test folder, or ?beta (?dev kept as an alias)
+  //   Beta version — Netlify is the beta/testing host (live = GitHub Pages), so the project's main
+  //                  address "<site>.netlify.app" and "develop--<site>" are beta; also the
+  //                  QBR-Dashboard_dev test folder, or ?beta (?dev kept as an alias)
   //   Preview      — any other Netlify branch / deploy-preview URL ("<branch>--<site>.netlify.app")
   function envInfo() {
     var path = "", host = "", q = "";
     try { path = decodeURIComponent(location.pathname); } catch (e) { path = location.pathname || ""; }
     try { host = String(location.hostname || "").toLowerCase(); q = location.search || ""; } catch (e) {}
     var m = /^([a-z0-9-]+)--[a-z0-9-]+\.netlify\.app$/.exec(host);
-    if ((m && m[1] === "develop") || /QBR-Dashboard_dev/i.test(path) || /[?&](beta|dev)\b/i.test(q))
+    var netlifyMain = !m && /\.netlify\.app$/.test(host);
+    if (netlifyMain || (m && m[1] === "develop") || /QBR-Dashboard_dev/i.test(path) || /[?&](beta|dev)\b/i.test(q))
       return { kind: "beta", text: "Beta version", tag: "[BETA]", tip: "Beta (develop branch) — for testing before release. Changes here are not live." };
     if (m) return { kind: "preview", text: "Preview · " + m[1], tag: "[PREVIEW]", tip: "Feature preview (" + m[1] + ") — not live, not beta." };
     return null;

@@ -119,6 +119,7 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
     r = await badge("file://" + path.join(DEV, "index.html"));
     ok(r.t === "Beta version", "QBR-Dashboard_dev test folder → 'Beta version'");
     // Netlify hosts, served from disk
+    await ctx.route(/github\.io\//, route => { const u = new URL(route.request().url()); const rel = decodeURIComponent(u.pathname).replace(/^\/QBR-Dashboard\/?/, ""); const f = path.join(APPDIR, rel || "index.html"); route.fulfill(fs.existsSync(f) ? { path: f } : { status: 404, body: "" }); });
     await ctx.route(/netlify\.app\//, route => { const u = new URL(route.request().url()); const f = path.join(APPDIR, u.pathname === "/" ? "index.html" : decodeURIComponent(u.pathname)); route.fulfill(fs.existsSync(f) ? { path: f } : { status: 404, body: "" }); });
     r = await badge("https://develop--rct-opsdesk.netlify.app/");
     ok(r.t === "Beta version", "Netlify develop--<site> URL → 'Beta version'");
@@ -126,8 +127,10 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
     ok(r.t === "Preview · feature-admin-panel" && /env-preview/.test(r.c), "Netlify branch URL → 'Preview · <branch>'");
     r = await badge("https://deploy-preview-3--rct-opsdesk.netlify.app/");
     ok(/^Preview · deploy-preview-3/.test(r.t || ""), "Netlify deploy-preview URL → Preview");
-    r = await badge("https://rct-opsdesk.netlify.app/");
-    ok(r.t === null, "Netlify production URL → no badge");
+    r = await badge("https://qbr-dashboard-development.netlify.app/");
+    ok(r.t === "Beta version", "Netlify main address (beta host; live is GitHub Pages) → 'Beta version'");
+    r = await badge("https://hayleyllujah12.github.io/QBR-Dashboard/");
+    ok(r.t === null, "GitHub Pages (live) → no badge");
     try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) {}
     await ctx.close();
   }
