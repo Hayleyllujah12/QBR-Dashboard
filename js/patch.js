@@ -704,6 +704,17 @@ QBR.fsCarryPatchState = function (oldFp, newFp) {
       QBR._sheetMeta[newFp] = QBR._sheetMeta[oldFp];
       delete QBR._sheetMeta[oldFp];
     }
+    // 2026-10-06 fix: model rows remember which file they came from (_src.fp).
+    // Without re-pointing them, a SECOND save in the same session skipped edits
+    // to existing rows ("asset row not in linked file") until a reload.
+    const m = (typeof APP !== "undefined" && APP.model) || {};
+    [m.inventory, m.supplies].forEach(part => {
+      if (!part) return;
+      Object.keys(part).forEach(k => {
+        const arr = part[k];
+        if (Array.isArray(arr)) arr.forEach(x => { if (x && x._src && x._src.fp === oldFp) x._src.fp = newFp; });
+      });
+    });
   } catch (e) {}
 };
 

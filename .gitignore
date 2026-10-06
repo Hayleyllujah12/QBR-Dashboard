@@ -6,6 +6,9 @@
 !tests/fixture.xlsx
 !tests/SAMPLE_Lenovo_Inventory_SYNTH.xlsx
 !tests/SAMPLE_Lenovo_Inventory_SYNTH.xlsm
+!tests/SAMPLE_Lenovo_Inventory_RICH.xlsx
+!tests/SAMPLE_Lenovo_Inventory_RICH.xlsm
+!tests/SAMPLE_Lenovo_Inventory_RICH_LO.xlsx
 
 # Office lock / temp files
 ~$*
