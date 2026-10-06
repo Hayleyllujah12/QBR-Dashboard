@@ -30,8 +30,21 @@
   }
   window.RCT_BRAND = { apply: apply, reset: function () { save(null); apply(null); }, KEY: KEY };
 
+  // DEV badge (2026-10-06): shown only when the app runs from the test folder
+  // (…\QBR-Dashboard_dev\…) or with ?dev in the URL, so it can't be mistaken for live.
+  function devBadge() {
+    var path = ""; try { path = decodeURIComponent(location.pathname); } catch (e) { path = location.pathname; }
+    if (!/QBR-Dashboard_dev/i.test(path) && !/[?&]dev\b/i.test(location.search)) return;
+    var sub = document.querySelector(".app-sub"); if (!sub || document.getElementById("dev-badge")) return;
+    var b = document.createElement("span");
+    b.id = "dev-badge"; b.className = "dev-badge"; b.textContent = "DEV · develop branch";
+    b.title = "Test copy of the app (develop branch). Changes here are not live.";
+    sub.insertBefore(b, sub.firstChild);
+    if (document.title.indexOf("[DEV]") !== 0) document.title = "[DEV] " + document.title;
+  }
   function init() {
     var btn = $("brand-btn"), menu = $("brand-menu"), file = $("brand-file");
+    devBadge();
     apply(load());
     if (!btn || !menu || !file) return;
     function open(v) {
