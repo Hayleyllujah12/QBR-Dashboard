@@ -2385,7 +2385,7 @@ function renderFileList() {
         (linked ? " checked" : "") + (canLink ? "" : " disabled") +
         ` title="${canLink ? (linked ? "Direct save ON — uncheck to unlink" : "Check to enable direct save to this Excel file") : "Direct save needs Chrome or Edge"}" aria-label="Direct save">`;
       return `<div class="loaded-file">${editBox}<span class="loaded-file-name" title="${escAttr(it.name)}">${esc(it.name)}</span>` +
-        `<button type="button" class="loaded-file-r" data-fk="${k}" title="Refresh this workbook — re-pick the file to load its latest data">↻</button>` +
+        `<button type="button" class="loaded-file-r" data-fk="${k}" title="${linked ? "Reload this workbook from the file (picks up edits made in Excel)" : "Refresh this workbook — re-pick the file to load its latest data"}">↻</button>` +
         `<button type="button" class="loaded-file-x" data-fk="${k}" title="Remove this workbook">×</button></div>`;
     }).join("");
 }
@@ -2481,6 +2481,8 @@ function loadItems(items, meta) {
         QBR._kindByFp = {};
       }
     } catch (e) {}
+    // 2026-10-06: remember the parsed bytes as the merge base for linked files
+    try { if (typeof QBR !== "undefined" && QBR.fsRememberBase) QBR.fsRememberBase(items, buffers); } catch (e) {}
     const ok = processBuffers(buffers, meta || {});
     if (!ok) { APP.files = prev; return ok; }
     // Replay any journaled entries recorded against these exact files
@@ -2936,7 +2938,15 @@ function initShell() {
   const us = $("upload-status");
   if (us) us.addEventListener("click", e => {
     const r = e.target.closest(".loaded-file-r");
-    if (r) { e.stopPropagation(); promptRefresh(r.dataset.fk); return; }
+    if (r) {
+      e.stopPropagation();
+      // 2026-10-06: a Direct-save (linked) workbook reloads through its link — no file picker
+      const it = (APP.files || []).find(f => fileKey(f.name) === r.dataset.fk);
+      if (it && typeof QBR !== "undefined" && QBR.fsIsLinkedByName && QBR.fsIsLinkedByName(it.name) && QBR.fsReloadFromFile) {
+        QBR.fsReloadFromFile(it.name).then(ok => { if (ok === false) promptRefresh(r.dataset.fk); });
+      } else promptRefresh(r.dataset.fk);
+      return;
+    }
     const x = e.target.closest(".loaded-file-x");
     if (x) { e.stopPropagation(); removeFile(x.dataset.fk); return; }
     const t = e.target.closest(".loaded-file-edit");

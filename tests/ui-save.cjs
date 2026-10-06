@@ -45,8 +45,9 @@ async function run(b, ext, externalChange) {
     return { mode: r.mode, reason: r.reason || null, writes, dl, sn: a.sn, b64: btoa(out) };
   }, { name, b64, externalChange });
   if (externalChange) {
-    ok(res.writes === 0, "linked file NOT written when it changed outside the dashboard");
-    ok(res.mode === "download-changed" && res.dl === 1, "separate copy downloaded instead (mode " + res.mode + ")");
+    // 2026-10-06: a file changed outside the dashboard is now MERGED (xlsx-merge.js), not refused
+    ok(res.writes === 1 && res.mode === "file", "file changed outside the dashboard → edits merged into it (mode " + res.mode + ")");
+    ok(res.dl === 0, "no separate copy downloaded");
   } else {
     ok(res.mode === "file" && res.writes === 1, "saved into the linked file (mode " + res.mode + (res.reason ? ", " + res.reason : "") + ")");
     const out = Buffer.from(res.b64, "base64");
