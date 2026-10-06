@@ -575,6 +575,127 @@ function patchInvAddDeployment(wb, fp, args) {
   return "ok";
 }
 
+/* ============================ audit ops =====================================
+ * v1.26.0 — patch-in-place writers for the Audit module (js/audit.js).
+ * args mirror the journaled ops: auditUpdateCell(fp, sheet, row, colKey, value, url),
+ * auditAddRow(fp, sheet, data). Column indices resolve from QBR._auditMeta so the
+ * ops stay correct even if column order shifts between workbook versions. */
+function patchAuditCol(wb, fp, sheet, colKey) {
+  try {
+    const meta = (((QBR._auditMeta || {}).sheets || {})[sheet] || {}).colIdx || {};
+    return meta[colKey];
+  } catch (e) { return undefined; }
+}
+function patchAuditUpdateCell(wb, fp, args) {
+  const sheet = args[1], row = args[2], colKey = args[3], value = args[4], url = args[5];
+  const ws = pSheet(wb, sheet);
+  if (!ws) return "skip: sheet not in linked file";
+  const c = patchAuditCol(wb, fp, sheet, colKey);
+  if (c == null) return "skip: column not in linked file";
+  // Exempt columns (K/L) may not exist yet: stamp headers on first write.
+  if ((colKey === "exempt" || colKey === "exemptReason") && ws) {
+    try {
+      const hAddr = XLSX.utils.encode_cell({ r: 0, c: c });
+      if (!ws[hAddr] || !String(ws[hAddr].v || "").trim()) {
+        ws[hAddr] = { t: "s", v: colKey === "exempt" ? "EXEMPT" : "EXEMPT REASON" };
+        const rng = XLSX.utils.decode_range(ws["!ref"] || "A1");
+        if (c > rng.e.c) { rng.e.c = c; ws["!ref"] = XLSX.utils.encode_range(rng); }
+      }
+    } catch (e) {}
+  }
+  const outVal = colKey === "exempt" ? (value ? "Yes" : "") : value;
+  const r = patchAuditSetCell(ws, row, c, colKey, outVal, url);
+  return r;
+}
+function patchAuditSetCell(ws, row, c, colKey, value, url) {
+  if (colKey === "ref") {
+    const text = value != null ? String(value) : "";
+    const target = url != null ? String(url) : "";
+    const res = pSet(ws, row, c, text);
+    if (res !== "ok") return res;
+    try {
+      const addr = XLSX.utils.encode_cell({ r: row - 1, c: c });
+      const cell = ws[addr];
+      if (cell && target) cell.l = { Target: target };
+      else if (cell && cell.l) delete cell.l;
+    } catch (e) {}
+    return "ok";
+  }
+  return pSet(ws, row, c, value);
+}
+function patchAuditAddRow(wb, fp, args) {
+  const sheet = args[1], data = args[2] || {};
+  const ws = pSheet(wb, sheet);
+  if (!ws) return "skip: sheet not in linked file";
+  const order = ["school", "org", "risky", "health", "ref"];
+  const cells = [];
+  order.forEach(k => {
+    const c = patchAuditCol(wb, fp, sheet, k);
+    if (c == null) return;
+    cells[c] = (k === "ref") ? { text: data.ref, url: data.refUrl } : (data[k] != null ? String(data[k]) : "");
+  });
+  // pAppendRow handles raw values; ref needs hyperlink handling — write manually.
+  const r = pLastRow(ws) + 1;
+  cells.forEach((entry, c) => {
+    if (entry === undefined) return;
+    if (entry && typeof entry === "object" && !(entry instanceof String)) {
+      patchAuditSetCell(ws, r, c, "ref", entry.text, entry.url);
+    } else {
+      pSet(ws, r, c, entry);
+    }
+  });
+  return "ok";
+}
+
+function patchAuditPasteRow(wb, fp, args) {
+  const sheet = args[1], row = args[2], values = args[3] || [];
+  const ws = pSheet(wb, sheet);
+  if (!ws) return "skip: sheet not in linked file";
+  const keys = ["org", "risky", "health", "ref"];
+  let n = 0;
+  keys.forEach((k, i) => {
+    if (i >= values.length) return;
+    const v = values[i];
+    if (v == null || String(v).trim() === "") return;
+    const c = patchAuditCol(wb, fp, sheet, k);
+    if (c == null) return;
+    if (patchAuditSetCell(ws, row, c, k, String(v).trim()) === "ok") n++;
+  });
+  return n ? "ok" : "skip: nothing to paste";
+}
+
+/* Storage paste: values[0..6] -> columns C..I (0-indexed 2..8).
+ * The Percentage% formula column (J) is never touched. */
+function patchStoragePasteRow(wb, fp, args) {
+  const sheet = args[1], row = args[2], values = args[3] || [];
+  const ws = pSheet(wb, sheet);
+  if (!ws) return "skip: sheet not in linked file";
+  for (let i = 0; i < 7; i++) {
+    const v = values[i] != null ? String(values[i]) : "";
+    const r = pSet(ws, row, 2 + i, v);
+    if (r !== "ok" && r !== "noop" && r !== "skipped-formula") return "skip: col " + (2 + i) + " (" + r + ")";
+  }
+  return "ok";
+}
+
+/* Usage paste: date -> C (2), values[0..18] -> D..V (3..21), period -> W (22).
+ * Column X ("% of Usage Report", formula) is never touched. pSet skips any
+ * cell holding a formula (e.g. calculated "Total of ..." columns), so the
+ * workbook's own formulas keep working. */
+function patchUsagePasteRow(wb, fp, args) {
+  const sheet = args[1], row = args[2], values = args[3] || [], dateStr = args[4], period = args[5];
+  const ws = pSheet(wb, sheet);
+  if (!ws) return "skip: sheet not in linked file";
+  const writes = [[2, dateStr != null ? String(dateStr) : ""]];
+  for (let i = 0; i < 19; i++) writes.push([3 + i, values[i] != null ? String(values[i]) : ""]);
+  writes.push([22, period != null ? String(period) : ""]);
+  for (let k = 0; k < writes.length; k++) {
+    const r = pSet(ws, row, writes[k][0], writes[k][1]);
+    if (r !== "ok" && r !== "noop" && r !== "skipped-formula") return "skip: col " + writes[k][0] + " (" + r + ")";
+  }
+  return "ok";
+}
+
 var PATCH_OPS = {
   supRecordTransaction: patchSupRecordTransaction,
   supAddItem: patchSupAddItem,
@@ -589,6 +710,11 @@ var PATCH_OPS = {
   invSetStatus: patchInvSetStatus,
   invUpdateAsset: patchInvUpdateAsset,
   invAddDeployment: patchInvAddDeployment,
+  auditUpdateCell: patchAuditUpdateCell,
+  auditAddRow: patchAuditAddRow,
+  auditPasteRow: patchAuditPasteRow,
+  storagePasteRow: patchStoragePasteRow,
+  usagePasteRow: patchUsagePasteRow,
 };
 
 /* ============================ edit log ================================== */
@@ -609,6 +735,11 @@ function pLogDetail(op, args) {
       case "invSetStatus": return "status override: " + a[0] + " → " + a[1];
       case "invUpdateAsset": return "asset updated: " + a[0] + " (" + Object.keys(a[1] || {}).join(", ") + ")";
       case "invAddDeployment": return "SQ: " + (a[0].sn || "") + " → " + (a[0].sq || "");
+      case "auditUpdateCell": return "audit cell: " + a[1] + " row " + a[2] + " (" + a[3] + ")";
+      case "auditAddRow": return "audit row added: " + (((a[2]||{}).school)||"");
+      case "auditPasteRow": return "audit paste: " + a[1] + " row " + a[2];
+      case "storagePasteRow": return "storage paste: " + a[1] + " row " + a[2];
+      case "usagePasteRow": return "usage paste: " + a[1] + " row " + a[2];
       default: return op;
     }
   } catch (e) { return op; }

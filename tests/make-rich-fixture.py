@@ -92,3 +92,20 @@ with zipfile.ZipFile(OUT) as zin, zipfile.ZipFile(OUTM, "w", zipfile.ZIP_DEFLATE
         zout.writestr(it, data)
     zout.writestr("xl/vbaProject.bin", vba)
 print("wrote", OUT, "and", OUTM)
+
+# --- Audit fixture (v1.28 Audit editor): SAMPLE_AUDIT_RICH.xlsx -------------
+# Step 1 (node): tests/make-audit-fixture.cjs writes 12 month sheets + Drop-Down with
+# hyperlinks (fake schools, contoso links). Step 2 (here): add styles, CF and a DV list.
+import subprocess
+from openpyxl.formatting.rule import CellIsRule as _CIR
+raw = os.path.join(HERE, "_audit_raw.xlsx")
+subprocess.run(["node", os.path.join(HERE, "make-audit-fixture.cjs"), raw], check=True)
+aw = openpyxl.load_workbook(raw)
+for ws in aw:
+    if ws.title == "Drop-Down": continue
+    for c in ws[1]: c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="0F6CBD")
+    ws.column_dimensions["A"].width = 30
+    ws.conditional_formatting.add("C2:C50", _CIR(operator="greaterThan", formula=["25"], fill=PatternFill("solid", fgColor="FDE7E9")))
+    adv = DataValidation(type="list", formula1="'Drop-Down'!$A$2:$A$3", allow_blank=True); ws.add_data_validation(adv); adv.add("D2:D50")
+aw.save(os.path.join(HERE, "SAMPLE_AUDIT_RICH.xlsx")); os.remove(raw)
+print("wrote", os.path.join(HERE, "SAMPLE_AUDIT_RICH.xlsx"))

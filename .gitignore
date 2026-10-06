@@ -9,6 +9,7 @@
 !tests/SAMPLE_Lenovo_Inventory_RICH.xlsx
 !tests/SAMPLE_Lenovo_Inventory_RICH.xlsm
 !tests/SAMPLE_Lenovo_Inventory_RICH_LO.xlsx
+!tests/SAMPLE_AUDIT_RICH.xlsx
 
 # Office lock / temp files
 ~$*
