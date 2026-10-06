@@ -1,0 +1,25 @@
+# Netlify = BETA / TESTING host only. Live / production = GitHub Pages (from main).
+# Netlify project: qbr-dashboard-development
+#   qbr-dashboard-development.netlify.app            production branch = develop  -> beta
+#   develop--qbr-dashboard-development.netlify.app   beta (branch deploy)
+#   <branch>--qbr-dashboard-development.netlify.app  feature preview (branch deploys = All)
+# Settings in this file override the Netlify UI.
+
+[build]
+  # Static app, no build tool. Copy ONLY the app into dist/ so README.txt, "QBR Dashboard.md",
+  # docs/ and tests/ (school names, fixtures) are never published - any published file is
+  # downloadable by direct link, whatever login the app shows.
+  publish = "dist"
+  command = "rm -rf dist && mkdir dist && cp -r index.html css js libs assets dist/"
+  # Skip the deploy when only docs/tests changed (exit 0 = nothing relevant changed).
+  # On the first build CACHED_COMMIT_REF is empty, git diff errors, and the build runs.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- index.html css js libs assets netlify.toml"
+
+# Headers are global (all contexts). Beta/preview sites stay out of search engines.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "same-origin"
