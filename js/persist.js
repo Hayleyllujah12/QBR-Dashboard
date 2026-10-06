@@ -11,6 +11,8 @@
  *     so Ctrl+R no longer wipes recorded entries. Replayed ops are NOT
  *     re-recorded (QBR._replaying guard) and do not duplicate the
  *     human-readable edit log (invLog guard in inventory.js).
+ *     v1.30.0: the journal store moved to js/journal.js (localStorage + IndexedDB
+ *     backup, per-folder key, no caps, orphan/parked/export panel).
  *  B. DIRECT FILE SAVE (Chrome/Edge, File System Access API). The user can
  *     LINK a workbook file; the browser grants per-file read/write
  *     permission via an explicit prompt. "Save" then writes the regenerated
@@ -35,7 +37,7 @@ var QBR = window.QBR = window.QBR || {};
 
 /* ============================ A. ENTRY JOURNAL ========================== */
 
-QBR.PERSIST_VERSION = "1.9.1"; // v1.25.1: content-hash guard kills OneDrive false positives
+QBR.PERSIST_VERSION = "1.10.0"; // v1.30.0: journal moved to js/journal.js (journal safety)
 
 // Fingerprint: identifies the exact file bytes an entry was recorded against.
 QBR.fpOf = function (name, blob) {
@@ -62,132 +64,8 @@ function persistAppFiles() {
   try { return (typeof APP !== "undefined" && APP.files) || []; }
   catch (e) { return []; }
 }
-var JKEY = "qbr-inv-journal-v1";
-var JMAX_OPS = 500, JMAX_AGE = 90 * 24 * 3600 * 1000;
-
-function jLoad() {
-  try { return JSON.parse(localStorage.getItem(JKEY)) || {}; }
-  catch (e) { return {}; }
-}
-function jSave(store) {
-  try { localStorage.setItem(JKEY, JSON.stringify(store)); } catch (e) { /* quota/full: entries stay in memory */ }
-}
-function jPrune(store) {
-  const cut = Date.now() - JMAX_AGE;
-  Object.keys(store).forEach(fp => {
-    const e = store[fp];
-    if (!e || !Array.isArray(e.ops) || !e.ops.length) { delete store[fp]; return; }
-    e.ops = e.ops.filter(o => o && o.ts > cut);
-    if (!e.ops.length) delete store[fp];
-    else if (e.ops.length > JMAX_OPS) e.ops = e.ops.slice(-JMAX_OPS);
-  });
-  return store;
-}
-
-// Fingerprints currently loaded that contain a given inventory kind.
-// QBR._kindByFp is rebuilt by the parsers on every load (see inventory.js /
-// supplies.js) as { fp: Set("assets"|"supplies") }.
-QBR._fpsForKind = function (kind) {
-  const m = QBR._kindByFp || {};
-  return Object.keys(m).filter(fp => { try { return m[fp] && m[fp].has(kind); } catch (e) { return false; } });
-};
-
-// Record one mutation. Called by the write-back mutations in inventory.js /
-// supplies.js. Silent no-op while replaying or when no source file is known.
-QBR.journalRecord = function (kind, op, args) {
-  if (QBR._replaying) return;
-  if (typeof localStorage === "undefined") return;
-  const fps = QBR._fpsForKind(kind);
-  if (!fps.length) return;
-  const fp = fps[0];
-  let fileName = "";
-  try {
-    const f = persistAppFiles().filter(x => QBR.fpOf(x.name, x.blob) === fp)[0];
-    if (f) fileName = f.name;
-  } catch (e) {}
-  const store = jPrune(jLoad());
-  const e = store[fp] || (store[fp] = { fileName: fileName, ops: [] });
-  e.fileName = fileName || e.fileName;
-  let id = "op" + Date.now().toString(36);
-  try { id += Math.floor(Math.random() * 1e6).toString(36); } catch (x) {}
-  e.ops.push({ id: id, kind: kind, op: op, args: args || [], ts: Date.now() });
-  if (e.ops.length > JMAX_OPS) e.ops = e.ops.slice(-JMAX_OPS);
-  jSave(store);
-  QBR.persistRefreshBadge();
-};
-
-// Replay every stored op whose file is currently loaded, onto the freshly
-// parsed model. Called from loadItems (app.js) after processBuffers, for both
-// fresh uploads and session restores. The model is always rebuilt from raw
-// bytes first, so each op applies exactly once — no dedup set needed.
-QBR.journalReplayFor = function (files) {
-  const store = jLoad();
-  let n = 0;
-  QBR._replaying = true;
-  try {
-    (files || []).forEach(f => {
-      const fp = QBR.fpOf(f.name, f.blob);
-      const e = store[fp];
-      if (!e || !e.ops || !e.ops.length) return;
-      e.ops.forEach(o => {
-        const fn = QBR[o.op];
-        if (typeof fn !== "function") return;
-        try { fn.apply(null, o.args || []); n++; }
-        catch (err) { console.warn("[QBR] journal replay failed:", o.op, err && err.message); }
-      });
-    });
-  } finally {
-    QBR._replaying = false;
-  }
-  QBR.persistRefreshBadge();
-  return n;
-};
-
-// Drop the journal for one fingerprint (used after its data was saved to disk).
-QBR.journalClearFp = function (fp) {
-  if (!fp || typeof localStorage === "undefined") return;
-  const store = jLoad();
-  if (store[fp]) { delete store[fp]; jSave(store); }
-  QBR.persistRefreshBadge();
-};
-
-// How many unsaved (dashboard-only) entries exist for the loaded files.
-QBR.journalUnsavedCount = function (kind) {
-  const store = jLoad();
-  let fps = [];
-  try { fps = persistAppFiles().map(x => QBR.fpOf(x.name, x.blob)); } catch (e) {}
-  let n = 0;
-  fps.forEach(fp => {
-    const e = store[fp];
-    if (!e || !e.ops) return;
-    e.ops.forEach(o => { if (!kind || o.kind === kind) n++; });
-  });
-  return n;
-};
-
-// Fill every [data-unsaved] badge with the current unsaved-entry count.
-QBR.persistRefreshBadge = function () {
-  try {
-    document.querySelectorAll("[data-unsaved]").forEach(el => {
-      if (el.dataset.persistBusy) return;
-      const n = QBR.journalUnsavedCount(el.dataset.unsaved);
-      el.innerHTML = n
-        ? ` <span class="badge bg-warning text-dark" title="Saved in the dashboard, not yet written to the Excel file">● ${n} unsaved</span>`
-        : "";
-    });
-  } catch (e) {}
-};
-
-// Transient status text in the same badge slot ("Saving…", "Saved ✓").
-QBR.persistNote = function (kind, html, ms) {
-  try {
-    const el = document.querySelector(`[data-unsaved="${kind}"]`);
-    if (!el) return;
-    el.dataset.persistBusy = "1";
-    el.innerHTML = " " + html;
-    setTimeout(() => { delete el.dataset.persistBusy; QBR.persistRefreshBadge(); }, ms || 3500);
-  } catch (e) {}
-};
+// The journal itself (record / replay / clear / badge / panel) lives in
+// js/journal.js since v1.30.0 (journal safety). Loaded right after this file.
 
 /* ====================== B. DIRECT FILE SAVE (FS API) ==================== */
 
@@ -478,6 +356,8 @@ async function fsSaveMerged(kind, link, cur, attempt) {
     const wr = await fsWriteBytes(kind, link, out.bytes);
     if (wr) return wr;
   }
+  // v1.30.0: edits that couldn't be placed are kept (Unsaved edits → "Couldn't be placed"), not dropped.
+  if (m.unresolved.length) { try { QBR.journalPark(link.name, m.unresolved); } catch (e) {} }
   const fresh = await link.handle.getFile();
   await QBR.fsAfterSave(kind, link, fresh);       // new base, journal cleared
   await fsReloadModel();                          // positions + Excel's edits now in the dashboard
@@ -497,7 +377,7 @@ QBR.fsReloadFromFile = async function (name, opts) {
   if (!(await fsEnsurePermission(link.handle))) return false;
   if (!opts.quiet) {
     let pending = 0;
-    try { const st = JSON.parse(localStorage.getItem("qbr-inv-journal-v1") || "{}"); pending = ((st[link.fp] || {}).ops || []).length; } catch (e) {}
+    try { pending = QBR.journalOpsFor(link.fp).length; } catch (e) {}
     if (pending) {
       if (!confirm(`You have ${pending} unsaved edit${pending === 1 ? "" : "s"} for "${link.name}".\n\nOK = save them now (merged with the file's latest changes), then reload.\nCancel = do nothing.`)) return false;
       for (const k of (link.kinds || [])) await QBR.fsSaveKind(k);
@@ -534,7 +414,7 @@ QBR.fsMergeReview = function (m, fileName) {
       <p class="small">${m.applied} of your edits fit around the Excel changes and will be saved. ${m.conflicts.length ? "These cells were changed in <b>both</b> places — choose which value to keep:" : ""}</p>
       ${m.conflicts.length ? `<div class="merge-tools"><button type="button" class="btn btn-sm btn-outline-secondary" data-all="theirs">Keep all Excel values</button> <button type="button" class="btn btn-sm btn-outline-secondary" data-all="mine">Keep all dashboard values</button></div>
       <div class="merge-scroll"><table class="table table-sm"><thead><tr><th>Cell</th><th>Excel (file)</th><th>Dashboard (yours)</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
-      ${un ? `<div class="merge-warn"><b>${m.unresolved.length} edit${m.unresolved.length === 1 ? "" : "s"} can't be placed</b> and won't be saved (re-enter them after reloading):<ul>${un}</ul></div>` : ""}
+      ${un ? `<div class="merge-warn"><b>${m.unresolved.length} edit${m.unresolved.length === 1 ? "" : "s"} can't be placed</b> — they'll be kept under <b>Unsaved edits → Couldn't be placed</b> so you can re-enter them:<ul>${un}</ul></div>` : ""}
       <div class="merge-act"><button type="button" class="btn btn-primary" id="merge-ok">Save</button> <button type="button" class="btn btn-outline-secondary" id="merge-cancel">Cancel — save nothing</button></div></div>`;
     document.body.appendChild(ov);
     const done = v => { ov.remove(); resolve(v); };
@@ -729,18 +609,7 @@ QBR.fsRebaseLink = async function (link, freshFile) {
   const oldFp = link.fp;
   const newFp = QBR.fpOf(freshFile.name, freshFile);
   if (!oldFp || newFp === oldFp) return;
-  try {
-    const raw = (typeof localStorage !== "undefined") ? localStorage.getItem("qbr-inv-journal-v1") : null;
-    const store = raw ? JSON.parse(raw) : {};
-    const oldEntry = store[oldFp];
-    if (oldEntry) {
-      const tgt = store[newFp] || (store[newFp] = { fileName: oldEntry.fileName, ops: [] });
-      tgt.ops = (oldEntry.ops || []).concat(tgt.ops || []);
-      tgt.fileName = oldEntry.fileName || tgt.fileName;
-      delete store[oldFp];
-      localStorage.setItem("qbr-inv-journal-v1", JSON.stringify(store));
-    }
-  } catch (e) {}
+  try { QBR.journalMove(oldFp, newFp); } catch (e) {}
   try {
     if (QBR._kindByFp && QBR._kindByFp[oldFp]) {
       QBR._kindByFp[newFp] = QBR._kindByFp[oldFp];
