@@ -390,6 +390,165 @@ function fsVerifyBytes(bytes, bookType, wb) {
 }
 QBR._fsBookType = fsBookType; QBR._fsVerifyBytes = fsVerifyBytes;   // exposed for tests
 
+/* ---------- three-way merge save (2026-10-06; js/xlsx-merge.js) ----------
+ * Base = the file as loaded / last saved (in memory). When the linked file was
+ * changed in Excel, the dashboard's edits are rebased onto the current file:
+ * columns by header, rows by key; same-cell conflicts go to a review dialog. */
+QBR._fsBase = QBR._fsBase || {};
+function fsSetBase(name, u8) { try { QBR._fsBase[fileKey(name)] = u8 instanceof Uint8Array ? u8 : new Uint8Array(u8); } catch (e) {} }
+function fsBaseOf(name) { try { return QBR._fsBase[fileKey(name)] || null; } catch (e) { return null; } }
+QBR.fsRememberBase = function (items, buffers) {   // called by loadItems with the bytes it parsed
+  try { (items || []).forEach((it, i) => { if (buffers[i]) fsSetBase(it.name, buffers[i]); }); } catch (e) {}
+};
+async function fsMemFile(file, name) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return { bytes, file: new File([bytes], name || file.name, { lastModified: file.lastModified, type: file.type || "" }) };
+}
+// Write bytes into the linked file. Returns null on success, or a result object
+// when the file is locked (open in desktop Excel) — the journal is kept.
+async function fsWriteBytes(kind, link, bytes) {
+  let w = null;
+  try {
+    w = await link.handle.createWritable();
+    await w.write(bytes);
+    await w.close();
+    return null;
+  } catch (e) {
+    try { if (w && w.abort) await w.abort(); } catch (x) {}
+    const name = (e && e.name) || "", msg = (e && e.message) || String(e);
+    console.warn("[QBR] write failed:", name, msg);
+    const locked = /NoModificationAllowed|InvalidState|InvalidModification|NotReadable/i.test(name) || /lock|in use|being used|access/i.test(msg);
+    const r = { mode: locked ? "locked" : "write-failed", name: link.name, reason: name || msg, kind: kind };
+    try {
+      QBR.persistNote(kind, locked
+        ? `Not saved — "${link.name}" is open in Excel. Close it there, then click Save again. Your edits are kept.`
+        : `Not saved — could not write "${link.name}" (${name || msg}). Your edits are kept.`, 15000);
+    } catch (x) {}
+    return r;
+  }
+}
+// Re-parse the dashboard from the files as they are now (shows Excel's edits,
+// refreshes every row/column position after a merge).
+async function fsReloadModel() {
+  try { if (QBR._auditWatch) { QBR._auditWatch.changedFp = null; QBR._auditWatch.freshBuf = null; } } catch (e) {}
+  if (typeof loadItems === "function" && typeof APP !== "undefined" && APP.files) {
+    await loadItems(APP.files.slice(), {});
+    if (typeof cacheSession === "function") cacheSession();
+  }
+}
+async function fsSaveMerged(kind, link, cur, attempt) {
+  const S = QBR.xlsxSurgical, M = QBR.xlsxMerge;
+  const curBuf = new Uint8Array(await cur.arrayBuffer());
+  const baseBytes = fsBaseOf(link.name);
+  const opt = { type: "array", cellStyles: true };
+  const base = XLSX.read(baseBytes, opt), mine = XLSX.read(baseBytes, opt);
+  const res = QBR.patchWorkbookFromJournal(kind, mine, link.fp);
+  if (!res.ok) return QBR.fsDownloadKind(kind, "download-fallback");
+  if (res.applied === 0) {                       // nothing pending: just pick up Excel's version
+    await QBR.fsReloadFromFile(link.name, { quiet: true });
+    return { mode: "reloaded", name: link.name, kind: kind };
+  }
+  const theirs = XLSX.read(curBuf, opt), final = XLSX.read(curBuf, opt);
+  const m = M.rebase(base, mine, theirs, final);
+  if (m.conflicts.length || m.unresolved.length) {
+    const choices = await QBR.fsMergeReview(m, link.name);
+    if (!choices) {
+      QBR.persistNote(kind, "Save cancelled — nothing was written. Your edits are kept.", 8000);
+      return { mode: "merge-cancelled", name: link.name, kind: kind, conflicts: m.conflicts.length, unresolved: m.unresolved.length };
+    }
+    M.resolve(final, m.conflicts, choices);
+  }
+  const out = await S.surgicalSave(curBuf, theirs, final);
+  let why = !out.ok ? "format-safe save can't handle this file yet (" + out.reason + ")" : null;
+  if (!why && !out.noChanges) why = (await S.verifySurgical(curBuf, out.bytes, final)) || fsVerifyBytes(out.bytes, fsBookType(link.name), final);
+  if (why) {
+    console.warn("[QBR] merged save blocked — " + why);
+    const r = QBR.fsDownloadKind(kind, "download-unsafe");
+    return Object.assign(r, { name: link.name, reason: why });
+  }
+  // Last-moment check (OneDrive sync / Excel Online can change the file mid-save).
+  const again = await link.handle.getFile();
+  const againBuf = new Uint8Array(await again.arrayBuffer());
+  if (fsHashBytes(againBuf) !== fsHashBytes(curBuf)) {
+    if (attempt < 3) return fsSaveMerged(kind, link, again, attempt + 1);
+    QBR.persistNote(kind, `Not saved — "${link.name}" keeps changing (sync in progress?). Try again in a moment. Your edits are kept.`, 12000);
+    return { mode: "busy", name: link.name, kind: kind };
+  }
+  if (!out.noChanges) {
+    const wr = await fsWriteBytes(kind, link, out.bytes);
+    if (wr) return wr;
+  }
+  const fresh = await link.handle.getFile();
+  await QBR.fsAfterSave(kind, link, fresh);       // new base, journal cleared
+  await fsReloadModel();                          // positions + Excel's edits now in the dashboard
+  const merged = { applied: m.applied, conflicts: m.conflicts.length, unresolved: m.unresolved.length, remapped: m.remapped };
+  console.info("[QBR] merged save:", merged, out.stats);
+  return { mode: "file", name: link.name, applied: res.applied, skipped: res.skipped, notes: res.notes, engine: "format-safe", merged: merged, kind: kind };
+}
+QBR._fsSaveMerged = fsSaveMerged;
+QBR.fsHashOf = fsHashBytes;
+
+/* Reload a linked workbook from disk through its existing link (no picker).
+ * Pending edits are saved first (merged with the file's changes). */
+QBR.fsReloadFromFile = async function (name, opts) {
+  opts = opts || {};
+  const link = (QBR._fsLinks || []).find(l => fileKey(l.name) === fileKey(name));
+  if (!link) return false;
+  if (!(await fsEnsurePermission(link.handle))) return false;
+  if (!opts.quiet) {
+    let pending = 0;
+    try { const st = JSON.parse(localStorage.getItem("qbr-inv-journal-v1") || "{}"); pending = ((st[link.fp] || {}).ops || []).length; } catch (e) {}
+    if (pending) {
+      if (!confirm(`You have ${pending} unsaved edit${pending === 1 ? "" : "s"} for "${link.name}".\n\nOK = save them now (merged with the file's latest changes), then reload.\nCancel = do nothing.`)) return false;
+      for (const k of (link.kinds || [])) await QBR.fsSaveKind(k);
+      return true;
+    }
+  }
+  const cur = await link.handle.getFile();
+  const mem = await fsMemFile(cur, link.name);
+  APP.files = (APP.files || []).map(it => fileKey(it.name) === fileKey(link.name) ? { name: link.name, blob: mem.file } : it);
+  link.fp = QBR.fpOf(link.name, mem.file); link.size = cur.size; link.lastModified = cur.lastModified; link.hash = fsHashBytes(mem.bytes);
+  fsSetBase(link.name, mem.bytes);
+  try { await fsLinksSave(); } catch (e) {}
+  await fsReloadModel();
+  if (!opts.quiet) { try { QBR.persistNote("", `Reloaded ✓ ${link.name}`, 4000); } catch (e) {} }
+  return true;
+};
+
+/* Review dialog for a merge: same-cell conflicts (pick Excel or Dashboard per
+ * cell) and edits that can't be placed. Resolves to {index: "mine"|"theirs"} or
+ * null (cancel). Tests can set QBR._mergeAutoResolve = m => choices|null. */
+QBR.fsMergeReview = function (m, fileName) {
+  if (typeof QBR._mergeAutoResolve === "function") return Promise.resolve(QBR._mergeAutoResolve(m));
+  return new Promise(resolve => {
+    const e = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const ov = document.createElement("div");
+    ov.className = "merge-ov"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true"); ov.setAttribute("aria-labelledby", "merge-h");
+    const rows = m.conflicts.map((c, i) =>
+      `<tr><td><b>${e(c.sheet)}</b> ${e(c.ref)}<div class="small text-muted">${e(c.header)}${c.key ? " · " + e(c.key) : ""}</div></td>` +
+      `<td><label class="merge-pick"><input type="radio" name="mc${i}" value="theirs" checked> ${e(c.theirs) || "<i>blank</i>"}</label></td>` +
+      `<td><label class="merge-pick"><input type="radio" name="mc${i}" value="mine"> ${e(c.mine) || "<i>blank</i>"}</label></td></tr>`).join("");
+    const un = m.unresolved.map(u => `<li><b>${e(u.sheet)}</b> ${e(u.ref)} → "${e(u.mine)}" — ${e(u.why)}</li>`).join("");
+    ov.innerHTML = `<div class="merge-box">
+      <h5 id="merge-h">"${e(fileName)}" was changed in Excel</h5>
+      <p class="small">${m.applied} of your edits fit around the Excel changes and will be saved. ${m.conflicts.length ? "These cells were changed in <b>both</b> places — choose which value to keep:" : ""}</p>
+      ${m.conflicts.length ? `<div class="merge-tools"><button type="button" class="btn btn-sm btn-outline-secondary" data-all="theirs">Keep all Excel values</button> <button type="button" class="btn btn-sm btn-outline-secondary" data-all="mine">Keep all dashboard values</button></div>
+      <div class="merge-scroll"><table class="table table-sm"><thead><tr><th>Cell</th><th>Excel (file)</th><th>Dashboard (yours)</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
+      ${un ? `<div class="merge-warn"><b>${m.unresolved.length} edit${m.unresolved.length === 1 ? "" : "s"} can't be placed</b> and won't be saved (re-enter them after reloading):<ul>${un}</ul></div>` : ""}
+      <div class="merge-act"><button type="button" class="btn btn-primary" id="merge-ok">Save</button> <button type="button" class="btn btn-outline-secondary" id="merge-cancel">Cancel — save nothing</button></div></div>`;
+    document.body.appendChild(ov);
+    const done = v => { ov.remove(); resolve(v); };
+    ov.querySelectorAll("[data-all]").forEach(b => b.addEventListener("click", () => ov.querySelectorAll(`input[value="${b.dataset.all}"]`).forEach(x => { x.checked = true; })));
+    ov.querySelector("#merge-cancel").addEventListener("click", () => done(null));
+    ov.addEventListener("keydown", ev => { if (ev.key === "Escape") done(null); });
+    ov.querySelector("#merge-ok").addEventListener("click", () => {
+      const ch = {}; m.conflicts.forEach((c, i) => { const x = ov.querySelector(`input[name="mc${i}"]:checked`); ch[i] = x ? x.value : "theirs"; });
+      done(ch);
+    });
+    setTimeout(() => { const b = ov.querySelector("#merge-ok"); if (b) b.focus(); }, 0);
+  });
+};
+
 /* ---------- format-safe save engine (2026-10-06; docs/FORMAT_SAFE_SAVE.md) ---------- */
 QBR.saveEngine = function () {
   let v = null; try { v = localStorage.getItem("qbr-save-engine"); } catch (e) {}
@@ -417,9 +576,13 @@ async function fsSaveSurgical(kind, link, cur) {
     const r = QBR.fsDownloadKind(kind, "download-unsafe");
     return Object.assign(r, { name: link.name, reason: why });
   }
-  const w = await link.handle.createWritable();
-  await w.write(out.bytes);
-  await w.close();
+  // Last-moment check: if OneDrive/Excel changed the file while we worked, merge instead.
+  try {
+    const again = new Uint8Array(await (await link.handle.getFile()).arrayBuffer());
+    if (fsHashBytes(again) !== fsHashBytes(buf) && QBR.xlsxMerge && fsBaseOf(link.name)) return await fsSaveMerged(kind, link, await link.handle.getFile(), 1);
+  } catch (e) {}
+  const wr = await fsWriteBytes(kind, link, out.bytes);
+  if (wr) return wr;
   (QBR._origWb || (QBR._origWb = {}))[link.fp] = work; // retained copy now matches the file
   const fresh = await link.handle.getFile();
   await QBR.fsAfterSave(kind, link, fresh);
@@ -493,6 +656,11 @@ QBR.fsSaveKind = async function (kind) {
           const curHash = fsHashBytes(new Uint8Array(await cur.arrayBuffer()));
           contentSame = (curHash === link.hash);
         } catch (e) { contentSame = false; }
+      }
+      if (!contentSame && QBR.saveEngine() === "format-safe" && QBR.xlsxMerge && fsBaseOf(link.name)) {
+        // 2026-10-06: the file was edited in Excel — merge the dashboard's edits
+        // into the current file instead of refusing (no re-link needed).
+        return await fsSaveMerged(kind, link, cur, 1);
       }
       if (!contentSame) {
       // 2026-10-05: never rebuild over the linked file (that wiped formulas and
@@ -600,6 +768,14 @@ QBR.fsAfterSave = async function (kind, link, freshFile) {
           fileKey(it.name) === fileKey(link.name) ? { name: link.name, blob: freshFile } : it);
       }
     } catch (e) {}
+    // 2026-10-06: keep the saved bytes in memory — a File read from disk becomes
+    // unreadable (NotReadableError) once Excel changes the file — and make them
+    // the base for the next three-way merge.
+    try {
+      const mem = await fsMemFile(freshFile, link.name);
+      if (typeof APP !== "undefined" && APP.files) APP.files = APP.files.map(it => fileKey(it.name) === fileKey(link.name) ? { name: link.name, blob: mem.file } : it);
+      fsSetBase(link.name, mem.bytes);
+    } catch (e) {}
     // 2. link metadata follows the new file state
     link.fp = newFp; link.size = freshFile.size; link.lastModified = freshFile.lastModified;
     try { link.hash = fsHashBytes(new Uint8Array(await freshFile.arrayBuffer())); } catch (e) {} // v1.25.1: keep the content hash in sync
@@ -637,7 +813,7 @@ QBR.supSaveDone = function (r) {
   if (!r) return;
   if (r.mode === "file") {
     const extra = (r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "");
-    QBR.persistNote("supplies", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}`, 5000);
+    QBR.persistNote("supplies", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}${r.merged ? " · merged with Excel changes" : ""}`, 5000);
   }
   else if (r.mode === "no-changes") QBR.persistNote("supplies", "No changes to save", 3000);
   else if (r.mode === "download" || r.mode === "download-fallback")
@@ -655,7 +831,7 @@ QBR.invSaveDone = function (r) {
   if (!r) return;
   if (r.mode === "file") {
     const extra = (r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "");
-    QBR.persistNote("assets", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}`, 5000);
+    QBR.persistNote("assets", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}${r.merged ? " · merged with Excel changes" : ""}`, 5000);
   }
   else if (r.mode === "no-changes") QBR.persistNote("assets", "No changes to save", 3000);
   else if (r.mode === "download" || r.mode === "download-fallback")
