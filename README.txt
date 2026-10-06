@@ -6,8 +6,31 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
-UPDATE — 2026-10-06 — [DEVELOP / TEST ONLY] "Save to Excel" keeps your workbook's formatting
+UPDATE — 2026-10-06 — [DEVELOP / TEST ONLY] Audit editor, guided audit wizard, exempt schools (v1.26–1.28)
   - Not live yet: this is only in the develop branch and the QBR-Dashboard_dev test folder.
+  - NEW PAGE: Audit › Risky sign-ins editor. Load RISKY_USERS_AND_DOMAIN.xlsx (12 month sheets):
+      · Edit each school's organization, risky-user count, domain health and reference link.
+      · Add school rows, or paste a row copied from Excel.
+      · Search, filter (All / Audited / Not audited / Incomplete / Exempted), monthly progress bar,
+        and month-over-month changes in risky users.
+      · If the workbook is changed in Excel while you work, the dashboard warns you and lists the
+        rows to review before saving.
+  - GUIDED AUDIT WIZARD: pick school + month, then step through risky users, domain health,
+    storage (paste 7 values) and usage (paste 19 values; totals are checked), then the next school.
+    One "Save all to Excel" at the end writes every workbook you changed.
+  - EXEMPT SCHOOLS: mark a school exempt with a reason (No tenant access / No GDAP / No admin
+    access / Other) for this month or all 12 months. Saved in columns K–L (EXEMPT, EXEMPT REASON).
+    Exempt schools don't count against progress and the wizard skips them.
+  - DIRECT SAVE is now a checkbox next to each loaded file (replaces the top "Link file" button).
+    Ticking it the first time asks you to pick the file; unticking stops saving into it.
+  - Fewer false "changed outside the dashboard" warnings: the file's content is compared, so a
+    OneDrive sync that only touches the date no longer blocks saving.
+  - Links in saved workbooks no longer pick up extra "&amp;" each time. Links already damaged by
+    older saves are repaired on the next save, and reference links you add are written correctly.
+  - The audit workbooks save with their formatting kept, like every other "Save to Excel".
+  - The consolidated ALL TENANT AUTOMATED TRACKER is still never written by the dashboard.
+
+UPDATE — 2026-10-06 — "Save to Excel" keeps your workbook's formatting
   - Save to Excel now writes only the cells you changed and leaves the rest of the file as it
     was. Colours, fonts, column widths, conditional formatting, drop-down lists, Excel tables,
     charts, comments, links and macros (.xlsm) are kept. The save message ends in

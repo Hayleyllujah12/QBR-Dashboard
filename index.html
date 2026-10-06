@@ -82,7 +82,6 @@
         <svg class="fi" aria-hidden="true" focusable="false"><use href="#fi-arrow-upload"/></svg><span class="hdr-lbl">Upload</span>
         <input id="file-input" type="file" accept=".xlsx" multiple hidden />
       </label>
-      <button id="btn-linkfile" class="btn btn-outline-secondary btn-sm" type="button" title="Link an Excel file for direct saving (Chrome/Edge)">🔗 Link file</button>
       <span id="fs-link-status" class="small text-muted"></span>
       <div class="menu-wrap" id="export-wrap">
         <button id="btn-export" class="btn btn-outline-secondary btn-sm menu-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="export-menu" title="Print or download">
@@ -142,6 +141,10 @@
         <button class="tab-btn sb-item" type="button" data-tab="dash-inventory" data-group="Inventory"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-storage"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-storage-f"/></svg><span class="sb-label">Inventory</span></button>
         <button class="tab-btn sb-item" type="button" data-tab="dash-scan" data-group="Inventory"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-scan"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-scan-f"/></svg><span class="sb-label">Scan</span></button>
       </div>
+      <div class="sb-group" role="group" aria-labelledby="sbg-audit">
+        <div class="sb-gh" id="sbg-audit">Audit</div>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-audit" data-group="Audit"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-document-text"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-document-text-f"/></svg><span class="sb-label">Risky sign-ins editor</span></button>
+      </div>
       <div class="sb-group" role="group" aria-labelledby="sbg-data">
         <div class="sb-gh" id="sbg-data">Data</div>
         <button class="tab-btn sb-item" type="button" data-tab="dash-quality" data-group="Data"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-clipboard-task-list-ltr"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-clipboard-task-list-ltr-f"/></svg><span class="sb-label">Data quality audit</span></button>
@@ -199,7 +202,7 @@
           <div class="dz-where">Inventory › Scan</div></div>
         <div class="dz-card dz-inapp"><div class="dz-name">Save back to your workbook (.xlsx / .xlsm)</div>
           <div class="dz-what">Writes your edits into the original file (Chrome/Edge).</div>
-          <div class="dz-where">🔗 Link file / 💾 Save to Excel</div></div>
+          <div class="dz-where">☑ Direct-save / 💾 Save to Excel</div></div>
       </div>
 
       <div class="dz-foot">
@@ -661,6 +664,11 @@
       <h3 class="dash-h">Scan</h3>
       <div id="scan-body"></div>
     </section>
+    <!-- AUDIT (risky sign-ins workbook editor; v1.26.0) -->
+    <section id="dash-audit" class="dash-panel d-none" data-deck="skip">
+      <h3 class="dash-h">Audit</h3>
+      <div id="audit-body"></div>
+    </section>
 
     <!-- DATA QUALITY -->
     <!-- SCHOOL 360 (single-tenant profile; on-screen + Export Tab only, excluded from deck/gallery) -->
@@ -732,10 +740,11 @@
   <script src="js/data-quality.js"></script>
   <script src="js/inventory.js"></script>
   <script src="js/supplies.js"></script>
+  <script src="js/audit.js"></script>  <!-- v1.26.0: audit workbook editor -->
   <script src="libs/tesseract/tesseract.min.js"></script>
   <script src="js/scan.js"></script>
   <script src="js/app.js"></script>
-  <script src="js/xlsx-surgical.js"></script>  <!-- develop 2026-10-06: format-safe save (prototype) -->
+  <script src="js/xlsx-surgical.js"></script>  <!-- 2026-10-06: format-safe Save to Excel -->
   <script src="js/patch.js"></script>  <!-- v1.15: patch-in-place workbook saver -->
   <script src="js/persist.js"></script>  <!-- v1.8: journal persistence + direct file save -->
   <script src="js/branding.js"></script>  <!-- 2026-10-05 RCT OpsDesk: custom logo upload (browser-local). No data logic. -->

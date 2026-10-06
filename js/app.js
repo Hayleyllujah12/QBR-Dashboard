@@ -2172,6 +2172,7 @@ function renderAll() {
   if (typeof renderInventory === "function") renderInventory();
   if (typeof renderAsset360Panel === "function") renderAsset360Panel();
   if (typeof renderScan === "function") renderScan();
+  if (typeof QBR.renderAudit === "function") QBR.renderAudit();
   if (APP.activeTab === "dash-fulldata") { if (APP.fd.applyFilters) APP.fd.page = 1; renderFullData(); }
   makeTablesResizable();
   updateNavBadges();
@@ -2227,6 +2228,7 @@ const TAB_FILTERS = {
   "dash-asset360":   [],                          // single-asset page; has its own serial search
   "dash-ticket360":  [],                          // single-ticket page; opened via #ticket/<tno> deep link
   "dash-scan":       [],                          // scan page; own upload UI, no shared filters
+  "dash-audit":      [],                          // audit editor; own month picker inside the panel
 };
 const GLOBAL_FILTER_IDS = { quarter: "f-quarter-chips", month: "f-month", org: "f-org", school: "f-school" };
 
@@ -2276,6 +2278,18 @@ function wireFilters() {
   bindSearch("f-school", "school", () => APP._schools || []);
 
   $("btn-reset").addEventListener("click", () => {
+    // Audit tab: reset the audit view (search, filter pills, editing, wizard)
+    // instead of the global filters (which don't apply there).
+    if (APP.activeTab === "dash-audit" && typeof QBR !== "undefined" && QBR._auditUI) {
+      const u = QBR._auditUI;
+      u.search = ""; u.filter = "all"; u.editing = null; u.adding = false;
+      const d = new Date();
+      const months = ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"];
+      u.month = months[d.getMonth()];
+      if (QBR._auditWizard && typeof QBR.auditWizardExit === "function") QBR.auditWizardExit();
+      else if (typeof QBR.renderAudit === "function") QBR.renderAudit();
+      return;
+    }
     APP.filters = { quarters: [], month: "ALL", org: "ALL", school: "ALL", secDefault: "ALL", usageCat: "ALL", sy: "ALL", status: "ALL", authMethod: "ALL" };
     populateFilters();
     ["f-month", "f-secdef", "f-status", "f-authmethod"].forEach(id => { if ($(id)) $(id).value = "ALL"; });
@@ -2289,12 +2303,20 @@ function wireFilters() {
  * ends in the SAME processBuffers() → QBR.loadWorkbooks(buffers). Persistence
  * only caches the raw file bytes and replays them; it never changes parsing.
  * ==========================================================================*/
-function readU8(blob) {
+function readU8(blob, label) {
+  label = label || "workbook";
+  // Prefer Blob.arrayBuffer() (no FileReader ProgressEvent); fall back to FileReader.
+  if (blob && typeof blob.arrayBuffer === "function") {
+    return blob.arrayBuffer().then(
+      buf => new Uint8Array(buf),
+      err => { throw new Error("Could not read " + label + ": " + ((err && err.message) || err)); });
+  }
   return new Promise((res, rej) => {
     const r = new FileReader();
     r.onload = () => res(new Uint8Array(r.result));
-    r.onerror = rej;
-    r.readAsArrayBuffer(blob);
+    r.onerror = () => rej(new Error("Could not read " + label + " (file may be locked, moved, or not downloaded from OneDrive yet)"));
+    try { r.readAsArrayBuffer(blob); }
+    catch (e) { rej(new Error("Could not read " + label + ": " + ((e && e.message) || e))); }
   });
 }
 
@@ -2357,7 +2379,12 @@ function renderFileList() {
     `<div class="loaded-files-head">Workbooks (${files.length})</div>` +
     files.map(it => {
       const k = escAttr(fileKey(it.name));
-      return `<div class="loaded-file"><span class="loaded-file-name" title="${escAttr(it.name)}">${esc(it.name)}</span>` +
+      const linked = (typeof QBR !== "undefined" && typeof QBR.fsIsLinkedByName === "function") ? QBR.fsIsLinkedByName(it.name) : false;
+      const canLink = (typeof QBR !== "undefined" && typeof QBR.fsSupported === "function") ? QBR.fsSupported() : false;
+      const editBox = `<input type="checkbox" class="loaded-file-edit" data-fk="${k}" data-fname="${escAttr(it.name)}"` +
+        (linked ? " checked" : "") + (canLink ? "" : " disabled") +
+        ` title="${canLink ? (linked ? "Direct save ON — uncheck to unlink" : "Check to enable direct save to this Excel file") : "Direct save needs Chrome or Edge"}" aria-label="Direct save">`;
+      return `<div class="loaded-file">${editBox}<span class="loaded-file-name" title="${escAttr(it.name)}">${esc(it.name)}</span>` +
         `<button type="button" class="loaded-file-r" data-fk="${k}" title="Refresh this workbook — re-pick the file to load its latest data">↻</button>` +
         `<button type="button" class="loaded-file-x" data-fk="${k}" title="Remove this workbook">×</button></div>`;
     }).join("");
@@ -2405,6 +2432,16 @@ function processBuffers(buffers, meta) {
   catch (e) { console.warn("[QBR] inventory parse failed:", e && e.message); APP.model.inventory = null; }
   try { APP.model.supplies = (typeof QBR.parseSuppliesBuffers === "function") ? QBR.parseSuppliesBuffers(buffers) : null; }
   catch (e) { console.warn("[QBR] supplies parse failed:", e && e.message); APP.model.supplies = null; }
+  try { APP.model.audit = (typeof QBR.parseAuditBuffers === "function") ? QBR.parseAuditBuffers(buffers) : null; }
+  catch (e) { console.warn("[QBR] audit parse failed:", e && e.message); APP.model.audit = null; }
+  // NB: APP.model.storage / .usage belong to the TRACKER (arrays). The wizard's
+  // workbook models live under auditStorage / auditUsage to avoid clobbering them
+  // (v1.27.0 bug: overwriting .storage/.usage with null broke renderStorage for
+  // every upload, since the wizard parsers return null when their file is absent).
+  try { APP.model.auditStorage = (typeof QBR.parseStorageBuffers === "function") ? QBR.parseStorageBuffers(buffers) : null; }
+  catch (e) { console.warn("[QBR] storage parse failed:", e && e.message); APP.model.auditStorage = null; }
+  try { APP.model.auditUsage = (typeof QBR.parseUsageBuffers === "function") ? QBR.parseUsageBuffers(buffers) : null; }
+  catch (e) { console.warn("[QBR] usage parse failed:", e && e.message); APP.model.auditUsage = null; }
   const s = APP.model.sources;
   const n = Object.values(s).filter(Boolean).length;
   const fc = (APP.files || []).length;
@@ -2435,7 +2472,7 @@ function processBuffers(buffers, meta) {
 function loadItems(items, meta) {
   const prev = APP.files || [];
   APP.files = items;
-  return Promise.all(items.map(it => readU8(it.blob))).then(buffers => {
+  return Promise.all(items.map(it => readU8(it.blob, it.name))).then(buffers => {
     // Fingerprints let persist.js key journal entries to exact file bytes and
     // map each file to the inventory kinds it contributed.
     try {
@@ -2901,7 +2938,23 @@ function initShell() {
     const r = e.target.closest(".loaded-file-r");
     if (r) { e.stopPropagation(); promptRefresh(r.dataset.fk); return; }
     const x = e.target.closest(".loaded-file-x");
-    if (x) { e.stopPropagation(); removeFile(x.dataset.fk); }
+    if (x) { e.stopPropagation(); removeFile(x.dataset.fk); return; }
+    const t = e.target.closest(".loaded-file-edit");
+    if (t) {
+      e.stopPropagation();
+      const want = t.checked;
+      // Revert visually until the async link flow confirms.
+      t.checked = !want;
+      if (typeof QBR !== "undefined" && typeof QBR.fsToggleFileLink === "function") {
+        QBR.fsToggleFileLink(t.dataset.fname, want).then(ok => { renderFileList(); });
+      }
+      return;
+    }
+  });
+  // 'change' fires for checkboxes (click delegation above handles the intent).
+  if (us) us.addEventListener("change", e => {
+    const t = e.target.closest(".loaded-file-edit");
+    if (t) e.stopPropagation();
   });
   const drop = $("drop-zone");
   ["dragover", "dragenter"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("drag"); }));
