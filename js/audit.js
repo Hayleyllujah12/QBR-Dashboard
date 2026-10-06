@@ -18,7 +18,7 @@
 (function () {
   "use strict";
 
-  QBR.AUDIT_VERSION = "1.28.0";
+  QBR.AUDIT_VERSION = "1.29.0";
   // Base used to resolve Excel-stored relative hyperlink targets (e.g.
   // "../../../../../../:x:/r/sites/..." -> "file:///C:/:x:/r/sites/..."). The
   // browser cannot see the workbook's local folder, so relative links are
@@ -869,7 +869,7 @@
     const note = (typeof QBR.persistNote === "function") ? QBR.persistNote : null;
     if (r.mode === "file") {
       const extra = r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "";
-      if (note) note("audit", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}`, 5000);
+      if (note) note("audit", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}${r.merged ? " · merged with Excel changes" : ""}`, 5000);
     }
     else if (r.mode === "no-changes") { if (note) note("audit", "No changes to save" + (r.kind ? " for " + r.kind : ""), 3000); }
     else if (r.mode === "download" || r.mode === "download-fallback") { if (note) note("audit", `Downloaded ${r.filename || ""} — tick Direct save for the file to save into it`, 5000); }
@@ -913,11 +913,18 @@
       try { cur = await link.handle.getFile(); }
       catch (e) { continue; } // permission lost or file moved — stay quiet
       if (cur.size !== link.size || cur.lastModified !== link.lastModified) {
+        // 2026-10-06: only real content changes count (OneDrive sync touches timestamps)
+        try {
+          if (link.hash && typeof QBR.fsHashOf === "function" && QBR.fsHashOf(new Uint8Array(await cur.arrayBuffer())) === link.hash) {
+            if (typeof QBR.fsRebaseLink === "function") await QBR.fsRebaseLink(link, cur);
+            continue;
+          }
+        } catch (e) {}
         if (W.changedFp !== link.fp) {
           W.changedFp = link.fp;
           try { W.freshBuf = await cur.arrayBuffer(); } catch (e) { W.freshBuf = null; }
           auditWatchPaint();
-          if (typeof QBR.persistNote === "function") QBR.persistNote("audit", "⚠ File changed externally — review before saving", 15000);
+          if (typeof QBR.persistNote === "function") QBR.persistNote("audit", "⚠ File changed in Excel — Save will merge your edits with it (↻ reloads it)", 15000);
         }
       }
     }
