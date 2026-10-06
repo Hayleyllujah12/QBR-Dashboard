@@ -6,13 +6,14 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
-UPDATE — 2026-10-06 — [DEVELOP / TEST ONLY] Audit editor, guided audit wizard, exempt schools (v1.26–1.28)
-  - Not live yet: this is only in the develop branch and the QBR-Dashboard_dev test folder.
+UPDATE — 2026-10-06 — Audit editor, guided audit wizard, exempt schools (v1.26–1.28)
   - NEW PAGE: Audit › Risky sign-ins editor. Load RISKY_USERS_AND_DOMAIN.xlsx (12 month sheets):
       · Edit each school's organization, risky-user count, domain health and reference link.
       · Add school rows, or paste a row copied from Excel.
-      · Search, filter (All / Audited / Not audited / Incomplete / Exempted), monthly progress bar,
-        and month-over-month changes in risky users.
+      · Search, filter (All / Audited / Not audited / Incomplete / Exempted) and month-over-month
+        changes in risky users.
+      · A large progress bar beside the Audit heading shows "N / total schools audited" for the
+        month, colour-coded red → amber → blue → green as it fills, with the number exempted.
       · If the workbook is changed in Excel while you work, the dashboard warns you and lists the
         rows to review before saving.
   - GUIDED AUDIT WIZARD: pick school + month, then step through risky users, domain health,
