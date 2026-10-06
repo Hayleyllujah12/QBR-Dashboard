@@ -28,6 +28,20 @@ const NEWURL = "https://contoso.sharepoint.com/:x:/r/sites/Test/Shared%20Documen
       getFile: async () => new File([bytes], name, { lastModified: mtime }),
       createWritable: async () => { const parts = []; return { write: async d => parts.push(new Uint8Array(d)), close: async () => { bytes = parts[0]; mtime += 1000; } }; } };
     const a = QBR._audit; if (!a) return { err: "audit workbook not detected" };
+    // v1.28 progress bar beside the heading + exempt flow (UI level)
+    const ui = {};
+    try { if (typeof goToTab === "function") goToTab("dash-audit"); else document.querySelector('[data-tab="dash-audit"]').click(); } catch (e) {}
+    await new Promise(r => setTimeout(r, 300));
+    const pt = document.getElementById("audit-progress-top");
+    ui.ptText = pt ? pt.textContent : null;
+    ui.badge = (document.getElementById("dash-audit") || document.body).textContent.includes(QBR.AUDIT_VERSION || "1.28.0");
+    const firstMonth = Object.values(a.months)[0], sch = firstMonth.rows[2].school;
+    QBR.auditSetExempt(a.fp, sch, true, "No tenant access", "all");
+    await new Promise(r => setTimeout(r, 200));
+    ui.pill = !!(pt && pt.querySelector(".audit-ex-pill"));
+    ui.exRow = !!document.querySelector("tr.audit-exempted");
+    QBR.auditSetExempt(a.fp, sch, false, "", "all");
+    if (typeof QBR.journalClearFp === "function") QBR.journalClearFp(a.fp);   // UI check only: start the save scenario clean
     QBR._fsLinks = [{ fp: a.fp, kinds: ["audit"], name, size: bin.length, lastModified: mtime, handle }];
     const sheet = a.months.JANUARY ? a.months.JANUARY.sheet : Object.values(a.months)[0].sheet;
     const ms = Object.values(a.months).find(x => x.sheet === sheet), r0 = ms.rows[0].r, r1 = ms.rows[1].r;
@@ -44,9 +58,12 @@ const NEWURL = "https://contoso.sharepoint.com/:x:/r/sites/Test/Shared%20Documen
       let s = ""; for (let k = 0; k < bytes.length; k += 32768) s += String.fromCharCode.apply(null, bytes.subarray(k, k + 32768));
       outs.push(btoa(s));
     }
-    return { results, outs, sheet, r0, r1 };
+    return { results, outs, sheet, r0, r1, ui };
   }, { name, b64, NEWURL });
   if (res.err) { ok(false, res.err); await b.close(); process.exit(1); }
+  ok(res.ui && /schools audited/.test(res.ui.ptText || ""), "progress bar renders beside the Audit heading (\"" + String(res.ui && res.ui.ptText).replace(/\s+/g, " ").trim().slice(0, 60) + "\")");
+  ok(res.ui && res.ui.badge, "Audit page shows the v1.28.0 version badge");
+  ok(res.ui && res.ui.pill && res.ui.exRow, "exempting a school shows the 'exempted' pill and a muted row");
   ok(res.results.every(x => x.mode === "file" && x.engine === "format-safe"), "2 audit saves written by the format-safe engine (" + res.results.map(x => x.mode + (x.reason ? ":" + x.reason : "")).join(", ") + ")");
   const orig = new Uint8Array(fs.readFileSync(FX)), out = new Uint8Array(Buffer.from(res.outs[1], "base64"));
   const wb = XLSX.read(out, { type: "array" }), ws = wb.Sheets[res.sheet], A = (c, r) => ws[c + r];

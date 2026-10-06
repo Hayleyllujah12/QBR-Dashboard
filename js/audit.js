@@ -550,7 +550,9 @@
     return true;
   }
 
-  function auditProgressHtml(a, month) {
+  // Big visual progress bar, rendered into #audit-progress-top (beside the panel heading).
+  // Traffic-light colors: red 0-33%, amber 34-66%, blue 67-99%, green 100%.
+  function auditProgressTopHtml(a, month) {
     try {
       const ms = a.months[month];
       if (!ms || !ms.rows.length) return "";
@@ -559,9 +561,20 @@
       const total = eligible.length;
       const doneN = eligible.filter(rec => auditIsFullyAudited(a, month, rec.school)).length;
       const pct = total ? Math.round(doneN / total * 100) : 0;
-      const exTxt = exemptN ? ` · ${exemptN} exempted` : "";
-      return `<div class="audit-progress"><span class="small"><b>${escHtml(month)}</b>: ${doneN}/${total} schools audited${exTxt}</span>` +
-        `<div class="progress" style="height:8px;max-width:320px"><div class="progress-bar" role="progressbar" style="width:${pct}%"></div></div></div>`;
+      const grad = pct >= 100 ? "linear-gradient(90deg,#198754,#20c997)"
+        : pct > 66 ? "linear-gradient(90deg,#0d6efd,#20c997)"
+        : pct > 33 ? "linear-gradient(90deg,#fd7e14,#ffc107)"
+        : "linear-gradient(90deg,#dc3545,#e35d6a)";
+      const exPill = exemptN ? `<span class="audit-ex-pill">${exemptN} exempted</span>` : "";
+      const remain = total - doneN;
+      const sub = pct >= 100 ? "All schools audited — done"
+        : `${pct}% complete &middot; ${remain} remaining`;
+      return `<div class="audit-progress-top-in">` +
+        `<span class="audit-progress-month">${escHtml(month)}</span>` +
+        `<span class="audit-progress-count">${doneN}<span class="audit-progress-total">/${total}</span></span>` +
+        `<span class="audit-progress-lbl">schools audited</span>${exPill}` +
+        `<div class="audit-progress-bar"><div class="audit-progress-fill" style="width:${pct}%;background:${grad}"></div></div>` +
+        `<div class="audit-progress-sub">${sub}</div></div>`;
     } catch (e) { return ""; }
   }
 
@@ -578,6 +591,7 @@
            <p class="text-muted">Upload <code>RISKY_USERS_AND_DOMAIN.xlsx</code> to edit your monthly audit sheets here.</p>
            <p class="text-muted small">Edits are journaled and saved back into the workbook with formatting, formulas and layout preserved. Tick <b>Direct save</b> next to the file in the loaded-files list for direct save + background change detection.</p>
          </div>`;
+      try { const pt0 = document.getElementById("audit-progress-top"); if (pt0) pt0.innerHTML = ""; } catch (e) {}
       return;
     }
 
@@ -596,7 +610,11 @@
          </div>
          <div class="audit-actions">${watchBadge}<button type="button" class="btn btn-sm btn-outline-primary" id="audit-wizard-start" title="Step-by-step: school → risky users → domain health → storage → usage">🧭 Start guided audit</button>${saveBtn}</div>
        </div>` +
-      monthPills(u, a.months) + auditProgressHtml(a, u.month) + auditFilterHtml(u);
+      monthPills(u, a.months) + auditFilterHtml(u);
+    try {
+      const pt = document.getElementById("audit-progress-top");
+      if (pt) pt.innerHTML = auditProgressTopHtml(a, u.month);
+    } catch (e) {}
 
     if (!ms) {
       html += `<p class="text-muted mt-3">No <b>${u.month}</b> sheet in this workbook.</p>`;

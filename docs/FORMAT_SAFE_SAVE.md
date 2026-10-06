@@ -1,6 +1,6 @@
 # Format-safe save — design, alternatives, test strategy
 
-Status: v0.1.0 **live on main** (2026-10-06); v0.2.0 (adds hyperlinks, for the v1.28 audit editor) **on develop**. Module `js/xlsx-surgical.js`, wired in `persist.js` (`fsSaveSurgical`).
+Status: v0.2.0 **live on main** (2026-10-06; 0.2.0 adds hyperlinks for the v1.28 audit editor). Module `js/xlsx-surgical.js`, wired in `persist.js` (`fsSaveSurgical`).
 Opt out per browser: `localStorage.setItem("qbr-save-engine","legacy")`.
 
 ## 1. Problem
@@ -57,7 +57,7 @@ Pyramid:
 |---|---|---|---|
 | Unit + fidelity (Node, ~5 s) | `tests/surgical-save.cjs` | Zip round-trip raw copy; no-op; edit/append/new column/new sheet; escaping; dates; style inheritance; table/dimension growth; content type + macros; five more saves with no drift; legacy-loss baseline; guard rails | 106 (114 with `VALIDATE=1`, incl. hyperlinks) |
 | Independent validators | same, `VALIDATE=1` | openpyxl load (tables/CF/DV counted) + LibreOffice headless convert | +6 |
-| E2E audit (Playwright) | `tests/ui-audit-save.cjs` | v1.28 Audit editor on `SAMPLE_AUDIT_RICH.xlsx`: risky count, reference link, EXEMPT K/L headers + values, add row, 2 saves; CF/DV kept, other month sheets byte-identical | 12 |
+| E2E audit (Playwright) | `tests/ui-audit-save.cjs` | v1.28 Audit editor on `SAMPLE_AUDIT_RICH.xlsx`: progress bar + version badge + exempt pill/row (UI); risky count, reference link, EXEMPT K/L headers + values, add row, 2 saves; CF/DV kept, other month sheets byte-identical | 15 |
 | E2E (Playwright, real app) | `tests/ui-surgical.cjs` | Real Inventory API edits → Save ×3 via mocked file handle → byte-level inspection; legacy opt-out | 38 |
 | Regression | `ui-save`, `ui-inv-fixes`, `run-tests`, `ui-smoke`, `ui-scan`, `scan-tests`, `feature-manifest` | Unchanged behaviour | all green |
 | Manual UAT (required before main) | checklist below | Real Excel desktop + real workbooks | — |
