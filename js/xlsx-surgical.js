@@ -1,5 +1,5 @@
 /* =============================================================================
- * xlsx-surgical.js — format-safe save for .xlsx / .xlsm  (2026-10-06)
+ * xlsx-surgical.js — format-safe save for .xlsx / .xlsm  (PROTOTYPE, develop)
  * -----------------------------------------------------------------------------
  * SheetJS CE rewrites the whole workbook on save and drops what it doesn't model
  * (styles, conditional formatting, data validation, tables, charts, pivots,
@@ -14,7 +14,7 @@
  * ========================================================================== */
 (function (root) {
   "use strict";
-  const SURGICAL_VERSION = "0.1.0";
+  const SURGICAL_VERSION = "0.2.0"; // 0.2.0: hyperlink writes + &amp;amp; repair
   const TD = new TextDecoder("utf-8"), TE = new TextEncoder();
 
   /* ------------------------------ CRC-32 --------------------------------- */
@@ -348,6 +348,80 @@
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><dimension ref="${ref}"/><sheetData>${rows}</sheetData></worksheet>`;
   }
 
+
+  /* ----------------------------- hyperlinks ------------------------------ */
+  // SheetJS hands back hyperlink targets with XML entities still encoded and
+  // re-encodes on write, so files saved by the old engine can carry &amp;amp;.
+  // Compare and write targets in a decoded-until-stable form, escaped once.
+  const REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const HL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
+  function decodeStable(t) {
+    let prev; t = String(t == null ? "" : t);
+    do { prev = t; t = t.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&"); } while (t !== prev);
+    return t;
+  }
+  const linkOf = c => (c && c.l && c.l.Target != null && c.l.Target !== "") ? decodeStable(c.l.Target) : "";
+  function diffLinks(base, work) {
+    const out = [];
+    Object.keys(work || {}).forEach(k => {
+      if (k[0] === "!") return;
+      const a = linkOf(base && base[k]), b = linkOf(work[k]);
+      if (a !== b) out.push({ ref: k, target: b });
+    });
+    return out;
+  }
+  // Schema order: <hyperlinks> sits after dataValidations and before these.
+  const AFTER_HL = ["printOptions", "pageMargins", "pageSetup", "headerFooter", "rowBreaks", "colBreaks", "customProperties", "cellWatches", "ignoredErrors", "smartTags", "drawing", "legacyDrawing", "legacyDrawingHF", "picture", "oleObjects", "controls", "webPublishItems", "tableParts", "extLst"];
+  function applyLinks(xml, relsXml, linkEdits) {
+    const root = /<worksheet\b[^>]*>/.exec(xml)[0];
+    const pm = new RegExp('xmlns:([\\w]+)="' + REL_NS.replace(/[./]/g, "\\$&") + '"').exec(root);
+    const pfx = pm ? pm[1] : "r", nsDecl = pm ? "" : ` xmlns:r="${REL_NS}"`;
+    let rels = relsXml || `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`;
+    const relIds = new Set((rels.match(/\bId="([^"]+)"/g) || []).map(x => /"([^"]+)"/.exec(x)[1]));
+    let nid = 1; const newId = () => { while (relIds.has("rIdQL" + nid)) nid++; const id = "rIdQL" + nid; relIds.add(id); return id; };
+    const hm = /<hyperlinks\b[^>]*>([\s\S]*?)<\/hyperlinks>|<hyperlinks\s*\/>/.exec(xml);
+    const items = hm ? ((hm[1] || "").match(/<hyperlink\b[^>]*?\/>|<hyperlink\b[^>]*>[\s\S]*?<\/hyperlink>/g) || []) : [];
+    const ridAttr = t => (new RegExp("\\s[\\w]+:id=\"([^\"]*)\"").exec(t) || [])[1];
+    linkEdits.forEach(e => {
+      const i = items.findIndex(t => attr(t, "ref") === e.ref);
+      const old = i >= 0 ? items[i] : null, oldRid = old ? ridAttr(old) : null;
+      if (!e.target) { if (i >= 0) items.splice(i, 1); return; }           // link removed
+      if (e.target[0] === "#") {                                           // in-workbook location
+        const t = `<hyperlink ref="${e.ref}" location="${esc(e.target.slice(1))}"/>`;
+        if (i >= 0) items[i] = t; else items.push(t); return;
+      }
+      const tgt = esc(e.target);
+      const relRe = oldRid ? new RegExp(`<Relationship\\b[^>]*\\bId="${oldRid}"[^>]*/>`) : null;
+      if (relRe && relRe.test(rels)) {                                     // update the existing relationship
+        rels = rels.replace(relRe, t => setAttr(t, "Target", tgt));
+        return;
+      }
+      const id = newId();
+      rels = rels.replace(/<\/Relationships>/, `<Relationship Id="${id}" Type="${HL_TYPE}" Target="${tgt}" TargetMode="External"/></Relationships>`);
+      const t = `<hyperlink${nsDecl} ref="${e.ref}" ${pfx}:id="${id}"/>`;
+      if (i >= 0) items[i] = t; else items.push(t);
+    });
+    const block = items.length ? "<hyperlinks>" + items.join("") + "</hyperlinks>" : "";
+    if (hm) xml = xml.slice(0, hm.index) + block + xml.slice(hm.index + hm[0].length);
+    else if (block) {
+      let at = -1;
+      for (const tag of AFTER_HL) { const m = new RegExp("<" + tag + "\\b").exec(xml); if (m && (at < 0 || m.index < at)) at = m.index; }
+      if (at < 0) at = xml.lastIndexOf("</worksheet>");
+      xml = xml.slice(0, at) + block + xml.slice(at);
+    }
+    return { xml, rels };
+  }
+  // Collapse multi-encoded hyperlink targets (&amp;amp; → &amp;) left by older saves.
+  function repairRels(rels) {
+    let n = 0;
+    const out = rels.replace(/<Relationship\b[^>]*>/g, t => {
+      if (!/\/hyperlink"/.test(t)) return t;
+      const cur = attr(t, "Target"); if (cur == null || !/&amp;(amp;|lt;|gt;|quot;)/.test(cur)) return t;
+      n++; return setAttr(t, "Target", esc(decodeStable(cur)));
+    });
+    return { rels: out, n };
+  }
+
   /* ------------------------------- main --------------------------------- */
   /* bytes: original file (Uint8Array|ArrayBuffer). base: fresh SheetJS parse of
    * those bytes. work: same parse after patching. Returns
@@ -375,18 +449,24 @@
       const stylesFull = stylesPath ? resolveTarget("xl/workbook.xml", stylesPath) : "xl/styles.xml";
       const styles = makeStyleHelper(await zipText(z, stylesFull));
       const ctx = { styles, date1904: !!(base.Workbook && base.Workbook.WBProps && base.Workbook.WBProps.date1904) };
-      let anyFormula = false, anyChange = false;
+      let anyFormula = false, anyChange = false, needRelsDefault = false;
 
       // 1. existing sheets
       for (const name of base.SheetNames) {
         const edits = diffSheet(base.Sheets[name], work.Sheets[name]);
-        if (!edits.length) continue;
+        const linkEdits = diffLinks(base.Sheets[name], work.Sheets[name]);
+        if (!edits.length && !linkEdits.length) continue;
         const p = pathOf[name]; if (!p) throw new Error(`sheet "${name}" not found in the file`);
         if (/\.bin$/.test(p)) throw new Error("binary .xlsb sheets not supported");
         const xml = await zipText(z, p);
         const before = parseRowsLight(xml);
-        const res = spliceSheet(xml, edits, ctx);
+        const res = edits.length ? spliceSheet(xml, edits, ctx) : { xml, origLast: -1, maxR: -1, maxC: -1, formulas: false };
         res.newCols = new Set(edits.filter(e => !before.cols.has(e.c)).map(e => e.c));
+        if (linkEdits.length) {
+          const rp = relsOf(p), lk = applyLinks(res.xml, changes.get(rp) || await zipText(z, rp), linkEdits);
+          res.xml = lk.xml; changes.set(rp, lk.rels); stats.links = (stats.links || 0) + linkEdits.length;
+          if (!z.byName.has(rp)) needRelsDefault = true;
+        }
         changes.set(p, res.xml);
         stats.cells += edits.length; stats.sheets.push(name + " (" + edits.length + ")");
         anyFormula = anyFormula || res.formulas; anyChange = true;
@@ -419,6 +499,17 @@
         anyChange = true;
       }
       if (!anyChange) return { ok: true, bytes: null, stats, noChanges: true };
+      // 2b. repair double-encoded hyperlink targets on every sheet (older saves)
+      for (const name of Object.keys(pathOf)) {
+        const rp = relsOf(pathOf[name]), cur = changes.get(rp) || await zipText(z, rp);
+        if (!cur || !/&amp;amp;/.test(cur)) continue;
+        const fx = repairRels(cur);
+        if (fx.n) { changes.set(rp, fx.rels); stats.linksRepaired = (stats.linksRepaired || 0) + fx.n; anyChange = true; }
+      }
+      if (needRelsDefault) {
+        const ct = changes.get("[Content_Types].xml") || await zipText(z, "[Content_Types].xml");
+        if (!/Extension="rels"/i.test(ct)) changes.set("[Content_Types].xml", ct.replace(/<\/Types>/, '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>'));
+      }
       // 3. styles (date xf added)
       if (styles.dirty) changes.set(stylesFull, styles.xml);
       // 4. recalc on open; drop calcChain when formulas were written
@@ -466,6 +557,7 @@
       for (const k of Object.keys(a)) {
         if (k[0] === "!") continue;
         const x = a[k], y = b[k];
+        if (linkOf(x) !== linkOf(y)) return `hyperlink mismatch ${n}!${k}`;
         if (x.f) { if (!y || String(y.f || "") !== String(x.f).replace(/^=/, "")) return `formula mismatch ${n}!${k}`; continue; }
         if (x.v == null || x.v === "" || x.t === "z") continue;
         if (isDateCell(x)) { const want = excelSerial(x.v instanceof Date ? x.v : new Date(x.v), false); if (!y || Math.abs((y.v instanceof Date ? excelSerial(y.v) : y.v) - want) > 1e-6) return `date mismatch ${n}!${k}`; continue; }
@@ -475,7 +567,7 @@
     return null;
   }
 
-  const api = { SURGICAL_VERSION, surgicalSave, verifySurgical, zipRead, zipWrite, zipText, crc32, _spliceSheet: spliceSheet, _cellXml: cellXml, _diffSheet: diffSheet };
+  const api = { SURGICAL_VERSION, surgicalSave, verifySurgical, zipRead, zipWrite, zipText, crc32, _spliceSheet: spliceSheet, _cellXml: cellXml, _diffSheet: diffSheet, _applyLinks: applyLinks, _repairRels: repairRels, _decodeStable: decodeStable };
   root.QBR = root.QBR || {};
   root.QBR.xlsxSurgical = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

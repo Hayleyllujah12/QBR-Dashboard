@@ -35,12 +35,27 @@ var QBR = window.QBR = window.QBR || {};
 
 /* ============================ A. ENTRY JOURNAL ========================== */
 
-QBR.PERSIST_VERSION = "1.9.0";
+QBR.PERSIST_VERSION = "1.9.1"; // v1.25.1: content-hash guard kills OneDrive false positives
 
 // Fingerprint: identifies the exact file bytes an entry was recorded against.
 QBR.fpOf = function (name, blob) {
   return String(name || "workbook.xlsx") + "|" + (blob && blob.size || 0) + "|" + (blob && blob.lastModified || 0);
 };
+// cyrb53 -- fast non-crypto 53-bit hash for change detection. Sync, no secure
+// context needed (the app also runs over file:// where crypto.subtle may be
+// unavailable). Hex string output. v1.25.1: kills OneDrive timestamp-only
+// false positives in the linked-save guard.
+function fsHashBytes(u8) {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < u8.length; i++) {
+    const ch = u8[i];
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+}
 
 // APP is a top-level const in app.js: visible as a bare global, NOT as window.APP.
 function persistAppFiles() {
@@ -221,7 +236,7 @@ function fsLinksSave() {
   // Handles are structured-cloneable; plain metadata rides along.
   const slim = QBR._fsLinks.map(l => ({
     fp: l.fp, kinds: l.kinds, name: l.name,
-    size: l.size, lastModified: l.lastModified, handle: l.handle,
+    size: l.size, lastModified: l.lastModified, hash: l.hash, handle: l.handle,
   }));
   return persistIdbPut(FS_LINKS_KEY, slim).catch(e => console.warn("[QBR] link store failed:", e && e.message));
 }
@@ -239,7 +254,7 @@ async function fsEnsurePermission(handle) {
 
 // Link a workbook file: pick it, get read/write permission, load it through
 // the normal accumulation path, and remember the handle per detected kind.
-QBR.fsLinkFile = async function () {
+QBR.fsLinkFile = async function (expectName) {
   if (!QBR.fsSupported()) {
     alert("Direct file linking needs Chrome or Edge. Other browsers use Export download.");
     return;
@@ -251,14 +266,20 @@ QBR.fsLinkFile = async function () {
       types: [{ description: "Excel workbook", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"], "application/vnd.ms-excel.sheet.macroEnabled.12": [".xlsm"] } }],
     });
     handle = picks[0];
-  } catch (e) { return; } // user cancelled
-  if (!(await fsEnsurePermission(handle))) {
-    alert("Permission was not granted — the file was not linked.");
-    return;
+  } catch (e) { return false; } // user cancelled
+    if (!(await fsEnsurePermission(handle))) {
+    alert("Permission was not granted \u2014 the file was not linked.");
+    return false;
   }
   let file;
   try { file = await handle.getFile(); }
-  catch (e) { alert("Could not read the file: " + (e && e.message || e)); return; }
+  catch (e) { alert("Could not read the file: " + (e && e.message || e)); return false; }
+  if (expectName && fsNameKey(file.name) !== fsNameKey(expectName)) {
+    alert(`You picked "${file.name}" \u2014 expected "${expectName}". No link was created.`);
+    return false;
+  }
+  let fileHash = "";
+  try { fileHash = fsHashBytes(new Uint8Array(await file.arrayBuffer())); } catch (e) {} // v1.25.1: content hash for false-positive guard
   QBR.persistNote("", "Linking…", 10000);
   try {
     // Accumulate exactly like a manual upload (dedup by name, newest wins).
@@ -273,7 +294,7 @@ QBR.fsLinkFile = async function () {
       QBR._fsLinks = (QBR._fsLinks || []).filter(l =>
         fileKey(l.name) !== fileKey(file.name) && !(l.kinds || []).some(k => kinds.indexOf(k) >= 0));
       if (kinds.length) {
-        QBR._fsLinks.push({ fp: fp, kinds: kinds, name: file.name, size: file.size, lastModified: file.lastModified, handle: handle });
+        QBR._fsLinks.push({ fp: fp, kinds: kinds, name: file.name, size: file.size, lastModified: file.lastModified, hash: fileHash, handle: handle });
         await fsLinksSave();
       }
       if (typeof cacheSession === "function") cacheSession();
@@ -283,12 +304,31 @@ QBR.fsLinkFile = async function () {
     }
   } catch (e) {
     alert("Could not link the file: " + (e && e.message || e));
+    return false;
   }
   QBR.persistRefreshBadge();
+  if (typeof renderFileList === "function") { try { renderFileList(); } catch (e2) {} }
+  return true;
 };
 
-QBR.fsUnlink = async function (name) {
-  if (!confirm(`Stop direct saving to "${name}"? (The dashboard keeps working; Export download still available.)`)) return;
+// Per-file edit toggle (checkbox in the loaded-files list).
+function fsNameKey(n) {
+  try { return String(n || "").trim().toLowerCase(); }
+  catch (e) { return ""; }
+}
+QBR.fsIsLinkedByName = function (name) {
+  try { return (QBR._fsLinks || []).some(l => fsNameKey(l.name) === fsNameKey(name)); }
+  catch (e) { return false; }
+};
+QBR.fsToggleFileLink = async function (name, enable) {
+  if (enable) return QBR.fsLinkFile(name);
+  await QBR.fsUnlink(name, true);
+  if (typeof renderFileList === "function") { try { renderFileList(); } catch (e) {} }
+  return true;
+};
+
+QBR.fsUnlink = async function (name, skipConfirm) {
+  if (!skipConfirm && !confirm(`Stop direct saving to "${name}"? (The dashboard keeps working; Export download still available.)`)) return;
   QBR._fsLinks = (QBR._fsLinks || []).filter(l => l.name !== name);
   await fsLinksSave();
   QBR.fsRefreshStatus();
@@ -308,8 +348,6 @@ QBR.fsRefreshStatus = function () {
       b.style.cursor = "pointer";
       b.onclick = () => QBR.fsUnlink(links[i].name);
     });
-    const btn = document.getElementById("btn-linkfile");
-    if (btn && !QBR.fsSupported()) btn.classList.add("d-none");
   } catch (e) {}
 };
 
@@ -367,11 +405,11 @@ async function fsSaveSurgical(kind, link, cur) {
   if (typeof QBR.patchWorkbookFromJournal !== "function") return QBR.fsDownloadKind(kind, "download-fallback");
   const res = QBR.patchWorkbookFromJournal(kind, work, link.fp);
   if (!res.ok) { console.warn("[QBR] patch failed:", res.error); return QBR.fsDownloadKind(kind, "download-fallback"); }
-  if (res.applied === 0) return { mode: "no-changes", name: link.name };
+  if (res.applied === 0) return { mode: "no-changes", name: link.name, kind: kind };
   const out = await S.surgicalSave(buf, base, work);
   const bookType = fsBookType(link.name);
   let why = !out.ok ? "format-safe save can't handle this file yet (" + out.reason + ")" : null;
-  if (!why && out.noChanges) return { mode: "no-changes", name: link.name };
+  if (!why && out.noChanges) return { mode: "no-changes", name: link.name, kind: kind };
   if (!why) why = await S.verifySurgical(buf, out.bytes, work);
   if (!why) why = fsVerifyBytes(out.bytes, bookType, work);
   if (why) {
@@ -386,7 +424,7 @@ async function fsSaveSurgical(kind, link, cur) {
   const fresh = await link.handle.getFile();
   await QBR.fsAfterSave(kind, link, fresh);
   console.info("[QBR] format-safe save:", out.stats);
-  return { mode: "file", name: link.name, applied: res.applied, skipped: res.skipped, notes: res.notes, engine: "format-safe", stats: out.stats };
+  return { mode: "file", name: link.name, applied: res.applied, skipped: res.skipped, notes: res.notes, engine: "format-safe", stats: out.stats, kind: kind };
 }
 
 /* Rebuild-download path (classic Export). Used when no file is linked, when the
@@ -445,20 +483,33 @@ QBR.fsSaveKind = async function (kind) {
   try {
     if (!(await fsEnsurePermission(link.handle))) return { mode: "denied", name: link.name };
     const cur = await link.handle.getFile();
-    const changed = cur.size !== link.size || cur.lastModified !== link.lastModified;
-    if (changed) {
+    const metaChanged = cur.size !== link.size || cur.lastModified !== link.lastModified;
+    if (metaChanged) {
+      // v1.25.1: same size but different timestamp = possible OneDrive sync noise.
+      // Verify the actual content before refusing to write.
+      let contentSame = false;
+      if (cur.size === link.size && link.hash) {
+        try {
+          const curHash = fsHashBytes(new Uint8Array(await cur.arrayBuffer()));
+          contentSame = (curHash === link.hash);
+        } catch (e) { contentSame = false; }
+      }
+      if (!contentSame) {
       // 2026-10-05: never rebuild over the linked file (that wiped formulas and
       // layout, and broke .xlsm files). Download a separate copy instead.
       alert(`"${link.name}" changed outside the dashboard since it was linked (for example, edited in Excel).\n\n` +
         `To keep that file safe, nothing will be written to it. Your changes will download as a separate copy.\n` +
-        `To save directly again, click "Link file" and pick the updated workbook.`);
+        `To save directly again, check the Direct-save box for that file in the loaded-files list and pick the updated workbook.`);
       const r = QBR.fsDownloadKind(kind, "download-changed");
       return Object.assign(r, { name: link.name });
+      }
+      // Content is byte-identical: rebase the link to the new metadata and save normally.
+      await QBR.fsRebaseLink(link, cur);
     }
     // 2026-10-06: format-safe save (js/xlsx-surgical.js). Writes only the
-    // changed cells into the file and copies every other part untouched, so
-    // styles, conditional formatting, validation, tables, charts and macros
-    // survive. Opt out per browser: localStorage "qbr-save-engine" = "legacy".
+    // changed cells (and hyperlinks) into the file and copies every other part
+    // untouched, so styles, conditional formatting, validation, tables, charts
+    // and macros survive. Opt out per browser: localStorage "qbr-save-engine" = "legacy".
     if (QBR.saveEngine() === "format-safe") return await fsSaveSurgical(kind, link, cur);
     // Patch-in-place: replay the journal as cell writes into the ORIGINAL
     // workbook, preserving its formulas, layout and helper columns.
@@ -474,13 +525,14 @@ QBR.fsSaveKind = async function (kind) {
       console.warn("[QBR] patch failed:", res.error, "— falling back to download");
       return QBR.fsDownloadKind(kind, "download-fallback");
     }
-    if (res.applied === 0) return { mode: "no-changes", name: link.name };
+    if (res.applied === 0) return { mode: "no-changes", name: link.name, kind: kind };
     // Ask Excel to recalculate on open (patched cells have no calc chain).
     wb.Workbook = wb.Workbook || {};
     wb.Workbook.CalcPr = { fullCalcOnLoad: true };
     try { delete wb.CalcChain; } catch (e) {}
     const bookType = fsBookType(link.name);
     if (bookType === "xlsm") await fsEnsureVba(wb, cur);
+    if (typeof QBR.sanitizeHyperlinkTargets === "function") QBR.sanitizeHyperlinkTargets(wb);
     const bytes = XLSX.write(wb, { bookType: bookType, type: "array", cellStyles: true, bookVBA: true });
     const why = fsVerifyBytes(bytes, bookType, wb);
     if (why) {
@@ -500,6 +552,41 @@ QBR.fsSaveKind = async function (kind) {
   }
 };
 
+/* v1.25.1 — Rebase a link to new file metadata after content-hash verification.
+ * The bytes are proven identical, so this is a metadata-only move: every fp-keyed
+ * structure (journal, kind map, retained workbook, model fps) migrates from the
+ * old fingerprint to the new one. Parsed coordinates stay valid.
+ */
+QBR.fsRebaseLink = async function (link, freshFile) {
+  const oldFp = link.fp;
+  const newFp = QBR.fpOf(freshFile.name, freshFile);
+  if (!oldFp || newFp === oldFp) return;
+  try {
+    const raw = (typeof localStorage !== "undefined") ? localStorage.getItem("qbr-inv-journal-v1") : null;
+    const store = raw ? JSON.parse(raw) : {};
+    const oldEntry = store[oldFp];
+    if (oldEntry) {
+      const tgt = store[newFp] || (store[newFp] = { fileName: oldEntry.fileName, ops: [] });
+      tgt.ops = (oldEntry.ops || []).concat(tgt.ops || []);
+      tgt.fileName = oldEntry.fileName || tgt.fileName;
+      delete store[oldFp];
+      localStorage.setItem("qbr-inv-journal-v1", JSON.stringify(store));
+    }
+  } catch (e) {}
+  try {
+    if (QBR._kindByFp && QBR._kindByFp[oldFp]) {
+      QBR._kindByFp[newFp] = QBR._kindByFp[oldFp];
+      delete QBR._kindByFp[oldFp];
+    }
+  } catch (e) {}
+  try { if (typeof QBR.fsCarryPatchState === "function") QBR.fsCarryPatchState(oldFp, newFp); } catch (e) {}
+  try { if (QBR._audit && QBR._audit.fp === oldFp) QBR._audit.fp = newFp; } catch (e) {}
+  try { if (QBR._auditMeta && QBR._auditMeta.fp === oldFp) QBR._auditMeta.fp = newFp; } catch (e) {}
+  link.fp = newFp; link.size = freshFile.size; link.lastModified = freshFile.lastModified;
+  try { await fsLinksSave(); } catch (e) {}
+  try { if (typeof QBR.fsRefreshStatus === "function") QBR.fsRefreshStatus(); } catch (e) {}
+};
+
 // After a successful direct write: refresh session bytes, link metadata,
 // kind map, and clear the journal entries now baked into the file.
 QBR.fsAfterSave = async function (kind, link, freshFile) {
@@ -515,6 +602,7 @@ QBR.fsAfterSave = async function (kind, link, freshFile) {
     } catch (e) {}
     // 2. link metadata follows the new file state
     link.fp = newFp; link.size = freshFile.size; link.lastModified = freshFile.lastModified;
+    try { link.hash = fsHashBytes(new Uint8Array(await freshFile.arrayBuffer())); } catch (e) {} // v1.25.1: keep the content hash in sync
     await fsLinksSave();
     // 3. kind map: move the entry to the new fingerprint so later mutations
     //    record against the right file
@@ -553,7 +641,7 @@ QBR.supSaveDone = function (r) {
   }
   else if (r.mode === "no-changes") QBR.persistNote("supplies", "No changes to save", 3000);
   else if (r.mode === "download" || r.mode === "download-fallback")
-    QBR.persistNote("supplies", `Downloaded ${r.filename || ""} — link a file for direct save`, 5000);
+    QBR.persistNote("supplies", `Downloaded ${r.filename || ""} — tick Direct save for the file to save into it`, 5000);
   else if (r.mode === "download-unsafe")
     QBR.persistNote("supplies", `Not saved to ${r.name || "the linked file"} — ${r.reason || "safety check failed"}. Downloaded a separate copy instead.`, 12000);
   else if (r.mode === "download-changed")
@@ -571,7 +659,7 @@ QBR.invSaveDone = function (r) {
   }
   else if (r.mode === "no-changes") QBR.persistNote("assets", "No changes to save", 3000);
   else if (r.mode === "download" || r.mode === "download-fallback")
-    QBR.persistNote("assets", `Downloaded ${r.filename || ""} — link a file for direct save`, 5000);
+    QBR.persistNote("assets", `Downloaded ${r.filename || ""} — tick Direct save for the file to save into it`, 5000);
   else if (r.mode === "download-unsafe")
     QBR.persistNote("assets", `Not saved to ${r.name || "the linked file"} — ${r.reason || "safety check failed"}. Downloaded a separate copy instead.`, 12000);
   else if (r.mode === "download-changed")
@@ -591,19 +679,12 @@ QBR.saveButtonHtml = function (kind, id) {
   if (link) {
     return `<button type="button" class="btn btn-sm btn-primary" id="${id}" title="Write directly to ${esc(link.name)}">💾 Save to Excel</button>` + badge;
   }
-  return `<button type="button" class="btn btn-sm btn-outline-secondary" id="${id}" title="Download the workbook (use Link file for direct save)">⭳ Export workbook</button>` + badge;
+  return `<button type="button" class="btn btn-sm btn-outline-secondary" id="${id}" title="Download the workbook (check Direct-save on the file for direct save)">⭳ Export workbook</button>` + badge;
 };
 
 // Boot: load remembered links, paint status, hide the Link button where
 // the File System Access API does not exist.
 QBR.fsInit = function () {
-  try {
-    const btn = document.getElementById("btn-linkfile");
-    if (btn) {
-      if (!QBR.fsSupported()) btn.classList.add("d-none");
-      else btn.addEventListener("click", () => QBR.fsLinkFile());
-    }
-  } catch (e) {}
   fsLinksLoad();
   QBR.persistRefreshBadge();
 };

@@ -156,7 +156,9 @@ QBR.parseAuthMethods = function (text) {
 
 // Given a header row (array), return a function idx(patterns[]) -> column index.
 function makeResolver(headerRow) {
-  const heads = headerRow.map(h => (h == null ? "" : String(h).trim().toLowerCase()));
+  // Guard: a matched sheet with zero non-blank rows yields rows[0] == null.
+  // Return an empty resolver (all lookups miss) instead of throwing.
+  const heads = (headerRow || []).map(h => (h == null ? "" : String(h).trim().toLowerCase()));
   return function idx(patterns) {
     for (const p of patterns) {
       const pl = p.toLowerCase();

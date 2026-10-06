@@ -1536,10 +1536,11 @@ function invShowForm(which) {
         <td><code>${esc(a.sn)}</code></td><td>${esc(a.client || "—")}</td><td>${esc(a.model || "—")}</td><td>${invPill(QBR.invAssetStatus(a, QBR.invOpenByKey(inv.tickets)))}</td>
         <td>${esc(a.dr || "—")}</td><td>${fd(a.wstart)} → ${fd(a.wend)}</td></tr>`).join("") +
       `</tbody></table></div>
-      <div class="mt-2 d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-primary" id="bk-preview">Preview changes</button>
-        <button type="button" class="btn btn-sm btn-primary" id="bk-go" disabled>Apply</button>${close}</div>
-      <div id="bk-msg" class="small mt-1" aria-live="polite"></div>
-      <div id="bk-plan" class="mt-2"></div></div>`;
+      <div id="bk-msg" class="small mt-2" aria-live="polite"></div>
+      <div id="bk-plan" class="mt-2"></div>
+      <div class="mt-2 d-flex gap-2 align-items-center inv-sticky-actions"><button type="button" class="btn btn-sm btn-outline-primary" id="bk-preview">Preview changes</button>
+        <button type="button" class="btn btn-sm btn-primary" id="bk-go" disabled>Apply</button>${close}
+        <span class="small text-muted ms-1">Preview first — Apply enables once there are changes to make.</span></div></div>`;
     let plan = null, form = null;
     const FIELDS = ["status", "client", "delivered", "dr", "sq", "batch", "model", "cat", "desc", "brand", "supplier", "cond", "wstart", "wend", "wyears", "owner", "addr", "phone"];
     const IDS = { status: "bk-status", client: "bk-client", delivered: "bk-del", dr: "bk-dr", sq: "bk-sq", batch: "bk-batch", model: "bk-model", cat: "bk-cat",

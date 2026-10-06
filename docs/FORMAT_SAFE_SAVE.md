@@ -1,6 +1,6 @@
 # Format-safe save — design, alternatives, test strategy
 
-Status: **live on main** (2026-10-06; built and tested on develop first). Module `js/xlsx-surgical.js` v0.1.0, wired in `persist.js` (`fsSaveSurgical`).
+Status: v0.2.0 **live on main** (2026-10-06; 0.2.0 adds hyperlinks for the v1.28 audit editor). Module `js/xlsx-surgical.js`, wired in `persist.js` (`fsSaveSurgical`).
 Opt out per browser: `localStorage.setItem("qbr-save-engine","legacy")`.
 
 ## 1. Problem
@@ -20,6 +20,11 @@ prevents this, because the loss happens in the writer.
    - Drop the `spans=` attribute on rows that are edited. Update `<dimension>`.
 5. Excel tables on the sheet grow when rows are appended directly underneath. They gain a `tableColumn` when a header is written in the next column. `autoFilter` ref is synced.
 6. New sheets (e.g. EDIT LOG) are added to workbook.xml, its rels and `[Content_Types].xml`.
+6b. **Hyperlinks (v0.2.0)**: compares each cell's link target with entities decoded until stable.
+    - A new link adds a `<hyperlink>` (placed in schema order) and an External relationship in the sheet's `.rels` (the file is created if missing).
+    - A changed link updates its relationship `Target`, escaped once. `#Sheet!A1` targets use `location=`.
+    - Any sheet `.rels` with multi-encoded targets (`&amp;amp;`, left by the old engine) is repaired on save.
+    - The read-back gate also checks links.
 7. `fullCalcOnLoad="1"` is set. If formulas were written, `calcChain.xml` is removed along with its rel and content-type entry.
 8. Own zip writer. Untouched entries are copied **raw**, with the same compressed bytes and CRC; only the central-directory offsets change. Changed entries are deflated with native `CompressionStream('deflate-raw')` (Chrome/Edge 103+). Zero new libraries.
 9. Gates (nothing is written unless all pass):
@@ -50,8 +55,9 @@ Pyramid:
 
 | Layer | File | What | Count |
 |---|---|---|---|
-| Unit + fidelity (Node, ~5 s) | `tests/surgical-save.cjs` | Zip round-trip raw copy; no-op; edit/append/new column/new sheet; escaping; dates; style inheritance; table/dimension growth; content type + macros; five more saves with no drift; legacy-loss baseline; guard rails | 96 (102 with `VALIDATE=1`) |
+| Unit + fidelity (Node, ~5 s) | `tests/surgical-save.cjs` | Zip round-trip raw copy; no-op; edit/append/new column/new sheet; escaping; dates; style inheritance; table/dimension growth; content type + macros; five more saves with no drift; legacy-loss baseline; guard rails | 106 (114 with `VALIDATE=1`, incl. hyperlinks) |
 | Independent validators | same, `VALIDATE=1` | openpyxl load (tables/CF/DV counted) + LibreOffice headless convert | +6 |
+| E2E audit (Playwright) | `tests/ui-audit-save.cjs` | v1.28 Audit editor on `SAMPLE_AUDIT_RICH.xlsx`: progress bar + version badge + exempt pill/row (UI); risky count, reference link, EXEMPT K/L headers + values, add row, 2 saves; CF/DV kept, other month sheets byte-identical | 15 |
 | E2E (Playwright, real app) | `tests/ui-surgical.cjs` | Real Inventory API edits → Save ×3 via mocked file handle → byte-level inspection; legacy opt-out | 38 |
 | Regression | `ui-save`, `ui-inv-fixes`, `run-tests`, `ui-smoke`, `ui-scan`, `scan-tests`, `feature-manifest` | Unchanged behaviour | all green |
 | Manual UAT (required before main) | checklist below | Real Excel desktop + real workbooks | — |
