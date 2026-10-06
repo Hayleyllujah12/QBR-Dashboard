@@ -90,10 +90,15 @@
     const ok = await loadWidget(QBR._identityTimeout);
     if (!ok) { showLogin("Login service unavailable. Check your connection, then reload."); return true; }
     const id = window.netlifyIdentity;
-    id.on("init", user => { if (user) { hideLogin(); addLogout(); } else showLogin("Invite-only. Contact the administrator for access."); });
+    // The widget may initialise itself before our handlers exist (its own "init" can fire first),
+    // so don't wait for "init": enable the button now and check the current user directly.
+    const sync = () => { let u = null; try { u = id.currentUser(); } catch (e) {} if (u) { hideLogin(); addLogout(); } else showLogin("Invite-only. Contact the administrator for access."); };
+    id.on("init", sync);
     id.on("login", () => { hideLogin(); addLogout(); try { id.close(); } catch (e) {} });
     id.on("logout", () => { removeLogout(); showLogin("You have signed out."); });
-    id.init();
+    id.on("error", err => { console.warn("[QBR] Netlify Identity:", err && err.message); });
+    try { id.init(); } catch (e) {}
+    sync();
     return true;
   };
 

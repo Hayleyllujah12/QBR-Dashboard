@@ -139,7 +139,7 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
     const FAKE = `(function(){var h={},u=localStorage.getItem("fakeUser");function f(e,x){(h[e]||[]).forEach(function(c){c(x)})}
       window.netlifyIdentity={on:function(e,c){(h[e]=h[e]||[]).push(c)},init:function(){setTimeout(function(){f("init",u?{email:u}:null)},10)},
       open:function(){window.__opened=1;localStorage.setItem("fakeUser","pedro@example.com");f("login",{email:"pedro@example.com"})},
-      close:function(){},logout:function(){localStorage.removeItem("fakeUser");f("logout")}};})();`;
+      currentUser:function(){var x=localStorage.getItem("fakeUser");return x?{email:x}:null},close:function(){},logout:function(){localStorage.removeItem("fakeUser");f("logout")}};})();`;
     const mk = async (blockWidget) => {
       const ctx = await b.newContext(); const reqs = [];
       ctx.on("request", r => reqs.push(r.url()));
@@ -154,6 +154,7 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
       await ctx.close(); }
     { const { ctx } = await mk(false); const p = await boot(ctx, "https://develop--rct-opsdesk.netlify.app/"); await p.waitForTimeout(300);
       ok(await p.isVisible("#identity-gate") && await hidden(p), "Netlify beta, signed out: login gate shown, dashboard hidden");
+      ok(await p.evaluate(() => +getComputedStyle(document.getElementById("identity-gate")).zIndex < 99), "gate sits below the Netlify login modal (widget iframe z-index 99)");
       await p.click("#identity-login-btn"); await p.waitForTimeout(200);
       ok(!(await p.isVisible("#identity-gate")) && !(await hidden(p)) && await p.isVisible("#identity-logout-btn"), "after login: dashboard shown + Log out button");
       await p.reload(); await p.waitForTimeout(400);
