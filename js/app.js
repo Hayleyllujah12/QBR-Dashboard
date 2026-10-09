@@ -2378,15 +2378,18 @@ function renderFileList() {
   const host = $("loaded-files"); if (!host) return;
   const files = APP.files || [];
   if (!files.length) { host.innerHTML = ""; return; }
+  const foBar = (typeof QBR !== "undefined" && typeof QBR.fsFolderToolbarHtml === "function") ? QBR.fsFolderToolbarHtml() : "";
   host.innerHTML =
-    `<div class="loaded-files-head">Workbooks (${files.length})</div>` +
+    `<div class="loaded-files-head">Workbooks (${files.length})</div>` + foBar +
     files.map(it => {
       const k = escAttr(fileKey(it.name));
       const linked = (typeof QBR !== "undefined" && typeof QBR.fsIsLinkedByName === "function") ? QBR.fsIsLinkedByName(it.name) : false;
+      const lk = linked ? (QBR._fsLinks || []).filter(l => fileKey(l.name) === fileKey(it.name))[0] : null;
+      const viewOnly = !!(lk && !(lk.kinds || []).length); // v1.33.0: folder-linked, no editable sheets → ↻ reload only
       const canLink = (typeof QBR !== "undefined" && typeof QBR.fsSupported === "function") ? QBR.fsSupported() : false;
       const editBox = `<input type="checkbox" class="loaded-file-edit" data-fk="${k}" data-fname="${escAttr(it.name)}"` +
         (linked ? " checked" : "") + (canLink ? "" : " disabled") +
-        ` title="${canLink ? (linked ? "Direct save ON — uncheck to unlink" : "Check to enable direct save to this Excel file") : "Direct save needs Chrome or Edge"}" aria-label="Direct save">`;
+        ` title="${canLink ? (linked ? (viewOnly ? "Linked — ↻ reloads it from the file. It has no sheets the dashboard edits, so nothing is ever written to it. Uncheck to unlink" : "Direct save ON — uncheck to unlink") : "Check to enable direct save to this Excel file") : "Direct save needs Chrome or Edge"}" aria-label="Direct save">`;
       return `<div class="loaded-file">${editBox}<span class="loaded-file-name" title="${escAttr(it.name)}">${esc(it.name)}</span>` +
         `<button type="button" class="loaded-file-r" data-fk="${k}" title="${linked ? "Reload this workbook from the file (picks up edits made in Excel)" : "Refresh this workbook — re-pick the file to load its latest data"}">↻</button>` +
         `<button type="button" class="loaded-file-x" data-fk="${k}" title="Remove this workbook">×</button></div>`;

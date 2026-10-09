@@ -84,6 +84,7 @@
         <svg class="fi" aria-hidden="true" focusable="false"><use href="#fi-arrow-upload"/></svg><span class="hdr-lbl">Upload</span>
         <input id="file-input" type="file" accept=".xlsx" multiple hidden />
       </label>
+      <button id="hdr-folder" class="btn btn-outline-secondary btn-sm hdr-upload fo-only" type="button" data-fo-act="open" title="Open folder — load every workbook in it and enable Direct save with one permission">📁<span class="hdr-lbl">Folder</span></button>
       <span id="fs-link-status" class="small text-muted"></span>
       <div class="menu-wrap" id="export-wrap">
         <button id="btn-export" class="btn btn-outline-secondary btn-sm menu-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="export-menu" title="Print or download">
@@ -173,7 +174,9 @@
         <h4>Drop your Excel workbook(s) here</h4>
         <p class="dz-sub text-muted">Select several files at once. Each file is recognised by its <b>sheets</b>, so the file name doesn't have to match.</p>
         <button id="dz-choose" class="btn btn-primary btn-sm" type="button"><svg class="fi" aria-hidden="true" focusable="false"><use href="#fi-arrow-upload"/></svg> Choose files…</button>
+        <button id="dz-folder" class="btn btn-outline-primary btn-sm fo-only" type="button" data-fo-act="open" title="Pick the folder that holds your workbooks — one permission enables Direct save for all of them">📁 Open folder…</button>
         <div class="dz-tip">Same as <b>Upload</b> at the top right · .xlsx only</div>
+        <div class="dz-tip fo-only"><b>Open folder</b> loads every workbook in a folder (and its subfolders) and turns on Direct save with <b>one</b> permission — no re-picking each file.</div>
       </div>
 
       <div class="dz-sec">1 · Start here</div>
@@ -1121,6 +1124,7 @@
   <script src="js/patch.js"></script>  <!-- v1.15: patch-in-place workbook saver -->
   <script src="js/persist.js"></script>  <!-- v1.8: journal persistence + direct file save -->
   <script src="js/journal.js"></script>  <!-- v1.30.0: unsaved-edits journal (backup, orphans, export/import) -->
+  <script src="js/fsfolder.js"></script>  <!-- v1.33.0: Open folder — one permission for every workbook -->
   <script src="js/branding.js"></script>  <!-- 2026-10-05 RCT OpsDesk: custom logo upload (browser-local). No data logic. -->
   <script src="js/shell.js"></script>  <!-- v1.9.0 shell chrome only: nav state, drawer, menus. No data logic. -->
 </body>
