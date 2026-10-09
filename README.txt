@@ -6,6 +6,18 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-09 — v1.34.0 [BETA] Inventory: remaining stock by category
+  - The Laptops / Desktops / Monitors tiles are now quick "remaining stock" filters. Click one to
+    see only its IN-STOCK units (before, it showed every unit of that type, deployed ones included).
+    A new "📦 All in stock" tile shows the total across every category.
+  - The list groups the in-stock units by model (most first) with the batches they came from and
+    the earliest warranty end. Click a model to see its serials; each serial opens Asset 360.
+    "Units" switches back to one row per unit (bulk edit still works there).
+  - A "Remaining stock: Laptops ✕" chip shows what you're looking at; click ✕, or click the same
+    tile again, to go back to all assets. Clicking a tile clears other filters (client, serial,
+    batch) so the list always matches the tile's number.
+  - The Type filter now lists every category in your workbook, not only Laptop/Desktop/Monitor.
+
 UPDATE — 2026-10-09 — v1.33.0 [BETA] "Open folder": allow editing ONCE for all your workbooks
   - NEW "📁 Open folder…" (welcome page, top bar "Folder", and the Workbooks list). Pick the folder
     that holds your workbooks — subfolders are searched too (3 levels). Tick the workbooks to load
