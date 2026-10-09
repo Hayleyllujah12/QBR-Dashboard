@@ -1448,7 +1448,6 @@
       <div class="mb-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-wiz="parse3">Parse &amp; preview</button>
       <button type="button" class="btn btn-sm btn-outline-primary ms-2" data-wiz="copyscript" data-script="storage">Copy Storage Extraction Script</button>
       <button type="button" class="btn btn-sm btn-outline-secondary ms-2" data-wiz="copytenant">Copy Tenant ID</button>
-      <button type="button" class="btn btn-sm btn-link" data-sact-wiz="managescripts">Manage scripts</button>
       <span class="small text-muted ms-2" data-script-note></span></div>
       ${prev}
       ${w.p3.parsed && !w.p3.parsed.error ? wizNav(3, { save: true, saveLabel: "Save storage row" }) : wizNav(3, {})}
@@ -1486,7 +1485,6 @@
       <div class="mb-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-wiz="parse4">Parse &amp; preview</button>
       <button type="button" class="btn btn-sm btn-outline-primary ms-2" data-wiz="copyscript" data-script="usage">Copy Usage Extraction Script</button>
       <button type="button" class="btn btn-sm btn-outline-secondary ms-2" data-wiz="copytenant">Copy Tenant ID</button>
-      <button type="button" class="btn btn-sm btn-link" data-sact-wiz="managescripts">Manage scripts</button>
       <span class="small text-muted ms-2" data-script-note></span></div>
       ${prev}
       ${w.p4.parsed && !w.p4.parsed.error ? wizNav(4, { save: true, saveLabel: "Save usage row" }) : wizNav(4, {})}
@@ -1618,7 +1616,7 @@
       if (!r) { if (note) note.textContent = "Script library not loaded."; return; }
       QBR.scriptCopyToClipboard(r.text).then(ok => {
         if (!note) return;
-        if (!ok) { note.textContent = "Copy failed \u2014 open Manage scripts and copy there."; return; }
+        if (!ok) { note.textContent = "Copy failed \u2014 open the Admin panel (double-click the version label) to copy from the script inventory."; return; }
         if (r.prefilled) {
           note.textContent = "Copied \u2014 tenant ID pre-filled for " + tenant.name +
             " (" + (found.src === "tracker" ? "tracker" : "GDAP file") + ").";
@@ -1642,9 +1640,6 @@
           ? "Tenant ID copied (" + tenant.name + " \u2014 " + (found.src === "tracker" ? "tracker" : "GDAP file") + ")."
           : "Copy failed.";
       });
-    }));
-    host.querySelectorAll('[data-sact-wiz="managescripts"]').forEach(b => b.addEventListener("click", () => {
-      if (typeof QBR.scriptsOpen === "function") QBR.scriptsOpen();
     }));
     host.querySelectorAll('[data-wiz="back"]').forEach(b => b.addEventListener("click", () => { w.step = Math.max(0, w.step - 1); renderAudit(); }));
     host.querySelectorAll('[data-wiz="next"]').forEach(b => b.addEventListener("click", () => { w.step = Math.min(5, w.step + 1); renderAudit(); }));

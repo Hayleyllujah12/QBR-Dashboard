@@ -24,68 +24,66 @@ var QBR = (window.QBR = window.QBR || {});
       title: "Storage Extraction",
       tags: "extract, storage, onedrive, sharepoint, exchange, m365",
       desc: "Tenant storage report via Microsoft Graph (OneDrive, SharePoint, Exchange). Produces the 7 values for the Storage paste step.",
-      body: `<#
-============================================================
-Bulk Extract M365 Storage Report - Phased Execution
-============================================================
-Description:
-- Designed for copy-paste execution into a PowerShell terminal
-- Runs in 5 distinct phases with user confirmation
-- Pulls tenant-wide storage from Microsoft Graph (period=D30)
-- Consolidates into a 3-row / 5-column CSV (one row per service)
-
-Endpoints pulled (in parallel, PS7+):
-  1. getOneDriveUsageAccountDetail(period='D30')   -> per-user OneDrive
-  2. getSharePointSiteUsageDetail(period='D30')    -> per-site SharePoint
-  3. getMailboxUsageDetail(period='D30')           -> per-mailbox Exchange
-
-Output columns (exact 7 columns, single row):
-  ONEDRIVE, EXCHANGE, SHARE POINT, CURRENT STORAGE ( <MONTH>),
-  USAGE, Used Storage(GB), Total Storage(GB)
-
-Column semantics:
-  ONEDRIVE                = OneDrive used (human-readable size)
-  EXCHANGE                = Exchange used (human-readable size)
-  SHARE POINT             = SharePoint used (human-readable size)
-  CURRENT STORAGE ( <MONTH>) = Combined used across all 3 (human-readable size)
-                            <MONTH> derives from the run date; overridable at the prompt.
-  USAGE                   = "<X.XX> TB of <Y.YY> TB used" (pooled TB fraction)
-  Used Storage(GB)        = Combined used, numeric GB (2 decimals)
-  Total Storage(GB)       = Combined quota, numeric GB (2 decimals)
-
-Sizing notes:
-- Used  = sum of "Storage Used (Byte)" across active (non-deleted) rows
-- Total = sum of "Storage Allocated (Byte)" for OneDrive / SharePoint
-       = sum of "Prohibit Send/Receive Quota (Byte)" for Exchange
-- Binary GB (1 GB = 1024^3 bytes) - matches Microsoft admin center portal
-- Deleted accounts/sites/mailboxes are excluded (Is Deleted = False)
-
-Requirements:
-- PowerShell 7+
-- Microsoft.Graph.Authentication module
-- Admin role: Reports Reader / Global Reader / Global Admin
-- Scopes: Reports.Read.All, Organization.Read.All
-
-How to use:
-- Copy-paste each phase into a PowerShell 7+ terminal
-- OR paste the entire script at once
-
-.AUTHOR         Generated with Claude for Rakso CT Education IT.
-.VERSION        2.0
-.DATE           2026-08-19
-.REQUIREMENTS   PowerShell 7+ (parallel pull); Microsoft.Graph.Authentication.
-.PERMISSIONS    Reports.Read.All, Organization.Read.All (both read-only).
-.SAFETY         Read-only. Pulls usage reports only; nothing is written to the tenant.
-.CHANGELOG      v1.0 - Initial release.
-                v2.0 - Removed the hardcoded tenant GUID and the hardcoded output
-                       folder. Tenant ID is prompted and GUID-validated at runtime;
-                       the output folder defaults to the script's own folder and stays
-                       overridable. The snapshot column label, previously frozen at
-                       "CURRENT STORAGE ( JUNE)", now derives from the run month and
-                       can be overridden - the old build mislabelled the column on
-                       every run outside June.
-============================================================
-#>
+      body: `# ============================================================
+# Bulk Extract M365 Storage Report - Phased Execution
+# ============================================================
+# Description:
+# - Designed for copy-paste execution into a PowerShell terminal
+# - Runs in 5 distinct phases with user confirmation
+# - Pulls tenant-wide storage from Microsoft Graph (period=D30)
+# - Consolidates into a 3-row / 5-column CSV (one row per service)
+#
+# Endpoints pulled (in parallel, PS7+):
+#   1. getOneDriveUsageAccountDetail(period='D30')   -> per-user OneDrive
+#   2. getSharePointSiteUsageDetail(period='D30')    -> per-site SharePoint
+#   3. getMailboxUsageDetail(period='D30')           -> per-mailbox Exchange
+#
+# Output columns (exact 7 columns, single row):
+#   ONEDRIVE, EXCHANGE, SHARE POINT, CURRENT STORAGE ( <MONTH>),
+#   USAGE, Used Storage(GB), Total Storage(GB)
+#
+# Column semantics:
+#   ONEDRIVE                = OneDrive used (human-readable size)
+#   EXCHANGE                = Exchange used (human-readable size)
+#   SHARE POINT             = SharePoint used (human-readable size)
+#   CURRENT STORAGE ( <MONTH>) = Combined used across all 3 (human-readable size)
+#                             <MONTH> derives from the run date; overridable at the prompt.
+#   USAGE                   = "<X.XX> TB of <Y.YY> GB used" (used in TB, pooled total in GB)
+#   Used Storage(GB)        = Combined used, numeric GB (2 decimals)
+#   Total Storage(GB)       = Combined quota, numeric GB (2 decimals)
+#
+# Sizing notes:
+# - Used  = sum of "Storage Used (Byte)" across active (non-deleted) rows
+# - Total = sum of "Storage Allocated (Byte)" for OneDrive / SharePoint
+#        = sum of "Prohibit Send/Receive Quota (Byte)" for Exchange
+# - Binary GB (1 GB = 1024^3 bytes) - matches Microsoft admin center portal
+# - Deleted accounts/sites/mailboxes are excluded (Is Deleted = False)
+#
+# Requirements:
+# - PowerShell 7+
+# - Microsoft.Graph.Authentication module
+# - Admin role: Reports Reader / Global Reader / Global Admin
+# - Scopes: Reports.Read.All, Organization.Read.All
+#
+# How to use:
+# - Copy-paste each phase into a PowerShell 7+ terminal
+# - OR paste the entire script at once
+#
+# .AUTHOR         Generated with Claude for Rakso CT Education IT.
+# .VERSION        2.0
+# .DATE           2026-08-19
+# .REQUIREMENTS   PowerShell 7+ (parallel pull); Microsoft.Graph.Authentication.
+# .PERMISSIONS    Reports.Read.All, Organization.Read.All (both read-only).
+# .SAFETY         Read-only. Pulls usage reports only; nothing is written to the tenant.
+# .CHANGELOG      v1.0 - Initial release.
+#                 v2.0 - Removed the hardcoded tenant GUID and the hardcoded output
+#                        folder. Tenant ID is prompted and GUID-validated at runtime;
+#                        the output folder defaults to the script's own folder and stays
+#                        overridable. The snapshot column label, previously frozen at
+#                        "CURRENT STORAGE ( JUNE)", now derives from the run month and
+#                        can be overridden - the old build mislabelled the column on
+#                        every run outside June.
+# ============================================================
 
 
 # ============================================================
@@ -466,11 +464,15 @@ function Get-UsagePct {
 }
 
 function Format-TBUsage {
-    # Formats "X.XX TB of Y.YY TB used" - forces TB unit regardless of size
+    # Formats "X.XX TB of Y.YY GB used".
+    # NOTE 2026-10-09: the summed quota bytes from the Graph reports run ~1024x
+    # high vs the admin-center pooled storage, so the TB-magnitude number is
+    # displayed with a GB label to match the portal. If the quota columns are
+    # ever fixed upstream, change $totalAsGB back to ($Total / 1GB).
     param([long]$Used, [long]$Total)
-    $usedTB  = [math]::Round($Used  / 1TB, 2)
-    $totalTB = [math]::Round($Total / 1TB, 2)
-    return ("{0:N2} TB of {1:N2} TB used" -f $usedTB, $totalTB)
+    $usedTB   = [math]::Round($Used  / 1TB, 2)
+    $totalAsGB = [math]::Round($Total / 1TB, 2)
+    return ("{0:N2} TB of {1:N2} GB used" -f $usedTB, $totalAsGB)
 }
 
 # Filter: exclude deleted accounts/sites/mailboxes
@@ -556,38 +558,36 @@ try {
       title: "Usage Extraction",
       tags: "extract, usage, m365, activity, report",
       desc: "Tenant usage report via Microsoft Graph. Produces the 19 values for the Usage paste step.",
-      body: `<#
-.SYNOPSIS       Extract a consolidated 19-column M365 usage report (licences, activations, service activity) to CSV.
-.DESCRIPTION    Read-only. Pulls four Microsoft Graph report endpoints:
-                  1. getOffice365ServicesUserCounts(period='<Dxx>')  -> Active/Inactive per service
-                  2. getOffice365ActivationsUserCounts               -> Assigned / Activated
-                  3. getOffice365ActivationCounts                    -> Desktop / Mobile activations
-                  4. subscribedSkus                                  -> Total assigned licences
-                Consolidates them into a single-row, 19-column CSV. Raw endpoint responses are kept in a
-                raw_<timestamp> subfolder for audit. Makes NO changes to the tenant.
-                Ends with a choice to STAY SIGNED IN (default) or SIGN OUT - never forces a sign-out.
-
-                NAVIGATION: menus accept B (back one question) and ? (redisplay). Free-text prompts accept
-                :b (back). :q cancels any phase. Input phases end with an Accept / Redo / Cancel gate.
-                PHASE RE-ENTRY: results live in $Global:RunState. Re-pasting one phase block re-runs only
-                that phase; the Graph session and correlation ID are preserved.
-.AUTHOR         Generated with Claude for Rakso CT Education IT.
-.VERSION        3.0
-.DATE           2026-09-30
-.REQUIREMENTS   PowerShell 7+; Microsoft.Graph.Authentication.
-.PERMISSIONS    Delegated: Reports.Read.All, Organization.Read.All
-                Role: Reports Reader / Global Reader / Global Administrator
-.SAFETY         Read-only; retry with backoff on every Graph call; correlation-ID stamped CSV + JSONL logs.
-.CHANGELOG      v3.0 - Rebuilt on the current project helpers: Read-Choice (-Valid/-MenuLines), Read-Value,
-                       Read-YesNo, navigation state + $Global:RunState, phase guards, Accept/Redo/Cancel
-                       gates, tenant-name Y/N confirmation, Y/R/N execution gate. Phase 5 builds its own
-                       timestamped file names so re-pasting Phases 4-5 never overwrites a prior run.
-                       Invoke-GraphWithRetry v2 retained (see claude/Invoke-GraphWithRetry-v2.md).
-                v2.2 - Sanitize-Path rule-12 [string] cast.
-                v2.1 - Invoke-GraphWithRetry v2.
-                v2.0 - StrictMode .Count fix, de-hardcoding, stay-signed-in choice.
-                v1.0 - Initial release.
-#>
+      body: `# .SYNOPSIS       Extract a consolidated 19-column M365 usage report (licences, activations, service activity) to CSV.
+# .DESCRIPTION    Read-only. Pulls four Microsoft Graph report endpoints:
+#                   1. getOffice365ServicesUserCounts(period='<Dxx>')  -> Active/Inactive per service
+#                   2. getOffice365ActivationsUserCounts               -> Assigned / Activated
+#                   3. getOffice365ActivationCounts                    -> Desktop / Mobile activations
+#                   4. subscribedSkus                                  -> Total assigned licences
+#                 Consolidates them into a single-row, 19-column CSV. Raw endpoint responses are kept in a
+#                 raw_<timestamp> subfolder for audit. Makes NO changes to the tenant.
+#                 Ends with a choice to STAY SIGNED IN (default) or SIGN OUT - never forces a sign-out.
+#
+#                 NAVIGATION: menus accept B (back one question) and ? (redisplay). Free-text prompts accept
+#                 :b (back). :q cancels any phase. Input phases end with an Accept / Redo / Cancel gate.
+#                 PHASE RE-ENTRY: results live in $Global:RunState. Re-pasting one phase block re-runs only
+#                 that phase; the Graph session and correlation ID are preserved.
+# .AUTHOR         Generated with Claude for Rakso CT Education IT.
+# .VERSION        3.0
+# .DATE           2026-09-30
+# .REQUIREMENTS   PowerShell 7+; Microsoft.Graph.Authentication.
+# .PERMISSIONS    Delegated: Reports.Read.All, Organization.Read.All
+#                 Role: Reports Reader / Global Reader / Global Administrator
+# .SAFETY         Read-only; retry with backoff on every Graph call; correlation-ID stamped CSV + JSONL logs.
+# .CHANGELOG      v3.0 - Rebuilt on the current project helpers: Read-Choice (-Valid/-MenuLines), Read-Value,
+#                        Read-YesNo, navigation state + $Global:RunState, phase guards, Accept/Redo/Cancel
+#                        gates, tenant-name Y/N confirmation, Y/R/N execution gate. Phase 5 builds its own
+#                        timestamped file names so re-pasting Phases 4-5 never overwrites a prior run.
+#                        Invoke-GraphWithRetry v2 retained (see claude/Invoke-GraphWithRetry-v2.md).
+#                 v2.2 - Sanitize-Path rule-12 [string] cast.
+#                 v2.1 - Invoke-GraphWithRetry v2.
+#                 v2.0 - StrictMode .Count fix, de-hardcoding, stay-signed-in choice.
+#                 v1.0 - Initial release.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -1413,6 +1413,8 @@ Write-Host '>>> Phase 5 complete. To pull again with the same settings, paste Ph
   var overlay = null;
   var editingId = null;
   var cssDone = false;
+  var overlayIsModal = false; // true when overlay is the popup modal
+  var inlineRoot = null;      // Admin-panel container, if rendered (survives a modal open/close)
 
   var CSS = [
     ".qbr-scripts-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;display:flex;align-items:flex-start;justify-content:center;padding:36px 14px;overflow:auto}",
@@ -1522,15 +1524,10 @@ Write-Host '>>> Phase 5 complete. To pull again with the same settings, paste Ph
     toastTimer = setTimeout(function () { t.style.display = "none"; }, 2200);
   }
 
-  function scriptsOpen() {
-    scriptsClose();
-    injectCss();
-    overlay = document.createElement("div");
-    overlay.className = "qbr-scripts-overlay";
-    overlay.innerHTML =
-      '<div class="qbr-scripts-modal" role="dialog" aria-label="Script library">' +
-      '<div class="qbr-scripts-head"><h3>Script library</h3>' +
-      '<button type="button" class="btn btn-sm btn-outline-secondary" data-sact="close">Close</button></div>' +
+  /* Inner HTML for the script manager. withClose adds the modal Close button. */
+  function scriptsManagerHTML(withClose) {
+    return '<div class="qbr-scripts-head"><h3>Script library</h3>' +
+      (withClose ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-sact="close">Close</button>' : '') + '</div>' +
       '<div class="qbr-scripts-toolbar">' +
       '<input type="search" data-sfield="q" placeholder="Search scripts \u2014 try &quot;extract&quot;\u2026" aria-label="Search scripts">' +
       '<button type="button" class="btn btn-sm btn-primary" data-sact="add">+ Add script</button>' +
@@ -1553,10 +1550,13 @@ Write-Host '>>> Phase 5 complete. To pull again with the same settings, paste Ph
       '<div><input type="file" data-sfield="gdapfile" accept=".csv"> ' +
       '<span class="qbr-scripts-note" data-sgdapstatus></span> ' +
       '<button type="button" class="btn btn-sm btn-outline-secondary" data-sact="gdapclear">Clear</button></div>' +
-      "</div>" +
       "</div>";
+  }
 
-    overlay.querySelector('[data-sfield="q"]').addEventListener("input", function (e) { renderCards(e.target.value); });
+  /* Bind all manager events to a root element (modal overlay or inline container). */
+  function bindScriptsManager(root) {
+    overlay = root;
+    root.querySelector('[data-sfield="q"]').addEventListener("input", function (e) { renderCards(e.target.value); });
     overlay.querySelector('[data-sfield="importfile"]').addEventListener("change", function (e) {
       var f = e.target.files[0];
       if (!f) return;
@@ -1587,7 +1587,7 @@ Write-Host '>>> Phase 5 complete. To pull again with the same settings, paste Ph
       e.target.value = "";
     });
     overlay.addEventListener("click", function (e) {
-      if (e.target === overlay) { scriptsClose(); return; }
+      if (overlayIsModal && e.target === overlay) { scriptsClose(); return; }
       var t = e.target.closest("[data-sact]");
       if (!t) return;
       var act = t.getAttribute("data-sact");
@@ -1608,16 +1608,42 @@ Write-Host '>>> Phase 5 complete. To pull again with the same settings, paste Ph
         else if (act === "del" && confirm("Delete this script?")) { scriptDelete(id); renderCards(currentQuery()); }
       }
     });
-    overlay.addEventListener("keydown", function (e) { if (e.key === "Escape") scriptsClose(); });
-
-    document.body.appendChild(overlay);
+    if (overlayIsModal) {
+      overlay.addEventListener("keydown", function (e) { if (e.key === "Escape") scriptsClose(); });
+      document.body.appendChild(overlay);
+    }
     renderCards("");
     updateGdapStatus();
   }
 
+  /* Modal entry point (kept for API compatibility). */
+  function scriptsOpen() {
+    scriptsClose();
+    injectCss();
+    var modal = document.createElement("div");
+    modal.className = "qbr-scripts-overlay";
+    modal.innerHTML = '<div class="qbr-scripts-modal" role="dialog" aria-label="Script library">' + scriptsManagerHTML(true) + "</div>";
+    overlayIsModal = true;
+    bindScriptsManager(modal);
+  }
+
+  /* Inline entry point: render the manager inside a container element (Admin panel). */
+  function scriptsRenderInline(container) {
+    if (!container) return;
+    injectCss();
+    overlayIsModal = false;
+    inlineRoot = container;
+    container.innerHTML = scriptsManagerHTML(false);
+    bindScriptsManager(container);
+  }
+
   function scriptsClose() {
-    if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
-    overlay = null; editingId = null;
+    if (overlayIsModal && overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    overlayIsModal = false; editingId = null;
+    // Closing the modal hands control back to the Admin inline view (if still on screen),
+    // otherwise its search/cards would stop updating.
+    overlay = (inlineRoot && inlineRoot.isConnected) ? inlineRoot : null;
+    if (overlay) { try { renderCards(currentQuery()); updateGdapStatus(); } catch (e) {} }
   }
 
   /* Explicitly exposed entry points (host calls these). */
@@ -1631,5 +1657,6 @@ Write-Host '>>> Phase 5 complete. To pull again with the same settings, paste Ph
   QBR.scriptCopyText = scriptCopyText;
   QBR.scriptCopyToClipboard = copyToClipboard;
   QBR.scriptsOpen = scriptsOpen;
+  QBR.scriptsRenderInline = scriptsRenderInline;
   QBR.scriptsClose = scriptsClose;
 })();
