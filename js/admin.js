@@ -258,6 +258,10 @@
     const host = document.getElementById("admin-body");
     if (!host) return;
     const flags = loadFlags();
+    // 2026-10-09: keep the PowerShell-scripts section alive across re-renders (flag/theme changes
+    // re-render the panel; rebuilding it would drop a half-typed script in the Add/Edit form).
+    const keepScripts = host.querySelector(".admin-scripts");
+    if (keepScripts && keepScripts.parentNode) keepScripts.parentNode.removeChild(keepScripts);
     const rows = Object.keys(MODULES).map(key => {
       const m = MODULES[key];
       const on = !!flags[key];
@@ -291,6 +295,23 @@
       await QBR.adminSetPassword(p1);
     });
     renderThemeSection(host);
+    if (keepScripts) host.appendChild(keepScripts); else renderScriptsSection(host);
+  }
+
+  // 2026-10-09 patch (Pedro, 2026-10-09; Mars's feature-admin-scripts): the script inventory lives in the
+  // Admin panel. The wizard keeps its contextual "Copy … Extraction Script" / "Copy Tenant ID".
+  function renderScriptsSection(host) {
+    const sec = document.createElement("div");
+    sec.className = "admin-scripts";
+    sec.innerHTML =
+      `<h4 class="mb-1 mt-4">Admin &middot; PowerShell scripts</h4>` +
+      `<div class="small text-muted mb-2">Script inventory for report extraction. Built-in scripts ship with the app; ` +
+      `custom scripts and the GDAP mapping are stored in this browser only. The dashboard never runs PowerShell.</div>` +
+      `<div id="admin-scripts-host"></div>`;
+    host.appendChild(sec);
+    const box = sec.querySelector("#admin-scripts-host");
+    if (box && typeof QBR.scriptsRenderInline === "function") QBR.scriptsRenderInline(box);
+    else if (box) box.innerHTML = `<div class="small text-muted">Script library not loaded.</div>`;
   }
 
   function renderThemeSection(host) {

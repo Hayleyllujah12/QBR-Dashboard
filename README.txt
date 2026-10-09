@@ -6,6 +6,17 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-09 — v1.34.0 [BETA] patch: PowerShell scripts moved to the Admin panel
+  - The script library (search, copy, add / edit / delete your own scripts, export / import, and
+    the GDAP mapping file) now lives in Admin › PowerShell scripts, below Feature flags and
+    Appearance. Double-click the version label to open Admin.
+  - Guided audit › Storage and Usage steps keep "Copy … Extraction Script" and "Copy Tenant ID";
+    the "Manage scripts" link there was removed. Clicking the gdap pill still opens the library.
+  - The built-in scripts are now safe to paste in parts: their description header is plain
+    "#" comment lines instead of a <# … #> block, so starting a paste in the middle of the header
+    no longer makes PowerShell run the description text as commands.
+  - Storage script: the USAGE value now reads "X TB of Y GB used" to match the admin center.
+
 UPDATE — 2026-10-09 — v1.34.0 [BETA] Inventory: remaining stock by category
   - The Laptops / Desktops / Monitors tiles are now quick "remaining stock" filters. Click one to
     see only its IN-STOCK units (before, it showed every unit of that type, deployed ones included).

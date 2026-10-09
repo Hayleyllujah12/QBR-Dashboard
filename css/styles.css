@@ -939,6 +939,16 @@ body.fs-folder-ok .dz-tip.fo-only{display:block !important}
 .merge-warn ul{margin:4px 0 0 18px;padding:0}
 .merge-act{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
 
+/* ---- Admin › PowerShell scripts (2026-10-09): script manager inline, on theme tokens ---- */
+#admin-scripts-host .qbr-scripts-head{display:none}
+#admin-scripts-host .qbr-scripts-card,#admin-scripts-host .qbr-scripts-form{border-color:var(--line);background:var(--surface);color:var(--ink)}
+#admin-scripts-host .qbr-scripts-tags,#admin-scripts-host .qbr-scripts-desc,#admin-scripts-host .qbr-scripts-note{color:var(--muted)}
+#admin-scripts-host .qbr-scripts-gdap{border-top-color:var(--line)}
+#admin-scripts-host input,#admin-scripts-host textarea{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-sm,4px)}
+#admin-scripts-host .qbr-scripts-badge.bi{background:var(--ok-bg);color:var(--ok-fg)}
+#admin-scripts-host .qbr-scripts-badge.cu{background:var(--brand-tint);color:var(--brand-fg)}
+@media print{.admin-scripts{display:none}}
+
 /* ---- Discreet Admin panel (v1.31.0): per-module feature flags ---- */
 .sb-group.sb-admin{display:none}
 body.show-admin .sb-group.sb-admin{display:block}
