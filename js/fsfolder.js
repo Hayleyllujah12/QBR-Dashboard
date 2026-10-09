@@ -236,7 +236,14 @@
     if (!rec) { rec = { id: newId(), name: dir.name, handle: dir, picked: [] }; QBR._fsDirs.unshift(rec); }
     else { rec.handle = dir; rec.name = dir.name; }
     rec.picked = picks.map(function (b) { return b.rel.join("/"); });
-    QBR._fsDirs = [rec].concat(QBR._fsDirs.filter(function (d) { return d !== rec; })).slice(0, 5);
+    // Any number of folders can be linked. Folders still used by a link are never dropped;
+    // only UNUSED remembered folders are trimmed (keep at most 5 records in total).
+    var usedIds = {};
+    (QBR._fsLinks || []).forEach(function (l) { if (l.dirId) usedIds[l.dirId] = 1; });
+    var others = QBR._fsDirs.filter(function (d) { return d !== rec; });
+    var used = others.filter(function (d) { return usedIds[d.id]; });
+    var spare = others.filter(function (d) { return !usedIds[d.id]; }).slice(0, Math.max(0, 4 - used.length));
+    QBR._fsDirs = [rec].concat(others.filter(function (d) { return usedIds[d.id] || spare.indexOf(d) >= 0; }));
     QBR._fsDirState[rec.id] = "granted";
 
     note("Loading " + picks.length + " workbook" + (picks.length === 1 ? "" : "s") + "…", 30000);
@@ -316,6 +323,7 @@
   QBR.fsFolderGrantFor = async function (handle) {
     var link = (QBR._fsLinks || []).filter(function (l) { return l.handle === handle && l.dirId; })[0];
     if (!link) return null;                      // not a folder link → caller asks for the file as before
+    if (!dirById(link.dirId)) return null;       // folder record gone → fall back to asking for the file
     if (!(await QBR.fsFolderReconnect(link.dirId))) return false; // folder declined → don't nag per file
     return link.handle; // re-resolved through the folder
   };

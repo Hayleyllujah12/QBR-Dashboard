@@ -29,10 +29,12 @@ const MOCK = `(() => {
   const T = window.__fo = { dirReq: 0, fileReq: 0, writes: 0, picks: 0, session: 1 };
   const bytes = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
   const store = {}; Object.keys(TREE).forEach(k => store[k] = { u: bytes(TREE[k].b), t: TREE[k].t });
-  let dirState = "prompt";
+  // one grant per picked ROOT folder ("" = first folder, "@2/" = a second folder elsewhere)
+  const st = {}; const rootOf = k => k.charAt(0) === "@" ? k.slice(0, k.indexOf("/") + 1) : "";
+  const gs = r => st[r] || "prompt";
   class FH {
     constructor(rel, viaDir) { this.kind = "file"; this.name = rel.split("/").pop(); this._rel = rel; this._via = viaDir; this._session = T.session; this._own = "prompt"; }
-    _state() { return (this._via && this._session === T.session) ? dirState : this._own; }
+    _state() { return (this._via && this._session === T.session) ? gs(rootOf(this._rel)) : this._own; }
     async queryPermission() { return this._state(); }
     async requestPermission() { T.fileReq++; this._own = "granted"; return "granted"; }
     async isSameEntry(o) { return o && o._rel === this._rel; }
@@ -46,24 +48,25 @@ const MOCK = `(() => {
   }
   class DH {
     constructor(prefix, name) { this.kind = "directory"; this.name = name; this._p = prefix; }
-    async queryPermission() { return dirState; }
-    async requestPermission() { T.dirReq++; if (T.denyDir) { dirState = "denied"; return "denied"; } dirState = "granted"; return "granted"; }
+    async queryPermission() { return gs(rootOf(this._p)); }
+    async requestPermission() { T.dirReq++; const r = rootOf(this._p); T.reqBy[r] = (T.reqBy[r] || 0) + 1; if (T.denyDir) { st[r] = "denied"; return "denied"; } st[r] = "granted"; return "granted"; }
     async isSameEntry(o) { return o && o._p === this._p && o.kind === "directory"; }
     async getDirectoryHandle(n) { const p = this._p + n + "/"; if (!Object.keys(store).some(k => k.startsWith(p))) throw new DOMException("nf", "NotFoundError"); return new DH(p, n); }
     async getFileHandle(n) { const k = this._p + n; if (!store[k]) throw new DOMException("nf", "NotFoundError"); return new FH(k, true); }
     async *values() {
       const seen = new Set();
       for (const k of Object.keys(store)) {
-        if (!k.startsWith(this._p)) continue;
+        if (!k.startsWith(this._p) || (this._p === "" && k.charAt(0) === "@")) continue;
         const rest = k.slice(this._p.length), i = rest.indexOf("/");
         if (i < 0) yield new FH(k, true);
         else { const d = rest.slice(0, i); if (!seen.has(d)) { seen.add(d); yield new DH(this._p + d + "/", d); } }
       }
     }
   }
-  window.showDirectoryPicker = async (opt) => { T.picks++; T.lastOpt = opt && { id: opt.id, mode: opt.mode }; if (opt && opt.mode === "readwrite") dirState = "granted"; return new DH("", "QBR Workbooks"); };
+  window.showDirectoryPicker = async (opt) => { T.picks++; T.lastOpt = opt && { id: opt.id, mode: opt.mode }; const r = T.nextRoot || ""; if (opt && opt.mode === "readwrite") st[r] = "granted"; return new DH(r, r ? "Domains Share" : "QBR Workbooks"); };
   // next browser session: every grant is forgotten, handles restored from storage start at "prompt"
-  T.newSession = () => { T.session++; dirState = "prompt"; };
+  T.reqBy = {};
+  T.newSession = () => { T.session++; Object.keys(st).forEach(r => st[r] = "prompt"); };
   T.store = store;
 })();`;
 
@@ -175,6 +178,43 @@ const MOCK = `(() => {
   console.log("== unlink still works");
   await p.evaluate(() => QBR.fsUnlink("Lenovo Inventory.xlsx", true)); await p.waitForTimeout(150);
   ok(await p.evaluate(() => (QBR._fsLinks || []).length === 2), "unchecking one workbook unlinks only that one");
+
+  console.log("== a second folder in a different location");
+  await p.evaluate(b => {
+    const bin = atob(b); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    window.__fo.store["@2/Inventory/Lenovo Inventory 2.xlsx"] = { u, t: 5000 };
+    window.__fo.nextRoot = "@2/";
+  }, b64("SAMPLE_Lenovo_Inventory_RICH.xlsx"));
+  await p.evaluate(() => document.querySelector('.fo-bar [data-fo-act="open"]').click()); await p.waitForSelector(".fo-ov");
+  ok(await p.evaluate(() => /Domains Share/.test(document.getElementById("fo-h").textContent) && document.querySelectorAll(".fo-pick:checked").length === 1), "second folder scanned on its own");
+  await p.click("#fo-ok"); await p.waitForTimeout(3500);
+  const mf = await p.evaluate(() => ({ files: (APP.files || []).length, dirs: (QBR._fsDirs || []).length,
+    ids: [...new Set((QBR._fsLinks || []).map(l => l.dirId))].length, links: (QBR._fsLinks || []).length }));
+  ok(mf.files === 4 && mf.links === 3, "it ADDS to what is loaded (3 already loaded + 1 new; 2 links from folder 1 + 1 from folder 2)  " + JSON.stringify(mf));
+  ok(mf.dirs === 2 && mf.ids === 2, "both folders remembered, links point at their own folder");
+  const ms = await p.evaluate(async () => {
+    window.__fo.newSession(); window.__fo.reqBy = {}; const f0 = window.__fo.fileReq;
+    await QBR.fsFolderRefreshState();
+    const btn = !!document.querySelector('.fo-bar [data-fo-act="reconnect"]');
+    const r = await QBR.fsFolderReconnectAll();
+    return { btn, r, reqBy: window.__fo.reqBy, files: window.__fo.fileReq - f0 };
+  });
+  ok(ms.btn && ms.r && ms.reqBy[""] === 1 && ms.reqBy["@2/"] === 1 && ms.files === 0, "next session: Reconnect asks once PER FOLDER (2 prompts), never per file  " + JSON.stringify(ms));
+  const one = await p.evaluate(async () => {
+    window.__fo.newSession(); window.__fo.reqBy = {};
+    const ok = await QBR.fsReloadFromFile("Lenovo Inventory 2.xlsx", { quiet: true });
+    return { ok, reqBy: window.__fo.reqBy };
+  });
+  ok(one.ok && one.reqBy["@2/"] === 1 && !one.reqBy[""], "saving/reloading one file only asks for ITS folder  " + JSON.stringify(one));
+  // many folders: folders still in use are never dropped
+  const keep = await p.evaluate(async () => {
+    const used = (QBR._fsDirs || []).map(d => d.id);
+    for (let i = 0; i < 6; i++) QBR._fsDirs.push({ id: "spare" + i, name: "spare" + i, handle: QBR._fsDirs[0].handle, picked: [] });
+    window.__fo.nextRoot = "@2/"; QBR._folderAutoPick = (books, pre) => Object.keys(pre).map(Number);
+    await QBR.fsOpenFolder(); QBR._folderAutoPick = null;
+    return { kept: used.every(id => QBR._fsDirs.some(d => d.id === id)), n: QBR._fsDirs.length };
+  });
+  ok(keep.kept && keep.n <= 5, "with many folders, ones still linked are never forgotten (unused ones trimmed)  " + JSON.stringify(keep));
 
   ok(errs.length === 0, "no page errors  " + JSON.stringify(errs.slice(0, 3)));
   ok(ext.length === 0, "no external requests (offline)");
