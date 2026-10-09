@@ -36,6 +36,8 @@ const F = [
   ["Text-size stylesheet wired", "index.html", ["css/type-scale.css", "js/admin.js", "js/identity.js"]],
   ["Netlify Identity gate", "js/identity.js", ["QBR.identityInit", "isNetlifyHost"]],
   ["Environment label (Beta / Preview)", "js/branding.js", ["RCT_ENV", "Beta version"]],
+  ["Inventory remaining-stock tiles (v1.34.0)", "js/inventory.js", ["data-inv-stocktile", "inv-stocktbl", "invTypeOptions", "inv-stock-x", "data-inv-stockmode"]],
+  ["Sortable-table opt-out", "js/shell.js", ["data-nosort"]],
   ["Open folder: one permission for all workbooks (v1.33.0)", "js/fsfolder.js", ["QBR.fsOpenFolder", "QBR.fsFolderReconnect", "QBR.fsFolderGrantFor", "QBR.fsFolderReloadAll", "showDirectoryPicker"]],
   ["Folder grant used by saves", "js/persist.js", ["QBR.fsFolderGrantFor", "dirId"]],
   ["Open folder entry points", "index.html", ["js/fsfolder.js", "dz-folder", "hdr-folder"]],

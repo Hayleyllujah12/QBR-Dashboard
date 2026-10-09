@@ -22,7 +22,7 @@ var QBR = window.QBR = window.QBR || {};
 /* Delivery package version (semver MAJOR.MINOR.PATCH — see VERSIONING.md).
  * Single source of truth for the shipped zip name qbr-inventory-app-<ver>.zip
  * and the version badge on the Inventory page. */
-QBR.INV_VERSION = "1.25.0";
+QBR.INV_VERSION = "1.26.0"; // v1.34.0 beta: remaining-stock quick tiles
 
 /* ---------- Lenovo warranty lookup ---------------------------------------
  * Generic lookup page (per Pedro): paste any serial number. Deep per-unit
@@ -1037,6 +1037,12 @@ function invPill(s) {
   const colors = { blue: "#0078D4", green: "#107C10", orange: "#FF8C00", red: "#D13438", gray: "#605E5C", purple: "#8764B8" };
   return `<span class="badge" style="background:${colors[tone]};color:#fff">${esc(s)}</span>`;
 }
+/* v1.33.0: Type filter lists the workbook's own categories (Laptop/Desktop/Monitor first). */
+function invTypeOptions(inv) {
+  const base = ["Laptop", "Desktop", "Monitor"], seen = new Set();
+  (inv.assets || []).forEach(a => { const c = String(a.cat || "").trim(); if (c) seen.add(c); });
+  return ["ALL", ...base, ...[...seen].filter(c => !base.includes(c)).sort()];
+}
 function invClients(inv) {
   const s = new Set();
   (inv.assets || []).forEach(a => { if (a.client) s.add(a.client); });
@@ -1087,14 +1093,26 @@ function invStockOverview(inv, sup, view) {
     });
     const typeIcon = { Laptop: "💻", Desktop: "🖥️", Monitor: "🖥️" };
     const ordered = [...typeOrder.filter(c => byType.has(c)), ...[...byType.keys()].filter(c => !typeOrder.includes(c))];
+    /* v1.33.0: tiles are quick "remaining stock" filters — click = that category's In Stock units,
+     * grouped by model (click the active tile again to clear). The last tile covers every category. */
+    const sui = QBR._invUI || {};
+    const stockTile = (key, val, lbl, sub, tone, tip) => {
+      const on = !!(sui.stockView && sui.type === key);
+      return `<div class="col"><button type="button" data-inv-stocktile="${E(key)}" title="${E(tip)}" aria-pressed="${on}"
+        class="inv-stocktile${on ? " on" : ""}" style="all:unset;display:block;width:100%;cursor:pointer"><div class="kpi kpi-${tone}">
+        <div class="kpi-val">${F(val)} <span style="font-size:16px">pcs</span></div>
+        <div class="kpi-lbl">${lbl} <span style="font-weight:400">· ${sub}</span></div>
+      </div></button></div>`;
+    };
     tiles = ordered.map(c => {
       const g = byType.get(c), tone = g.inStock === 0 ? "red" : "green";
-      return `<div class="col"><button type="button" data-inv-typetile="${E(c)}" title="Show ${E(c)} assets"
-        style="all:unset;display:block;width:100%;cursor:pointer"><div class="kpi kpi-${tone}">
-        <div class="kpi-val">${F(g.inStock)} <span style="font-size:16px">pcs</span></div>
-        <div class="kpi-lbl">${typeIcon[c] || "📦"} ${E(c)}s <span style="font-weight:400">· Deployed ${F(g.deployed)}</span></div>
-      </div></button></div>`;
+      return stockTile(c, g.inStock, `${typeIcon[c] || "📦"} ${E(c)}s`, `Deployed ${F(g.deployed)}`, tone,
+        `Show the ${g.inStock} ${c.toLowerCase()}${g.inStock === 1 ? "" : "s"} in stock, by model`);
     }).join("");
+    const allIn = [...byType.values()].reduce((n, g) => n + g.inStock, 0);
+    const allTot = [...byType.values()].reduce((n, g) => n + g.total, 0);
+    tiles += stockTile("ALL", allIn, "📦 All in stock", `${F(allTot)} units total`, allIn === 0 ? "red" : "blue",
+      `Show every unit in stock (${allIn}), by model`);
     /* bundle strip: desktop set needs a system unit AND a monitor */
     const lap = (byType.get("Laptop") || { inStock: 0 }).inStock;
     const dIn = (byType.get("Desktop") || { inStock: 0 }).inStock;
@@ -1276,7 +1294,7 @@ function renderInventory() {
         <div id="inv-f-client-dd" class="inv-ac-dd d-none" role="listbox"></div></div></div>
       <div><label class="form-label small mb-0" for="inv-f-type">Type</label>
         <select id="inv-f-type" class="form-select form-select-sm" style="--w:130px">
-        ${["ALL", "Laptop", "Desktop", "Monitor"].map(t => `<option value="${t}"${ui.type === t ? " selected" : ""}>${t === "ALL" ? "All types" : t}</option>`).join("")}</select></div>
+        ${invTypeOptions(inv).map(t => `<option value="${escAttr(t)}"${ui.type === t ? " selected" : ""}>${t === "ALL" ? "All types" : esc(t)}</option>`).join("")}</select></div>
       <div><label class="form-label small mb-0" for="inv-f-status">Status</label>
         <select id="inv-f-status" class="form-select form-select-sm" style="--w:130px">
         ${["ALL", ...QBR.INV_STATUS].map(t => `<option value="${escAttr(t)}"${ui.status === t ? " selected" : ""}>${t === "ALL" ? "All statuses" : esc(t)}</option>`).join("")}</select></div>
@@ -1327,7 +1345,46 @@ function renderInventory() {
       `<tr><td colspan="8" class="text-muted">No assets match the current filters.</td></tr>`) +
     `</tbody></table></div>` +
     (!ui.showAll && total > 150 ? `<button type="button" class="btn btn-sm btn-outline-secondary" id="inv-showall">Show all ${fmt(total)}</button>` : "");
-  const assetTbl = invCollapsible("assets", `Assets <span class="text-muted">(${fmt(total)})</span>`, assetTblBody);
+  /* v1.33.0: remaining-stock view (from a stock tile): chip + By model | Units switch; By model groups
+   * the in-stock units per model with expandable serials. */
+  const stockOn = !!(ui.stockView && ui.status === "In Stock");
+  const stockLbl = ui.type === "ALL" ? "All categories" : (ui.type + "s");
+  const stockBar = !stockOn ? "" : `<div class="inv-stockbar">
+      <span class="inv-chip">Remaining stock: ${esc(stockLbl)} <button type="button" class="btn btn-sm btn-link p-0" id="inv-stock-x" aria-label="Clear remaining-stock filter">✕</button></span>
+      <div class="btn-group btn-group-sm" role="group" aria-label="Remaining stock layout">
+        <button type="button" class="btn btn-outline-primary${ui.stockGroup !== false ? " active" : ""}" data-inv-stockmode="model" aria-pressed="${ui.stockGroup !== false}">By model</button>
+        <button type="button" class="btn btn-outline-primary${ui.stockGroup === false ? " active" : ""}" data-inv-stockmode="units" aria-pressed="${ui.stockGroup === false}">Units</button></div></div>`;
+  let assetBody = stockBar + assetTblBody;
+  if (stockOn && ui.stockGroup !== false) {
+    const grp = new Map();
+    rows.forEach(x => {
+      const lbl = ((x.a.brand || "") + " " + (x.a.model || "Unknown model")).trim().replace(/\s+/g, " ");
+      const k = x.a.cat + "\u0001" + lbl;
+      if (!grp.has(k)) grp.set(k, { lbl, cat: x.a.cat, units: [], batches: new Map(), wmin: null });
+      const g = grp.get(k); g.units.push(x.a);
+      if (x.a.batch) g.batches.set(x.a.batch, (g.batches.get(x.a.batch) || 0) + 1);
+      const w = x.a.wend ? new Date(x.a.wend) : null;
+      if (w && !isNaN(w) && (!g.wmin || w < g.wmin)) g.wmin = w;
+    });
+    const groups = [...grp.values()].sort((a, b) => b.units.length - a.units.length || a.lbl.localeCompare(b.lbl));
+    assetBody = stockBar + `<div class="table-responsive"><table class="table table-sm inv-tbl inv-stocktbl" data-nosort><thead><tr>
+      <th>Model</th><th>Type</th><th class="text-end">In stock</th><th>Batches</th><th>Earliest warranty end</th><th></th></tr></thead><tbody>` +
+      (groups.map((g, i) => {
+        const bs = [...g.batches.entries()].sort((a, b) => b[1] - a[1]);
+        const bTxt = bs.slice(0, 3).map(([c, n]) => `<code>${esc(c)}</code> ${fmt(n)}`).join(", ") + (bs.length > 3 ? ` <span class="text-muted">+${bs.length - 3}</span>` : "");
+        const serials = g.units.slice().sort((a, b) => String(a.sn).localeCompare(String(b.sn)))
+          .map(a => `<span class="inv-sn">${invAssetLink(a.key, a.sn)}</span>`).join(" ");
+        return `<tr class="inv-mgrp" data-inv-mgrp="${i}" tabindex="0" role="button" aria-expanded="false" aria-controls="inv-mgrp-${i}">
+            <td><span class="inv-caret" aria-hidden="true">▸</span> ${esc(g.lbl)}</td><td>${esc(g.cat)}</td>
+            <td class="text-end"><b>${fmt(g.units.length)}</b></td><td>${bTxt || "—"}</td>
+            <td>${g.wmin ? invFmtDate(g.wmin) : "—"}</td><td class="text-end small text-muted">serials</td></tr>
+          <tr id="inv-mgrp-${i}" class="inv-mgrp-sns d-none"><td colspan="6"><div class="inv-snlist">${serials}</div></td></tr>`;
+      }).join("") || `<tr><td colspan="6" class="text-muted">Nothing in stock for this category.</td></tr>`) +
+      `</tbody></table></div>`;
+  }
+  const assetTitle = stockOn ? `Remaining stock · ${esc(stockLbl)} <span class="text-muted">(${fmt(total)})</span>`
+    : `Assets <span class="text-muted">(${fmt(total)})</span>`;
+  const assetTbl = invCollapsible("assets", assetTitle, assetBody);
 
   /* ---- pipeline + PO ---- */
   const plTblBody = `<div class="table-responsive"><table class="table table-sm inv-tbl"><thead><tr>
@@ -1369,10 +1426,33 @@ function invBind(host) {
   host.querySelectorAll("[data-sup-view]").forEach(b => b.addEventListener("click", () => {
     ui.view = b.dataset.supView; rerender();
   }));
-  host.querySelectorAll("[data-inv-typetile]").forEach(b => b.addEventListener("click", () => {
-    ui.type = b.dataset.invTypetile; ui.showAll = false; rerender();
-    const at = $("inv-asset-card"); if (at) at.scrollIntoView({ block: "start" });
+  host.querySelectorAll("[data-inv-stocktile]").forEach(b => b.addEventListener("click", () => {
+    const c = b.dataset.invStocktile;
+    if (ui.stockView && ui.type === c) {            // click the active tile again → back to all assets
+      ui.stockView = false; ui.type = "ALL"; ui.status = "ALL";
+    } else {                                        // the list must match the tile's number: clear other filters
+      ui.stockView = true; ui.stockGroup = ui.stockGroup !== false; ui.type = c; ui.status = "In Stock";
+      ui.client = "ALL"; ui.q = ""; ui.batch = null; ui.flag = null; ui.group = null;
+      if (ui.collapsed) ui.collapsed.assets = false;
+    }
+    ui.showAll = false; rerender();
+    const at = $("inv-card-assets"); if (at && ui.stockView) at.scrollIntoView({ block: "start", behavior: "smooth" });
   }));
+  const sx = $("inv-stock-x");
+  if (sx) sx.addEventListener("click", () => { ui.stockView = false; ui.type = "ALL"; ui.status = "ALL"; ui.showAll = false; rerender(); });
+  host.querySelectorAll("[data-inv-stockmode]").forEach(b => b.addEventListener("click", () => {
+    ui.stockGroup = b.dataset.invStockmode !== "units"; ui.showAll = false; rerender();
+  }));
+  const mgToggle = tr => {
+    const d = document.getElementById("inv-mgrp-" + tr.dataset.invMgrp); if (!d) return;
+    const open = d.classList.toggle("d-none") === false;
+    tr.setAttribute("aria-expanded", String(open));
+    const c = tr.querySelector(".inv-caret"); if (c) c.textContent = open ? "▾" : "▸";
+  };
+  host.querySelectorAll("[data-inv-mgrp]").forEach(tr => {
+    tr.addEventListener("click", e => { if (e.target.closest("a")) return; mgToggle(tr); });
+    tr.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); mgToggle(tr); } });
+  });
   host.querySelectorAll("[data-inv-flag]").forEach(b => b.addEventListener("click", () => {
     ui.flag = b.dataset.invFlag || null; rerender();
   }));
@@ -1396,7 +1476,7 @@ function invBind(host) {
   if (sa) sa.addEventListener("click", () => { ui.showAll = true; rerender(); });
   const fc = $("inv-f-client"); if (fc) invClientFilterBind(fc);
   const ft = $("inv-f-type");   if (ft) ft.addEventListener("change", () => { ui.type = ft.value; ui.showAll = false; rerender(); });
-  const fs = $("inv-f-status"); if (fs) fs.addEventListener("change", () => { ui.status = fs.value; ui.showAll = false; rerender(); });
+  const fs = $("inv-f-status"); if (fs) fs.addEventListener("change", () => { ui.status = fs.value; if (ui.status !== "In Stock") ui.stockView = false; ui.showAll = false; rerender(); });
   const fb = $("inv-f-batch"); if (fb) fb.addEventListener("change", () => { ui.batch = fb.value || null; ui.showAll = false; rerender(); });
   host.querySelectorAll("[data-inv-batch-show]").forEach(b => b.addEventListener("click", () => {
     ui.batch = b.dataset.invBatchShow; ui.showAll = false; rerender();

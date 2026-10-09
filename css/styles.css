@@ -804,6 +804,16 @@ body.no-sticky .inv-sticky-actions{position:static;border-top:0;padding:0}
 .inv-bulkbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 10px;margin-bottom:8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--subtle)}
 .inv-bulkbar.on{border-color:var(--brand-fg);background:var(--brand-tint)}
 .inv-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:1px 8px;border-radius:10px;background:var(--surface);border:1px solid var(--brand-fg);color:var(--brand-fg)}
+/* v1.33.0 remaining-stock quick filter */
+.inv-stocktile.on .kpi{outline:2px solid var(--brand-fg);outline-offset:2px}
+.inv-stocktile:focus-visible .kpi{outline:2px solid var(--brand-fg);outline-offset:2px}
+#inv-card-assets{scroll-margin-top:calc(var(--topbar-h,48px) + 96px)}
+.inv-stockbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:0 0 8px}
+.inv-mgrp{cursor:pointer}
+.inv-mgrp:hover{background:var(--tab-hover)}
+.inv-caret{display:inline-block;width:1em;color:var(--muted)}
+.inv-snlist{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px;max-height:220px;overflow:auto;padding:2px 0 2px 1.2em}
+@media print{.inv-stockbar .btn-group{display:none}}
 .inv-chip-k{display:inline-block;font-size:11px;font-weight:700;padding:0 6px;border-radius:8px;background:var(--brand-tint);color:var(--brand-fg)}
 .inv-chg{display:inline-block;margin:1px 8px 1px 0;font-size:12px;white-space:nowrap}
 .inv-tbl tbody tr.inv-row-sel{background:var(--brand-tint)}

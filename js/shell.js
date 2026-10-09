@@ -175,7 +175,8 @@
       return (panel ? panel.id : "x") + "#" + all.indexOf(t);
     }
     function sortable(t) {
-      return t.closest(".dash-panel") && !t.closest(".fd-tablewrap") && t.tHead && t.tBodies[0] && t.tHead.rows.length;
+      // data-nosort on the <table>: opt out (e.g. grouped rows with paired detail rows — v1.33.0)
+      return t.closest(".dash-panel") && !t.closest(".fd-tablewrap") && !t.hasAttribute("data-nosort") && t.tHead && t.tBodies[0] && t.tHead.rows.length;
     }
     function setupTable(t) {
       if (t.dataset.sortable || !sortable(t)) return;
