@@ -8,7 +8,7 @@ const WB = path.join(__dirname, "fixture.xlsx");
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail++; console.log("  ✗ " + m); } };
 const vis = (p, sel) => p.evaluate(s => { const el = document.querySelector(s); return !!el && el.getClientRects().length > 0 && getComputedStyle(el).display !== "none"; }, sel);
-const shortcut = p => p.keyboard.press("Control+Alt+Shift+KeyA");
+const shortcut = p => p.dblclick("#app-version");   // v1.32.0: double-click the version label (top bar)
 
 async function boot(ctx, url) {
   const p = await ctx.newPage(); p._errs = []; p.on("pageerror", e => p._errs.push(e.message));
@@ -40,7 +40,7 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
     await p.evaluate(() => QBR.adminSetFlag("security", false)); await p.waitForTimeout(150);
     ok(await p.evaluate(() => APP.activeTab !== "dash-risky"), "disabling the active page's module moves to a visible page");
     await shortcut(p); await p.waitForTimeout(150);
-    ok(!(await vis(p, ".sb-group.sb-admin")), "Ctrl+Shift+A again hides the Admin section");
+    ok(!(await vis(p, ".sb-group.sb-admin")), "double-clicking the version label again hides the Admin section");
     await p.reload(); await p.waitForTimeout(400); await load(p);
     ok(!(await vis(p, '[data-module="inventory"]')) && !(await vis(p, '[data-module="security"]')), "flags persist after reload");
     await shortcut(p); await p.waitForTimeout(200);
@@ -50,16 +50,19 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
     await shortcut(p); await p.waitForTimeout(200); await p.fill("#admin-pw-1", "s3cret"); await p.keyboard.press("Enter"); await p.waitForTimeout(300);
     ok(await vis(p, ".sb-group.sb-admin"), "right password (Enter) → Admin shown");
     await shortcut(p); await p.waitForTimeout(150);
-    ok(!(await vis(p, ".sb-group.sb-admin")), "Ctrl+Alt+Shift+A hides it again");
-    await p.keyboard.press("Control+Shift+KeyA"); await p.waitForTimeout(150);
-    ok(!(await p.$(".admin-pw-overlay")), "Ctrl+Shift+A (browser tab search) no longer triggers the panel");
+    ok(!(await vis(p, ".sb-group.sb-admin")), "double-click hides it again");
+    for (const k of ["Control+Shift+KeyA", "Control+Alt+Shift+KeyA"]) await p.keyboard.press(k);
     await p.evaluate(() => { if (document.activeElement) document.activeElement.blur(); }); await p.keyboard.type("rctadmin"); await p.waitForTimeout(200);
-    ok(await p.$$eval(".admin-pw-overlay input", x => x.length) === 1, "typing 'rctadmin' outside a text box opens the password prompt");
+    ok(!(await p.$(".admin-pw-overlay")), "keyboard shortcuts / typed word no longer open the panel");
+    // collapsed sidebar (rail, default < 1400 px): the sidebar label is hidden, the top-bar label still works
+    await p.evaluate(() => document.body.classList.add("sb-rail")); await p.waitForTimeout(100);
+    await shortcut(p); await p.waitForTimeout(200);
+    ok(await p.$$eval(".admin-pw-overlay input", x => x.length) === 1, "with the sidebar collapsed, double-clicking the top-bar version opens the prompt");
     await p.fill("#admin-pw-1", "s3cret"); await p.keyboard.press("Enter"); await p.waitForTimeout(300);
     ok(await vis(p, ".sb-group.sb-admin"), "…and the right password shows Admin");
-    await p.evaluate(() => { const i = document.createElement("input"); i.id = "tmp-in"; document.body.appendChild(i); });
-    await shortcut(p); await p.waitForTimeout(150); await p.focus("#tmp-in"); await p.keyboard.type("rctadmin"); await p.waitForTimeout(200);
-    ok(!(await p.$(".admin-pw-overlay")), "typing 'rctadmin' inside a text box does nothing");
+    await p.evaluate(() => document.body.classList.remove("sb-rail")); await p.waitForTimeout(100);
+    await p.dblclick(".sb-ver"); await p.waitForTimeout(150);
+    ok(!(await vis(p, ".sb-group.sb-admin")), "the sidebar-footer version label works too (expanded sidebar)");
     await shortcut(p); await p.waitForTimeout(200); await p.fill("#admin-pw-1", "s3cret"); await p.keyboard.press("Enter"); await p.waitForTimeout(300);
     await p.click("#admin-reset"); await p.waitForTimeout(150);
     ok(await vis(p, '[data-module="inventory"]') && await vis(p, '[data-module="security"]'), "Reset to defaults turns every module back on");

@@ -6,9 +6,26 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-09 — v1.32.0 [BETA] SOC investigation, Bulk user generator, Script library, Scan "Save all"
+  - NEW Security & identity › Risky investigation: load the Entra risky-users + sign-in exports (plus
+    optional sources), Analyze, and get the full SOC report (charts, per-user timelines). Export is named
+    <TENANT>_<MON>_SOC_RiskyInvestigation_<time>.xlsx; "Import past investigation" rebuilds a report from
+    an earlier export. Works offline (nothing is downloaded from the internet).
+  - NEW User management › Bulk generator: the M365 bulk user wizard (Excel or manual entry → domain,
+    password, email/display-name formats → map columns → process → classify Faculty/Student → export).
+    Files are named <TENANT>_<MON>_O365_Users_Export.csv and <TENANT>_<MON>_Skipped_Rows_Audit.csv.
+  - Guided audit › Storage and Usage steps: "Copy Storage/Usage Extraction Script" and "Copy Tenant ID".
+    Load GranularAdministerRelationship.csv with your workbooks and the tenant ID is filled into the
+    script for the school (falls back to the tracker's GDAP column). "Manage scripts" keeps your own
+    scripts in this browser (add / edit / export / import). The dashboard never runs PowerShell itself.
+  - Scan › "Save all images" downloads every scanned photo named after its serial (duplicates get -2,
+    -3); duplicate serials now say "Duplicate of row #N".
+  - Source pills (top bar) explain which file/sheet each one needs and whether it's required.
+  - Admin panel now opens by DOUBLE-CLICKING the version label ("v1.21.0" in the top bar, or in the
+    sidebar footer). The keyboard shortcuts were removed.
+
 UPDATE — 2026-10-06 — v1.31.0 [BETA] Admin panel (feature flags + appearance) + "Beta version" label
-  - Hidden Admin panel: press Ctrl+Alt+Shift+A, or just type the word  rctadmin  while not in a
-    text box (Ctrl+Shift+A is already used by Chrome/Edge). The first time, you set an admin password (typed in
+  - Hidden Admin panel (opened by double-clicking the version label since v1.32.0). The first time, you set an admin password (typed in
     a masked box; only a hash is kept in this browser). After that the password is asked each time.
   - Admin › Feature flags: switch whole sections of the menu on or off (Security & identity, Tenant
     health, Adoption & capacity, Domains & email, Reporting, Inventory, Audit, Data). Hidden

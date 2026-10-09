@@ -1,9 +1,9 @@
 /* ============================================================================
  * RCT OpsDesk — Discreet Admin Panel: per-module feature flags (js/admin.js)
- * v1.31.0 (2026-10-06)
+ * v1.32.0 (2026-10-09)
  *
- * Hidden by default. Press Ctrl+Alt+Shift+A (or type "rctadmin" outside a text box) to reveal
- * the Admin sidebar section. (Ctrl+Shift+A from the patch is taken by Chrome/Edge tab search.)
+ * Hidden by default. Double-click the version label ("v1.21.0" in the top bar or the sidebar
+ * footer) to reveal the Admin section (v1.32.0; keyboard shortcuts removed at the user's request).
  * Optional password gate: first use prompts to set one; only the SHA-256
  * hash is stored (localStorage "qbr-admin-pw"). Deterrent against casual
  * snoopers — not real security (client-side, bypassable via devtools).
@@ -273,7 +273,7 @@
       `<div class="audit-actions"><button type="button" class="btn btn-sm btn-outline-secondary" id="admin-reset">Reset to defaults</button> ` +
       `<button type="button" class="btn btn-sm btn-outline-secondary" id="admin-pw">Change password</button></div></div>` +
       `<div class="admin-list">${rows}</div>` +
-      `<div class="small text-muted mt-2">Stored in this browser only. Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> again (or type <kbd>rctadmin</kbd>) to hide this panel.</div>`;
+      `<div class="small text-muted mt-2">Stored in this browser only. Double-click the version label again to hide this panel.</div>`;
 
     host.querySelectorAll("[data-admin-toggle]").forEach(b =>
       b.addEventListener("click", () => {
@@ -353,23 +353,19 @@
 
   QBR.renderAdmin = renderAdminPanel;
 
-  // Admin shortcut. Ctrl+Shift+A is taken by Chrome/Edge (tab search), so:
-  //  - Ctrl+Alt+Shift+A — matched on e.code (KeyA) because Alt changes e.key on some layouts;
-  //  - or type the word "rctadmin" anywhere outside a text box (works on any keyboard/browser).
-  const SEQ = "rctadmin"; let typed = "";
-  function inField(t) { return !!(t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))); }
-  QBR.adminShortcutHit = function (e) {
-    if (e.ctrlKey && e.altKey && e.shiftKey && !e.metaKey && (e.code === "KeyA" || /^a$/i.test(e.key))) return true;
-    if (e.ctrlKey || e.altKey || e.metaKey || inField(e.target) || !e.key || e.key.length !== 1) { if (!e.shiftKey) typed = ""; return false; }
-    typed = (typed + e.key.toLowerCase()).slice(-SEQ.length);
-    if (typed === SEQ) { typed = ""; return true; }
-    return false;
+  // Admin trigger (v1.32.0, user's choice): DOUBLE-CLICK the version label only.
+  // Two copies of the label exist: the sidebar footer (".sb-ver", hidden while the sidebar
+  // is collapsed to a rail — the default below 1400 px) and the top bar ("#app-version",
+  // always visible). Either one opens the password prompt. No keyboard shortcut.
+  QBR.adminTriggerHit = function (target) {
+    return !!(target && target.closest && target.closest(".sb-ver, #app-version"));
   };
   // Password gate, then toggle the Admin section.
-  async function onKey(e) {
+  async function onTrigger(e) {
     try {
-      if (QBR.adminShortcutHit(e)) {
+      if (QBR.adminTriggerHit(e.target)) {
         e.preventDefault();
+        try { const sel = window.getSelection && window.getSelection(); if (sel) sel.removeAllRanges(); } catch (x) {}
         const showing = document.body.classList.contains("show-admin");
         if (showing) {
           document.body.classList.remove("show-admin");
@@ -394,7 +390,7 @@
   }
 
   function init() {
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("dblclick", onTrigger);
     // Apply flags + appearance on load.
     const apply = () => { QBR.adminApplyFlags(); QBR.adminThemeApply(); };
     if (document.readyState === "complete" || document.readyState === "interactive") apply();

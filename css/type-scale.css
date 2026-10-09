@@ -157,3 +157,105 @@
 :root[data-qbr-fs] .identity-note{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .qbr-journal-alert{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] .jp-item{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc{font-size:calc(15px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .brand-text .title{font-size:calc(15px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-soc .brand-text .sub{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .bar-meta{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .reset-btn{font-size:calc(10px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .ingest-label{font-size:calc(10.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .ingest-title{font-size:calc(20px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-soc .drop-text{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .drop-sub{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .file-pill{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .kpi-value{font-size:calc(26px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-soc .kpi-label{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .kpi-desc{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .iq-title{font-size:calc(13px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-soc .iq-sub{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .iq-table{font-size:calc(12.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .iq-table thead th{font-size:calc(10.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .iq-upn{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .iq-score{font-size:calc(14px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .iq-latest{font-size:calc(11.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .iq-partial{font-size:calc(9.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .pri,:root[data-qbr-fs] #dash-soc .tier{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .cx-title{font-size:calc(12px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-soc .cx-empty,:root[data-qbr-fs] #dash-soc .cx-note{font-size:calc(11.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .cx-table{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .cx-table th{font-size:calc(10.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .mitre-note,:root[data-qbr-fs] #dash-soc .ioc-note{font-size:calc(11.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .mitre-id{font-size:calc(15px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .mitre-name{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .mitre-tactic{font-size:calc(10.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .mitre-stats{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .mitre-desc{font-size:calc(11.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .mitre-tag{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .ioc-search input{font-size:calc(12.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .analyze-status{font-size:calc(12.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .analyze-btn{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .sec-num{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .sec-title{font-size:calc(24px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-soc .bg-tag{font-size:calc(9.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .bg-note{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .rt-btn{font-size:calc(11.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .rt-hint{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .summary-text{font-size:calc(15px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .summary-text::before{font-size:calc(9px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .verdict-card .v-label{font-size:calc(10px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .verdict-card .v-value{font-size:calc(30px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-soc .verdict-card .v-value .unit{font-size:calc(13px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-soc .verdict-card .v-tag{font-size:calc(9px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc table.inv{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc table.inv thead th{font-size:calc(10px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc table.inv tbody td{font-size:calc(12.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .name-cell .full{font-size:calc(14px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .name-cell .email{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .badge{font-size:calc(10px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .assessment{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .user-index{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .user-id .nm{font-size:calc(16px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .user-id .em{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .user-section-label{font-size:calc(10.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .auth-default{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .auth-default .lbl{font-size:calc(10px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .auth-chip{font-size:calc(10.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .posture-tier{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .posture-mini{font-size:calc(10px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .auth-dist-card .dist-lbl{font-size:calc(10px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .auth-dist-card .dist-val{font-size:calc(22px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-soc .auth-dist-card .dist-val .unit{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .auth-dist-bar > div{font-size:calc(10.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .auth-dist-legend{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .narrative{font-size:calc(14px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .tl-event{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .tl-event .meta{font-size:calc(11.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .tl-more{font-size:calc(10px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .ano-item .lbl{font-size:calc(9.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .ano-item .val{font-size:calc(12.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc table.detlog{font-size:calc(11.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc table.detlog thead th{font-size:calc(9.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc table.detlog .risk-state{font-size:calc(10px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc table.detlog .reason{font-size:calc(10.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc table.ipreg{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc table.ipreg thead th{font-size:calc(9.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc table.ipreg .users{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .conclusion{font-size:calc(15px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .rec-item .rec-num{font-size:calc(10px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .rec-item .rec-title{font-size:calc(15px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-soc .rec-item .rec-desc{font-size:calc(13.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc footer{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .toast{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .empty-state{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .soc-filemeta label{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .soc-code-input{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #um-generator .sub{font-size:calc(14px * var(--fs-t,1))}
+:root[data-qbr-fs] #um-generator .card h2{font-size:calc(16px * var(--fs-h,1))}
+:root[data-qbr-fs] #um-generator label{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #um-generator input,:root[data-qbr-fs] #um-generator select{font-size:calc(14px * var(--fs-t,1))}
+:root[data-qbr-fs] #um-generator button{font-size:calc(14px * var(--fs-t,1))}
+:root[data-qbr-fs] #um-generator .status{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] #um-generator table{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #um-generator .stat .n{font-size:calc(20px * var(--fs-h,1))}
+:root[data-qbr-fs] #um-generator .stat .l{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #um-generator .errors-box{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .um-subtab{font-size:calc(13px * var(--fs-t,1))}

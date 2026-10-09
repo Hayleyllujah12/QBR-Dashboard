@@ -451,6 +451,7 @@ function renderScan() {
       <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
         <button type="button" class="btn btn-sm btn-primary" id="scan-all" ${ui.rows.some(r => r.status !== "done" && r.dataUrl) && !ui.processing ? "" : "disabled"}>Scan all</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" id="scan-clear" ${ui.rows.length ? "" : "disabled"}>Clear</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="scan-save-all" title="Download every scanned photo, named after its serial number"${ui.rows.some(r => r.status === "done" && (r.serial || "").trim()) ? "" : " disabled"}>Save all images</button>
         <span class="small text-muted" id="scan-count">${ui.rows.length} image${ui.rows.length === 1 ? "" : "s"}</span>
       </div></div>
     <div class="card-box mt-3"><div class="d-flex flex-wrap align-items-center gap-2 mb-2">
@@ -496,7 +497,7 @@ function scanRowStatus(row) {
   const dup = row.dup === "inventory"
     ? ` <span class="badge bg-warning text-dark" title="This serial is already in the inventory database">⚠ In inventory</span>`
     : row.dup === "queue"
-    ? ` <span class="badge bg-warning text-dark" title="This serial appears more than once in this scan batch">⚠ Duplicate</span>`
+    ? ` <span class="badge bg-warning text-dark" title="This serial appears more than once in this scan batch${row.dupOf ? " — first seen in row #" + scanRowNum(row.dupOf) : ""}">⚠ Duplicate${row.dupOf ? " of row #" + scanRowNum(row.dupOf) : ""}</span>`
     : "";
   return `<span class="status ${cls}">${lbl}</span>${dup}`;
 }
@@ -529,6 +530,8 @@ function scanRenderRows() {
   const sa = $("scan-all"), sc = $("scan-clear"), cn = $("scan-count"), em = $("scan-empty");
   if (sa) sa.disabled = ui.processing || !ui.rows.some(r => r.status !== "done" && r.dataUrl);
   if (sc) sc.disabled = !ui.rows.length;
+  const ss = $("scan-save-all");
+  if (ss) ss.disabled = !ui.rows.some(r => r.status === "done" && (r.serial || "").trim());
   if (cn) cn.textContent = ui.rows.length + " image" + (ui.rows.length === 1 ? "" : "s");
   if (em) em.hidden = !!ui.rows.length;
   scanRefreshBatchUI();
@@ -553,6 +556,8 @@ function scanBind(host) {
   });
   const sc = $("scan-clear");
   if (sc) sc.addEventListener("click", () => { ui.rows = []; ui.nextId = 1; renderScan(); });
+  const ss = $("scan-save-all");
+  if (ss) ss.addEventListener("click", scanDownloadAll);
   const tc = $("scan-target-cancel");
   if (tc) tc.addEventListener("click", () => { ui.target = null; renderScan(); });
 
@@ -660,11 +665,15 @@ function scanFlagDuplicates() {
   const ui = QBR._scanUI;
   const seen = new Map();
   ui.rows.forEach(r => {
-    r.dup = null;
+    r.dup = null; r.dupOf = null;
     const sn = (r.serial || "").trim().toUpperCase();
     if (!sn || r.status === "pending" || r.status === "processing") return;
     if (scanFindAsset(sn)) { r.dup = "inventory"; return; }
-    if (seen.has(sn)) { r.dup = "queue"; seen.get(sn).dup = "queue"; }
+    if (seen.has(sn)) {
+      const first = seen.get(sn);
+      r.dup = "queue"; r.dupOf = first.id; // validate: duplicate of this row
+      first.dup = "queue"; // original keeps dupOf = null
+    }
     else seen.set(sn, r);
   });
 }
@@ -723,7 +732,7 @@ async function scanRowScan(id) {
     row.dupAck = false;
     scanFlagDuplicates();
     const dupMsg = row.dup === "inventory" ? " — already in inventory!" :
-                   row.dup === "queue" ? " — duplicate in this batch!" : "";
+                   row.dup === "queue" ? " — duplicate of row #" + scanRowNum(row.dupOf) + " in this batch!" : "";
     scanToast(row.serial ? `Extracted serial ${row.serial}${dupMsg}` : "Scan done — no serial found, edit the row manually.");
   } catch (e) {
     row.status = "error";
@@ -739,6 +748,38 @@ async function scanRowScan(id) {
   } else if (ui.target) {
     renderScan(); // keep target bar visible so the user can try another photo
   }
+}
+
+/* 1-based display position of a row (what Pedro sees in the table). */
+function scanRowNum(id) {
+  const i = (QBR._scanUI.rows || []).findIndex(r => r.id === id);
+  return i < 0 ? "?" : String(i + 1);
+}
+
+/* Bulk save: download every scanned photo, one file each, named after its
+ * detected serial number (<SERIAL>.jpg). Rows without a serial are skipped.
+ * Duplicate serials get -2, -3 suffixes so no file overwrites another. */
+function scanDownloadAll() {
+  const ui = QBR._scanUI;
+  const rows = ui.rows.filter(r => r.status === "done" && r.dataUrl && (r.serial || "").trim());
+  if (!rows.length) { scanToast("Nothing to save — no scanned rows with a serial number."); return; }
+  const used = {};
+  rows.forEach((r, i) => {
+    const m = /^data:image\/(\w+)/.exec(r.dataUrl || "");
+    const ext = m ? (m[1].toLowerCase() === "jpeg" ? "jpg" : m[1].toLowerCase()) : "jpg";
+    const base = r.serial.trim().toUpperCase().replace(/[<>:"/\\|?*]/g, "_");
+    let name = base, n = 1;
+    while (used[name]) { n++; name = base + "-" + n; }
+    used[name] = true;
+    const fname = name + "." + ext;
+    setTimeout(() => {
+      const a = document.createElement("a");
+      a.href = r.dataUrl;
+      a.download = fname;
+      document.body.appendChild(a); a.click(); a.remove();
+    }, i * 350); // stagger: keeps the browser from blocking the burst
+  });
+  scanToast("Saving " + rows.length + " image" + (rows.length === 1 ? "" : "s") + " — allow multiple downloads if your browser asks.");
 }
 
 function scanDownload(id) {
