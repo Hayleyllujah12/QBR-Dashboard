@@ -6,6 +6,25 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-09 — v1.33.0 [BETA] "Open folder": allow editing ONCE for all your workbooks
+  - NEW "📁 Open folder…" (welcome page, top bar "Folder", and the Workbooks list). Pick the folder
+    that holds your workbooks — subfolders are searched too (3 levels). Tick the workbooks to load
+    (last time's choice is remembered) and click "Load & link". They load AND get Direct save /
+    ↻ reload-from-file in one go, with ONE "Allow editing" for the folder instead of re-picking and
+    approving every file.
+  - Why it was one-by-one before: a normal Upload only gives the browser a copy of each file, never
+    where it lives, so each Direct-save tick had to ask for the file again. That stays true for Upload;
+    Open folder is the way around it.
+  - Next time you open the dashboard the browser forgets the permission (browser rule). The first
+    Save or ↻ asks ONCE for the folder and that covers every linked workbook in it (or click
+    "🔓 Reconnect folder"). On the beta site choose "Allow on every visit" and it stops asking.
+  - "↻ Reload all" re-reads every folder-linked workbook (picks up edits made in Excel); a workbook
+    with unsaved dashboard edits is skipped until you save it.
+  - Two files with the same name in different subfolders: only one can be loaded — the newest is
+    ticked. Excel lock files (~$…) and hidden folders are ignored. Chrome / Edge only.
+  - Workbooks with no sheets the dashboard edits (e.g. the tracker) are linked for ↻ reload only;
+    nothing is ever written to them.
+
 UPDATE — 2026-10-09 — v1.32.0 [BETA] SOC investigation, Bulk user generator, Script library, Scan "Save all"
   - NEW Security & identity › Risky investigation: load the Entra risky-users + sign-in exports (plus
     optional sources), Analyze, and get the full SOC report (charts, per-user timelines). Export is named

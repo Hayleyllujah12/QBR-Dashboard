@@ -115,6 +115,7 @@ function fsLinksSave() {
   const slim = QBR._fsLinks.map(l => ({
     fp: l.fp, kinds: l.kinds, name: l.name,
     size: l.size, lastModified: l.lastModified, hash: l.hash, handle: l.handle,
+    dirId: l.dirId || null, rel: l.rel || null,   // v1.33.0: opened through a linked folder (js/fsfolder.js)
   }));
   return persistIdbPut(FS_LINKS_KEY, slim).catch(e => console.warn("[QBR] link store failed:", e && e.message));
 }
@@ -125,7 +126,17 @@ QBR.fsGetLink = function (kind) {
 async function fsEnsurePermission(handle) {
   try {
     let p = await handle.queryPermission({ mode: "readwrite" });
-    if (p !== "granted") p = await handle.requestPermission({ mode: "readwrite" });
+    if (p === "granted") return true;
+    // v1.33.0: a file opened through "Open folder" → re-grant the FOLDER once;
+    // that covers every linked workbook in it (no prompt per file).
+    if (typeof QBR.fsFolderGrantFor === "function") {
+      const h2 = await QBR.fsFolderGrantFor(handle);
+      if (h2 === false) return false;
+      if (h2) {
+        try { if ((await h2.queryPermission({ mode: "readwrite" })) === "granted") return true; } catch (e) {}
+      }
+    }
+    p = await handle.requestPermission({ mode: "readwrite" });
     return p === "granted";
   } catch (e) { return false; }
 }
@@ -209,6 +220,7 @@ QBR.fsUnlink = async function (name, skipConfirm) {
   if (!skipConfirm && !confirm(`Stop direct saving to "${name}"? (The dashboard keeps working; Export download still available.)`)) return;
   QBR._fsLinks = (QBR._fsLinks || []).filter(l => l.name !== name);
   await fsLinksSave();
+  try { if (QBR.fsFolderPrune) QBR.fsFolderPrune(); } catch (e) {}
   QBR.fsRefreshStatus();
   if (typeof renderAll === "function") { try { renderAll(); } catch (e) {} }
 };
@@ -219,6 +231,12 @@ QBR.fsRefreshStatus = function () {
     const el = document.getElementById("fs-link-status");
     if (!el) return;
     const links = QBR._fsLinks || [];
+    // v1.33.0: an opened folder links every workbook — one summary badge instead of a header full of them
+    if (links.length > 2) {
+      const names = links.map(l => "• " + l.name).join("\n");
+      el.innerHTML = `<span class="badge bg-success" title="Direct save / reload linked:\n${names.replace(/"/g, "&quot;").replace(/</g, "&lt;")}\n\nOpen the Loaded list to unlink one">🔗 ${links.length} linked</span>`;
+      return;
+    }
     el.innerHTML = links.map(l =>
       `<span class="badge bg-success" title="Direct save enabled — click to unlink">🔗 ${String(l.name).replace(/</g, "&lt;")}</span>`
     ).join(" ");
