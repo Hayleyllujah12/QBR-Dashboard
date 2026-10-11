@@ -148,6 +148,7 @@
       <div class="sb-group" role="group" aria-labelledby="sbg-todo" data-module="todo">
         <div class="sb-gh" id="sbg-todo">My work</div>
         <button class="tab-btn sb-item" type="button" data-tab="dash-todo" data-group="My work"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-task"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-task-f"/></svg><span class="sb-label">My To-Do</span></button>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-gtickets" data-group="My work"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-task"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-task-f"/></svg><span class="sb-label">General tickets</span></button>
       </div>
       <div class="sb-group" role="group" aria-labelledby="sbg-audit" data-module="audit">
         <div class="sb-gh" id="sbg-audit">Audit</div>
@@ -687,6 +688,8 @@
     </section>
     <section id="dash-todo" class="dash-panel d-none">
     </section>
+    <section id="dash-gtickets" class="dash-panel d-none">
+    </section>
     <!-- AUDIT (risky sign-ins workbook editor; v1.26.0) -->
         <!-- SOC RISKY INVESTIGATION (ported v12.3 standalone; see js/soc.js) -->
     <section id="dash-soc" class="dash-panel d-none" data-deck="skip">
@@ -1124,6 +1127,7 @@
   <script src="js/scan.js"></script>
   <script src="js/users.js"></script>
   <script src="js/todo.js"></script>
+  <script src="js/gentickets.js"></script>
   <script src="js/identity.js"></script>  <!-- v1.31.0: Netlify Identity login on *.netlify.app only (loads its widget there; no-op offline/live) -->
   <script src="js/admin.js"></script>  <!-- v1.31.0: discreet admin panel (feature flags) -->
   <script src="js/app.js"></script>

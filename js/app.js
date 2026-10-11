@@ -2177,6 +2177,7 @@ function renderAll() {
   if (typeof renderAsset360Panel === "function") renderAsset360Panel();
   if (typeof renderScan === "function") renderScan();
   if (window.QBR && QBR.todo && typeof QBR.todo.render === "function") QBR.todo.render();
+  if (window.QBR && QBR.gtickets && typeof QBR.gtickets.render === "function") QBR.gtickets.render();
   if (typeof QBR.renderAudit === "function") QBR.renderAudit();
   if (typeof QBR.renderAdmin === "function") QBR.renderAdmin();
   if (APP.activeTab === "dash-fulldata") { if (APP.fd.applyFilters) APP.fd.page = 1; renderFullData(); }
