@@ -85,5 +85,26 @@ t("ana sees no tickets", eq(vm.runInContext("QBR.gtickets.list().length", sb), 0
 vm.runInContext('QBR.users.switch(QBR.users.list()[0].id)', sb);
 t("pedro keeps tickets", vm.runInContext("QBR.gtickets.list().length", sb) === 3);
 
+/* export: ticket notes are [{d,text}] and must not become "[object Object]" */
+sb.XLSX = { utils: { book_new: () => ({}), aoa_to_sheet: a => a, book_append_sheet: (wb, ws, n) => { wb[n] = ws; wb._last = wb; } }, writeFile: (wb) => { sb._wb = wb; } };
+const ex = vm.runInContext("QBR.users.exportWorkbook()", sb);
+t("export ok", ex.ok === true);
+const tixRows = sb._wb["My Tickets"];
+t("export notes not [object Object]", !JSON.stringify(tixRows).includes("object Object"));
+t("export notes contain text", JSON.stringify(tixRows).indexOf("called vendor") >= 0);
+
+/* views are told when user/data changes (so panels re-render) */
+let fired = 0;
+sb.CustomEvent = function (name) { this.type = name; };
+sb.dispatchEvent = e => { if (e.type === "qbr:userdata") fired++; return true; };
+vm.runInContext('QBR.users.register("Cy")', sb);
+t("register notifies views", fired >= 1);
+const f1 = fired;
+vm.runInContext("QBR.users.switch(QBR.users.list()[0].id)", sb);
+t("switch notifies views", fired > f1);
+const f2 = fired;
+vm.runInContext('QBR.gtickets.create({title:"Notify me"})', sb);
+t("saving data notifies views", fired > f2);
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

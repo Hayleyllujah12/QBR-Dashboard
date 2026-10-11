@@ -332,6 +332,20 @@
     });
   }
 
+  /* Re-render when the current user or their data changes (user switch,
+   * register) so this panel never shows another user's tickets. */
+  if (typeof window.addEventListener === "function") {
+    var _rerenderPending = false;
+    window.addEventListener("qbr:userdata", function () {
+      if (_rerenderPending) return;
+      _rerenderPending = true;
+      setTimeout(function () {
+        _rerenderPending = false;
+        try { render(); } catch (e) {}
+      }, 0);
+    });
+  }
+
   /* Public API */
   window.QBR = window.QBR || {};
   QBR.gtickets = {

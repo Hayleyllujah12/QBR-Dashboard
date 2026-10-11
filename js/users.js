@@ -75,6 +75,7 @@
     saveUsers(users);
     blankData(u.id);
     lsSet(LS_CURRENT, u.id);
+    notifyChange();
     return { ok: true, user: u };
   }
 
@@ -83,6 +84,7 @@
     if (!u) return false;
     blankData(id); // ensure namespace exists
     lsSet(LS_CURRENT, id);
+    notifyChange();
     return true;
   }
 
@@ -127,7 +129,27 @@
   function saveMyData(d) {
     var u = ensureUser();
     if (!u) return false;
-    return setData(u.id, d);
+    var ok = setData(u.id, d);
+    if (ok) notifyChange();
+    return ok;
+  }
+
+  /* Tell the views (My To-Do, General tickets) that the current user or their
+   * data changed so they re-render instead of showing a stale/other user's list. */
+  function notifyChange() {
+    try {
+      if (typeof window.dispatchEvent === "function" && typeof CustomEvent === "function") {
+        window.dispatchEvent(new CustomEvent("qbr:userdata"));
+      }
+    } catch (e) {}
+  }
+
+  /* Ticket notes are [{d, text}] (General tickets); older data may be a string. */
+  function ticketNotesText(n) {
+    if (Array.isArray(n)) {
+      return n.map(function (x) { return (x && x.d ? x.d + ": " : "") + (x && x.text != null ? x.text : x); }).join("\n");
+    }
+    return n || "";
   }
 
   /* Per-user workbook export: my todos + my tickets, filename from my name. */
@@ -150,7 +172,7 @@
     var grows = [gh];
     d.tickets.forEach(function (t) {
       grows.push([t.tno, t.title, t.requester || "", t.client || "", t.priority || "",
-        t.status || "Open", t.due || "", t.notes || ""]);
+        t.status || "Open", t.due || "", ticketNotesText(t.notes)]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(grows), "My Tickets");
 

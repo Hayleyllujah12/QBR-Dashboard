@@ -354,6 +354,20 @@
     });
   }
 
+  /* Re-render when the current user or their data changes (user switch,
+   * register, a general ticket added/closed) so the view is never stale. */
+  if (typeof window.addEventListener === "function") {
+    var _rerenderPending = false;
+    window.addEventListener("qbr:userdata", function () {
+      if (_rerenderPending) return;
+      _rerenderPending = true;
+      setTimeout(function () {
+        _rerenderPending = false;
+        try { render(); } catch (e) {}
+      }, 0);
+    });
+  }
+
   /* Public API */
   window.QBR = window.QBR || {};
   QBR.todo = {

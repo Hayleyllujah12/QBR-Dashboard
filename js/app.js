@@ -2236,6 +2236,8 @@ const TAB_FILTERS = {
   "dash-ticket360":  [],                          // single-ticket page; opened via #ticket/<tno> deep link
   "dash-scan":       [],                          // scan page; own upload UI, no shared filters
   "dash-audit":      [],                          // audit editor; own month picker inside the panel
+  "dash-todo":       [],                          // My To-Do: per-user, not scoped by the shared period/org/school filters
+  "dash-gtickets":   [],                          // General tickets: per-user queue, own table
   "dash-soc":        [],                          // v1.32.0 SOC investigation: standalone, own Tenant/Month inputs
   "dash-admin":      [],                          // v1.31.0 admin panel (feature flags, appearance)
 };
@@ -3090,6 +3092,9 @@ function initShell() {
     closeMsMenu(); syncMsDd();
     if (APP.activeTab === "dash-fulldata" && APP.model) renderFullData();
     if (APP.activeTab === "dash-soc" && window.QBR && QBR.socInit) QBR.socInit();
+    // Per-user panels: refresh on open so they reflect the current user and latest tickets.
+    if (APP.activeTab === "dash-todo" && window.QBR && QBR.todo) QBR.todo.render();
+    if (APP.activeTab === "dash-gtickets" && window.QBR && QBR.gtickets) QBR.gtickets.render();
   }));
 
   // User management sub-tabs: Readiness | Bulk generator (lazy-init the generator on first open)
