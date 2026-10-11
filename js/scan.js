@@ -49,7 +49,7 @@ QBR.SCAN_VERSION = "1.4.0";
 /* Adapted from the standalone extractor. Pure over strings — Node-testable. */
 
 function scanParseOCRText(text) {
-  const result = { serial: "", productKey: "", model: "" };
+  const result = { serial: "", productKey: "", model: "", mtm: "" };
   if (!text) return result;
 
   const pkPatterns = [
@@ -73,6 +73,17 @@ function scanParseOCRText(text) {
     if (!/^(NUMBER|SERIAL)$/i.test(v)) snHits.push(v);
   }
   result.serial = snHits.find(scanLooksLikeSerial) || snHits[0] || "";
+
+  /* MTM printed on the label: "(31P)MTM: 21M4S5VD00" (OCR reads it reliably even when the thin barcode
+   * above it doesn't decode). Exactly 10 chars, letters + digits; "(1S)MTM SN: …" is skipped because
+   * "SN" breaks the 10-char run. Fallback: the head of a printed MTM+SN run that ends with the serial. */
+  const mtmM = /MTM\s*[:.=]?\s*([A-Z0-9]{10})(?![A-Z0-9])/i.exec(text);
+  if (mtmM && scanLooksLikeMtm(mtmM[1])) result.mtm = mtmM[1].toUpperCase();
+  else if (result.serial) {
+    const runs = String(text).toUpperCase().match(/[A-Z0-9]{18,20}/g) || [];
+    const hit = runs.find(r => r.endsWith(result.serial.toUpperCase()) && scanLooksLikeMtm(r.slice(0, r.length - result.serial.length)));
+    if (hit) result.mtm = hit.slice(0, hit.length - result.serial.length);
+  }
 
   const brands = [
     "ThinkPad", "ThinkCentre", "ThinkStation", "IdeaPad", "Yoga", "Legion",
@@ -206,7 +217,7 @@ function scanMergeFindings(barcodes, parsed, ocrText) {
   let productKey = bcKey || (parsed && parsed.productKey) || "";
   const model = (parsed && parsed.model) || "";
   serial = serial.replace(/^S\/?N\s*[:=]?\s*/i, "").trim();
-  const mtm = scanPickMtm(barcodes, serial);
+  const mtm = scanPickMtm(barcodes, serial) || (parsed && parsed.mtm) || "";
   return { serial, productKey, model, mtm };
 }
 
@@ -288,8 +299,6 @@ async function scanZxingDetect(canvas) {
   };
   const rFull = reader(true, linear.concat([F.QR_CODE, F.DATA_MATRIX, F.PDF_417, F.AZTEC]));
   const rBand = reader(false, linear);
-  const sc = Math.min(1, 2000 / Math.max(canvas.width, canvas.height)); // detail matters; cap the cost
-  const full = sc < 1 ? scanCanvasFrom(canvas, canvas.width * sc, canvas.height * sc) : canvas;
   const out = [];
   const decode = (rd, c, bins) => {
     for (const Bin of bins) {
@@ -301,19 +310,28 @@ async function scanZxingDetect(canvas) {
       } catch (e) { /* NotFound / checksum — try the next binarizer or band */ }
     }
   };
-  decode(rFull, full, [Z.HybridBinarizer]);
-  const W = full.width, H = full.height;
-  const band = document.createElement("canvas"), bctx = band.getContext("2d", { willReadFrequently: true });
-  [7, 12].forEach(n => {
-    const bh = Math.ceil(H / n);
-    for (let y = 0; y < H; y += Math.ceil(bh / 2)) {
-      const h = Math.min(bh, H - y);
-      if (h < 16) continue;
-      band.width = W; band.height = h;
-      bctx.drawImage(full, 0, y, W, h, 0, 0, W, h);
-      decode(rBand, band, [Z.GlobalHistogramBinarizer, Z.HybridBinarizer]);
-    }
-  });
+  const pass = cap => {
+    const sc = Math.min(1, cap / Math.max(canvas.width, canvas.height));
+    const full = sc < 1 ? scanCanvasFrom(canvas, canvas.width * sc, canvas.height * sc) : canvas;
+    decode(rFull, full, [Z.HybridBinarizer]);
+    const W = full.width, H = full.height;
+    const band = document.createElement("canvas"), bctx = band.getContext("2d", { willReadFrequently: true });
+    [7, 12].forEach(n => {
+      const bh = Math.ceil(H / n);
+      for (let y = 0; y < H; y += Math.ceil(bh / 2)) {
+        const h = Math.min(bh, H - y);
+        if (h < 16) continue;
+        band.width = W; band.height = h;
+        bctx.drawImage(full, 0, y, W, h, 0, 0, W, h);
+        decode(rBand, band, [Z.GlobalHistogramBinarizer, Z.HybridBinarizer]);
+      }
+    });
+  };
+  /* 2026-10-11: a 12 MP phone photo shrunk to 2000 px leaves the dense Code 128 rows ((S) SN, (31P) MTM,
+   * (1S) MTM+SN) under 1 px per bar, so only the big UPC decoded. When no MTM barcode was found,
+   * retry once at up to 4096 px (bars stay readable; ~2-4x the time, only for those photos). */
+  pass(2000);
+  if (!scanPickMtm(out, "") && Math.max(canvas.width, canvas.height) > 2000) pass(4096);
   return out;
 }
 

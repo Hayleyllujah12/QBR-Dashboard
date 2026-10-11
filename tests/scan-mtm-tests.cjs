@@ -68,5 +68,13 @@ t("serial-length value prefixing a longer code is not an MTM", eq(run(`scanPickM
 const m3 = run(`scanMergeFindings(${JSON.stringify(["1S" + ONE_S])}, null, "")`);
 t("1S-prefixed only: mtm from head", eq(m3.mtm, MTM));
 
+// OCR fallback (2026-10-11 field report: only the UPC barcode decoded, MTM stayed empty)
+const OCR = "ThinkPad E14 Gen 6\n(S)SN: PF62SDPW\n31P)MTM: 21M4S5VD00\n(1S)MTM SN:\n21M4S5VD00PF62SDPW\nUPC: 199271075067";
+t("OCR: MTM read from the printed (31P)MTM line", eq(run(`scanParseOCRText(${JSON.stringify(OCR)}).mtm`), MTM));
+t("OCR: '(1S)MTM SN' line alone gives the head before the serial", eq(run(`scanParseOCRText(${JSON.stringify("(S)SN: PF62SDPW\n(1S)MTM SN: 21M4S5VD00PF62SDPW")}).mtm`), MTM));
+const m4 = run(`scanMergeFindings(["199271075067"], scanParseOCRText(${JSON.stringify(OCR)}), ${JSON.stringify(OCR)})`);
+t("UPC-only barcodes + OCR: serial and MTM both filled", eq(m4.serial, SN) && eq(m4.mtm, MTM));
+t("barcode MTM wins over OCR", eq(run(`scanMergeFindings(["31P21M4S5VD99"], scanParseOCRText(${JSON.stringify(OCR)}), "").mtm`), "21M4S5VD99"));
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

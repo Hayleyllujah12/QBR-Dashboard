@@ -11,6 +11,9 @@ UPDATE — 2026-10-11 — v1.34.0 [BETA] patch: MTM from Lenovo labels + tenant 
     from the front of the (1S) barcode, and shown in a new MTM column next to the serial. You can
     type or correct it in the table or in the photo view. It is carried into "Tag batch" (new MTM
     column in the review) and into the Register assets form.
+    If the thin barcodes can't be read, the MTM is taken from the printed "(31P)MTM:" text instead.
+    Large phone photos are re-checked at full detail when the first pass finds no MTM barcode
+    (a few seconds longer for those photos). Tip: fill the frame with the label.
   - Inventory: Register assets has an MTM box; Asset 360 shows the MTM; Export adds an MTM column
     after Model; Save to Excel adds an "MTM" column at the end of 02 DEVICES the first time a unit
     with an MTM is saved (no existing column moves). MTM is kept separate from Model.
