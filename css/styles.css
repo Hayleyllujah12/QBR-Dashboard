@@ -945,6 +945,15 @@ body.fs-folder-ok .dz-tip.fo-only{display:block !important}
 #admin-scripts-host .qbr-scripts-tags,#admin-scripts-host .qbr-scripts-desc,#admin-scripts-host .qbr-scripts-note{color:var(--muted)}
 #admin-scripts-host .qbr-scripts-gdap{border-top-color:var(--line)}
 #admin-scripts-host input,#admin-scripts-host textarea{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-sm,4px)}
+/* 2026-10-11: mirror the script library's own sizes (injected by js/scripts.js, same values) so
+   css/type-scale.css gets twins and Admin › Appearance text sizes reach this text too. */
+.qbr-scripts-desc,.qbr-scripts-form label,.qbr-scripts-form input,.qbr-scripts-form textarea{font-size:13px}
+.qbr-scripts-tags,.qbr-scripts-note{font-size:12px}
+.qbr-scripts-badge{font-size:11px}
+.qbr-scripts-toolbar input[type=search],.qbr-scripts-toast{font-size:14px}
+.qbr-scripts-note code{font-size:11px}
+.qbr-scripts-card h5{font-size:15px}
+.qbr-scripts-head h3{font-size:19px}
 #admin-scripts-host .qbr-scripts-badge.bi{background:var(--ok-bg);color:var(--ok-fg)}
 #admin-scripts-host .qbr-scripts-badge.cu{background:var(--brand-tint);color:var(--brand-fg)}
 @media print{.admin-scripts{display:none}}

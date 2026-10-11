@@ -148,6 +148,13 @@
 :root[data-qbr-fs] .audit-progress-sub{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .fo-toast{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] .merge-warn{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] .qbr-scripts-desc,:root[data-qbr-fs] .qbr-scripts-form label,:root[data-qbr-fs] .qbr-scripts-form input,:root[data-qbr-fs] .qbr-scripts-form textarea{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] .qbr-scripts-tags,:root[data-qbr-fs] .qbr-scripts-note{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .qbr-scripts-badge{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] .qbr-scripts-toolbar input[type=search],:root[data-qbr-fs] .qbr-scripts-toast{font-size:calc(14px * var(--fs-t,1))}
+:root[data-qbr-fs] .qbr-scripts-note code{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] .qbr-scripts-card h5{font-size:calc(15px * var(--fs-h,1))}
+:root[data-qbr-fs] .qbr-scripts-head h3{font-size:calc(19px * var(--fs-h,1))}
 :root[data-qbr-fs] .admin-row-label{font-size:calc(14px * var(--fs-t,1))}
 :root[data-qbr-fs] .admin-row-desc{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .admin-pw-title{font-size:calc(15px * var(--fs-h,1))}

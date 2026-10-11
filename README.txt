@@ -6,6 +6,14 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-11 — v1.34.0 [BETA] patch: bigger chart text (Admin › Appearance)
+  - NEW "Chart & graph text size" slider (90–200%): axis labels, legends and the numbers printed on
+    bars, slices and lines. Charts redraw when you let go of the slider. Exports and printing keep
+    the standard size.
+  - The two existing sliders are renamed so it's clear what they change: "Paragraph & body text
+    size" (paragraphs, tables, menus, tile labels) and "Heading & tile number size".
+  - The PowerShell script library's text (descriptions, tags, notes) now follows the paragraph size.
+
 UPDATE — 2026-10-11 — v1.34.0 [BETA] patch: MTM from Lenovo labels + tenant ID in any script
   - Scan: the MTM (Machine Type Model, e.g. 21M4S5VD00) is read from the label's (31P) barcode, or
     from the front of the (1S) barcode, and shown in a new MTM column next to the serial. You can
