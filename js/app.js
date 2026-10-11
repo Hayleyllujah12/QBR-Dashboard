@@ -2173,6 +2173,7 @@ function renderAll() {
   if (typeof renderAsset360Panel === "function") renderAsset360Panel();
   if (typeof renderScan === "function") renderScan();
   if (typeof QBR.renderAudit === "function") QBR.renderAudit();
+  if (typeof QBR.renderAdmin === "function") QBR.renderAdmin();
   if (APP.activeTab === "dash-fulldata") { if (APP.fd.applyFilters) APP.fd.page = 1; renderFullData(); }
   makeTablesResizable();
   updateNavBadges();
@@ -2229,6 +2230,8 @@ const TAB_FILTERS = {
   "dash-ticket360":  [],                          // single-ticket page; opened via #ticket/<tno> deep link
   "dash-scan":       [],                          // scan page; own upload UI, no shared filters
   "dash-audit":      [],                          // audit editor; own month picker inside the panel
+  "dash-soc":        [],                          // v1.32.0 SOC investigation: standalone, own Tenant/Month inputs
+  "dash-admin":      [],                          // v1.31.0 admin panel (feature flags, appearance)
 };
 const GLOBAL_FILTER_IDS = { quarter: "f-quarter-chips", month: "f-month", org: "f-org", school: "f-school" };
 
@@ -2375,15 +2378,18 @@ function renderFileList() {
   const host = $("loaded-files"); if (!host) return;
   const files = APP.files || [];
   if (!files.length) { host.innerHTML = ""; return; }
+  const foBar = (typeof QBR !== "undefined" && typeof QBR.fsFolderToolbarHtml === "function") ? QBR.fsFolderToolbarHtml() : "";
   host.innerHTML =
-    `<div class="loaded-files-head">Workbooks (${files.length})</div>` +
+    `<div class="loaded-files-head">Workbooks (${files.length})</div>` + foBar +
     files.map(it => {
       const k = escAttr(fileKey(it.name));
       const linked = (typeof QBR !== "undefined" && typeof QBR.fsIsLinkedByName === "function") ? QBR.fsIsLinkedByName(it.name) : false;
+      const lk = linked ? (QBR._fsLinks || []).filter(l => fileKey(l.name) === fileKey(it.name))[0] : null;
+      const viewOnly = !!(lk && !(lk.kinds || []).length); // v1.33.0: folder-linked, no editable sheets → ↻ reload only
       const canLink = (typeof QBR !== "undefined" && typeof QBR.fsSupported === "function") ? QBR.fsSupported() : false;
       const editBox = `<input type="checkbox" class="loaded-file-edit" data-fk="${k}" data-fname="${escAttr(it.name)}"` +
         (linked ? " checked" : "") + (canLink ? "" : " disabled") +
-        ` title="${canLink ? (linked ? "Direct save ON — uncheck to unlink" : "Check to enable direct save to this Excel file") : "Direct save needs Chrome or Edge"}" aria-label="Direct save">`;
+        ` title="${canLink ? (linked ? (viewOnly ? "Linked — ↻ reloads it from the file. It has no sheets the dashboard edits, so nothing is ever written to it. Uncheck to unlink" : "Direct save ON — uncheck to unlink") : "Check to enable direct save to this Excel file") : "Direct save needs Chrome or Edge"}" aria-label="Direct save">`;
       return `<div class="loaded-file">${editBox}<span class="loaded-file-name" title="${escAttr(it.name)}">${esc(it.name)}</span>` +
         `<button type="button" class="loaded-file-r" data-fk="${k}" title="${linked ? "Reload this workbook from the file (picks up edits made in Excel)" : "Refresh this workbook — re-pick the file to load its latest data"}">↻</button>` +
         `<button type="button" class="loaded-file-x" data-fk="${k}" title="Remove this workbook">×</button></div>`;
@@ -2421,6 +2427,38 @@ function refreshFileWith(targetKey, file) {
     .catch(err => { $("upload-status").textContent = "Error: " + err.message; });
 }
 
+// Expected-file metadata for the source pills: tooltip shows file/sheet, purpose,
+// and whether the guided audit needs it.
+const SOURCE_META = {
+  risky:      { file: "Sheet RISKY_USERS_AND_DOMAIN", use: "Audit \u00b7 risky sign-ins", needed: true },
+  security:   { file: "Sheet SECURITY_DATA", use: "Audit \u00b7 domain health", needed: true },
+  storage:    { file: "Sheet STORAGE_DATA", use: "Audit \u00b7 storage report", needed: true },
+  usage:      { file: "Sheet USAGE_REPORT", use: "Audit \u00b7 usage report", needed: true },
+  canva:      { file: "Sheet CANVA_STATUS", use: "Adoption & capacity", needed: false },
+  postmaster: { file: "Sheet GOOGLE_POSTMASTERTOOLS", use: "Domains & email", needed: false },
+  usermgmt:   { file: "USER_MANAGEMENT.xlsx (SY sheets)", use: "User management", needed: false },
+  domainreg:  { file: "DOMAIN_REGISTRATION_TRACKER.xlsx", use: "Domain registration", needed: false },
+};
+function gdapLinked() {
+  try { return !!(typeof QBR !== "undefined" && typeof QBR.gdapLoad === "function" && QBR.gdapLoad()); }
+  catch (e) { return false; }
+}
+function gdapChip() {
+  const on = gdapLinked();
+  return `<span class="badge bg-${on ? "success" : "secondary"}" data-gdap-chip style="cursor:pointer" ` +
+    `title="GranularAdministerRelationship.csv \u2014 tenant IDs for script pre-fill \u2014 optional (click to link)">gdap</span>`;
+}
+function wireGdapChip() {
+  const c = document.querySelector("[data-gdap-chip]");
+  if (c) c.addEventListener("click", () => { if (typeof QBR.scriptsOpen === "function") QBR.scriptsOpen(); });
+}
+// Refresh the gdap pill after linking/clearing the CSV in the Scripts overlay.
+QBR.refreshGdapChip = function () {
+  const c = document.querySelector("[data-gdap-chip]");
+  if (!c) return;
+  c.className = `badge bg-${gdapLinked() ? "success" : "secondary"}`;
+};
+
 // THE single processing path — identical for upload and restore.
 // Renders from APP.model (parsed) and APP.files (accumulated list), so both
 // must be set to their intended values BEFORE this is called.
@@ -2445,7 +2483,11 @@ function processBuffers(buffers, meta) {
   const s = APP.model.sources;
   const n = Object.values(s).filter(Boolean).length;
   const fc = (APP.files || []).length;
-  const chips = Object.entries(s).map(([k, v]) => `<span class="badge bg-${v ? "success" : "secondary"}">${k}</span>`).join("");
+  const chips = Object.entries(s).map(([k, v]) => {
+    const m = SOURCE_META[k] || {};
+    const tip = (m.file ? m.file + " \u2014 " : "") + (m.use || k) + " \u2014 " + (m.needed ? "needed" : "optional");
+    return `<span class="badge bg-${v ? "success" : "secondary"}" title="${escAttr(tip)}">${k}</span>`;
+  }).join("") + gdapChip();
   $("upload-status").innerHTML =
     `<button id="loaded-toggle" class="loaded-toggle" aria-expanded="false">Loaded: <b>${n}</b> source${n === 1 ? "" : "s"}` +
       `${fc ? ` · <b>${fc}</b> file${fc === 1 ? "" : "s"}` : ""} <span class="loaded-caret">▾</span></button>` +
@@ -2458,6 +2500,7 @@ function processBuffers(buffers, meta) {
     lt.setAttribute("aria-expanded", String(!open));
     lt.querySelector(".loaded-caret").textContent = open ? "▾" : "▴";
   });
+  wireGdapChip();
   renderFileList();
   updateSavedState(meta.savedAt || null);
   $("app-body").classList.remove("d-none");
@@ -2469,10 +2512,33 @@ function processBuffers(buffers, meta) {
 
 // Parse + render a full item set, committing APP.files only on a clean parse
 // (rolls back on failure so a bad file never wipes the loaded session).
+// If a loaded file is a GDAP mapping CSV (Name,Microsoft ID), store it for the
+// tenant-ID lookup and refresh the gdap pill — no separate overlay linking
+// needed. The CSV stays in the workbook list; it contributes no workbook sources.
+function detectGdapCsv(items) {
+  if (typeof QBR === "undefined" || typeof QBR.gdapParseCsv !== "function") return;
+  (items || []).forEach(it => {
+    if (!/\.csv$/i.test(it.name || "")) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const rows = QBR.gdapParseCsv(String(rd.result || ""));
+        if (rows && rows.length) {
+          QBR.gdapSave(rows);
+          if (typeof QBR.refreshGdapChip === "function") QBR.refreshGdapChip();
+        }
+      } catch (e) {}
+    };
+    try { rd.readAsText(it.blob); } catch (e) {}
+  });
+}
+
 function loadItems(items, meta) {
   const prev = APP.files || [];
   APP.files = items;
-  return Promise.all(items.map(it => readU8(it.blob, it.name))).then(buffers => {
+  // v1.30.0: wait for the journal's IndexedDB backup to merge before replaying (bounded wait).
+  const jReady = (typeof QBR !== "undefined" && QBR.journalReady) || Promise.resolve();
+  return Promise.all([Promise.all(items.map(it => readU8(it.blob, it.name))), jReady]).then(([buffers]) => {
     // Fingerprints let persist.js key journal entries to exact file bytes and
     // map each file to the inventory kinds it contributed.
     try {
@@ -2485,6 +2551,7 @@ function loadItems(items, meta) {
     try { if (typeof QBR !== "undefined" && QBR.fsRememberBase) QBR.fsRememberBase(items, buffers); } catch (e) {}
     const ok = processBuffers(buffers, meta || {});
     if (!ok) { APP.files = prev; return ok; }
+    try { detectGdapCsv(items); } catch (e) {}
     // Replay any journaled entries recorded against these exact files
     // (covers both fresh uploads and session restores after Ctrl+R).
     try {
@@ -3016,6 +3083,19 @@ function initShell() {
     applyFilterVisibility(btn.dataset.tab);
     closeMsMenu(); syncMsDd();
     if (APP.activeTab === "dash-fulldata" && APP.model) renderFullData();
+    if (APP.activeTab === "dash-soc" && window.QBR && QBR.socInit) QBR.socInit();
+  }));
+
+  // User management sub-tabs: Readiness | Bulk generator (lazy-init the generator on first open)
+  document.querySelectorAll(".um-subtab").forEach(btn => btn.addEventListener("click", () => {
+    document.querySelectorAll(".um-subtab").forEach(b => {
+      b.classList.remove("active"); b.setAttribute("aria-selected", "false");
+    });
+    btn.classList.add("active"); btn.setAttribute("aria-selected", "true");
+    const gen = btn.dataset.umtab === "generator";
+    $("um-readiness").classList.toggle("d-none", gen);
+    $("um-generator").classList.toggle("d-none", !gen);
+    if (gen && window.QBR && typeof QBR.usergenInit === "function") QBR.usergenInit();
   }));
 
   // Per-table "Show all" toggles (Option A)
