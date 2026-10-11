@@ -697,6 +697,10 @@ function updateNavBadges() {
       const n = inv.tickets.filter(t => !t.completed && !/completed|resolved|closed/i.test(String(t.status || ""))).length;
       return [n, n ? "warn" : "", n === 1 ? "open support ticket" : "open support tickets"];
     } catch (e) { return [0, "warn", ""]; } })(),
+    "dash-todo": (() => { try {
+      var n = (window.QBR && QBR.todo && typeof QBR.todo.badgeCount === "function") ? QBR.todo.badgeCount() : 0;
+      return [n, n ? "bad" : "", n === 1 ? "high-urgency or overdue task" : "high-urgency or overdue tasks"];
+    } catch (e) { return [0, "bad", ""]; } })(),
     "dash-storage": (() => { const c = storageCapacityList(); return [c.length, c.some(x => x.band.tone === "bad") ? "bad" : "warn", (c.length === 1 ? "tenant" : "tenants") + " at or above " + storWarn() + "% of storage capacity"]; })(),
   };
   document.querySelectorAll("#app-sidebar .sb-item[data-tab]").forEach(btn => {
@@ -2172,6 +2176,7 @@ function renderAll() {
   if (typeof renderInventory === "function") renderInventory();
   if (typeof renderAsset360Panel === "function") renderAsset360Panel();
   if (typeof renderScan === "function") renderScan();
+  if (window.QBR && QBR.todo && typeof QBR.todo.render === "function") QBR.todo.render();
   if (typeof QBR.renderAudit === "function") QBR.renderAudit();
   if (typeof QBR.renderAdmin === "function") QBR.renderAdmin();
   if (APP.activeTab === "dash-fulldata") { if (APP.fd.applyFilters) APP.fd.page = 1; renderFullData(); }
