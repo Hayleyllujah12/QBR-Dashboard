@@ -18,7 +18,7 @@
 (function () {
   "use strict";
 
-  QBR.AUDIT_VERSION = "1.29.0";
+  QBR.AUDIT_VERSION = "1.34.0";
   // Base used to resolve Excel-stored relative hyperlink targets (e.g.
   // "../../../../../../:x:/r/sites/..." -> "file:///C:/:x:/r/sites/..."). The
   // browser cannot see the workbook's local folder, so relative links are
@@ -964,9 +964,7 @@
     // Journaled (pending) edits, keyed by sheet|row|colKey.
     let pending = {};
     try {
-      const store = JSON.parse(localStorage.getItem("qbr-inv-journal-v1") || "{}");
-      const entry = store[a.fp];
-      (entry && entry.ops || []).forEach(o => {
+      (QBR.journalOpsFor ? QBR.journalOpsFor(a.fp) : []).forEach(o => {
         if (o && o.kind === "audit" && o.op === "auditUpdateCell" && o.args) {
           pending[o.args[1] + "|" + o.args[2] + "|" + o.args[3]] = o.args[4];
         }
@@ -1447,7 +1445,10 @@
       <h5>Storage report — ${escHtml(w.school)} (${escHtml(q)})</h5>
       <p class="text-muted small">Copy the 7 values from your PowerShell CSV row and paste below (tab- or comma-separated, headers optional).</p>
       <textarea class="form-control mb-2" id="wiz-paste3" rows="3" style="max-width:640px" placeholder="1.15 TB&#9;87.25 GB&#9;…">${escHtml(w.p3.text)}</textarea>
-      <div class="mb-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-wiz="parse3">Parse &amp; preview</button></div>
+      <div class="mb-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-wiz="parse3">Parse &amp; preview</button>
+      <button type="button" class="btn btn-sm btn-outline-primary ms-2" data-wiz="copyscript" data-script="storage">Copy Storage Extraction Script</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary ms-2" data-wiz="copytenant">Copy Tenant ID</button>
+      <span class="small text-muted ms-2" data-script-note></span></div>
       ${prev}
       ${w.p3.parsed && !w.p3.parsed.error ? wizNav(3, { save: true, saveLabel: "Save storage row" }) : wizNav(3, {})}
     </div>`;
@@ -1481,7 +1482,10 @@
       <h5>Usage report — ${escHtml(w.school)} (${escHtml(q)})</h5>
       <p class="text-muted small">Paste the 19 values (tab- or comma-separated, headers optional).</p>
       <textarea class="form-control mb-2" id="wiz-paste4" rows="3" style="max-width:640px" placeholder="5335&#9;2003&#9;…">${escHtml(w.p4.text)}</textarea>
-      <div class="mb-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-wiz="parse4">Parse &amp; preview</button></div>
+      <div class="mb-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-wiz="parse4">Parse &amp; preview</button>
+      <button type="button" class="btn btn-sm btn-outline-primary ms-2" data-wiz="copyscript" data-script="usage">Copy Usage Extraction Script</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary ms-2" data-wiz="copytenant">Copy Tenant ID</button>
+      <span class="small text-muted ms-2" data-script-note></span></div>
       ${prev}
       ${w.p4.parsed && !w.p4.parsed.error ? wizNav(4, { save: true, saveLabel: "Save usage row" }) : wizNav(4, {})}
     </div>`;
@@ -1574,6 +1578,68 @@
       w.p4.text = document.getElementById("wiz-paste4").value;
       w.p4.parsed = QBR.auditParseUsagePaste(w.p4.text);
       renderAudit();
+    }));
+    // Tenant lookup for the wizard copy buttons.
+    // Priority: linked GDAP CSV (explicit, Partner-Center fresh) -> the tracker's
+    // SECURITY_DATA GDAP column, which holds the tenant ID per school.
+    function wizardTenantFor(schoolName) {
+      let t = (typeof QBR.gdapLookup === "function") ? QBR.gdapLookup(schoolName) : null;
+      if (t && t.tenantId) return { tenant: t, src: "gdap" };
+      const tid = trackerTenantId(schoolName);
+      if (tid) return { tenant: { name: schoolName, tenantId: tid }, src: "tracker" };
+      return null;
+    }
+    // Find the school's tenant ID in the loaded tracker's SECURITY_DATA GDAP column.
+    function trackerTenantId(schoolName) {
+      try {
+        const sec = (typeof APP !== "undefined" && APP.model && APP.model.security) || [];
+        const q = String(schoolName || "").trim().toLowerCase();
+        if (!q || !sec.length) return null;
+        let hit = sec.find(r => String(r.schoolRaw || "").trim().toLowerCase() === q) || null;
+        if (!hit) {
+          const cands = sec.filter(r => {
+            const n = String(r.schoolRaw || "").trim().toLowerCase();
+            return n && (n.indexOf(q) >= 0 || q.indexOf(n) >= 0);
+          });
+          if (cands.length === 1) hit = cands[0];
+        }
+        const ids = (hit && hit.gdapIds) || [];
+        return ids.length ? ids[0] : null;
+      } catch (e) { return null; }
+    }
+    host.querySelectorAll('[data-wiz="copyscript"]').forEach(b => b.addEventListener("click", () => {
+      const scriptId = b.getAttribute("data-script");
+      const found = wizardTenantFor(w.school);
+      const tenant = found && found.tenant;
+      const r = (typeof QBR.scriptCopyText === "function") ? QBR.scriptCopyText(scriptId, tenant && tenant.tenantId) : null;
+      const note = b.parentElement.querySelector("[data-script-note]");
+      if (!r) { if (note) note.textContent = "Script library not loaded."; return; }
+      QBR.scriptCopyToClipboard(r.text).then(ok => {
+        if (!note) return;
+        if (!ok) { note.textContent = "Copy failed \u2014 open the Admin panel (double-click the version label) to copy from the script inventory."; return; }
+        if (r.prefilled) {
+          note.textContent = "Copied \u2014 tenant ID pre-filled for " + tenant.name +
+            " (" + (found.src === "tracker" ? "tracker" : "GDAP file") + ").";
+        } else {
+          note.textContent = "Copied \u2014 no tenant ID found for " + w.school +
+            " in the GDAP file or tracker; the script will prompt for it.";
+        }
+      });
+    }));
+    host.querySelectorAll('[data-wiz="copytenant"]').forEach(b => b.addEventListener("click", () => {
+      const found = wizardTenantFor(w.school);
+      const tenant = found && found.tenant;
+      const note = b.parentElement.querySelector("[data-script-note]");
+      if (!tenant || !tenant.tenantId) {
+        if (note) note.textContent = "No tenant ID found for " + w.school + " in the GDAP file or tracker.";
+        return;
+      }
+      if (typeof QBR.scriptCopyToClipboard !== "function") { if (note) note.textContent = "Script library not loaded."; return; }
+      QBR.scriptCopyToClipboard(tenant.tenantId).then(ok => {
+        if (note) note.textContent = ok
+          ? "Tenant ID copied (" + tenant.name + " \u2014 " + (found.src === "tracker" ? "tracker" : "GDAP file") + ")."
+          : "Copy failed.";
+      });
     }));
     host.querySelectorAll('[data-wiz="back"]').forEach(b => b.addEventListener("click", () => { w.step = Math.max(0, w.step - 1); renderAudit(); }));
     host.querySelectorAll('[data-wiz="next"]').forEach(b => b.addEventListener("click", () => { w.step = Math.min(5, w.step + 1); renderAudit(); }));

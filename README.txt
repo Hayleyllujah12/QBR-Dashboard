@@ -6,6 +6,104 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-09 — v1.34.0 [BETA] patch: PowerShell scripts moved to the Admin panel
+  - The script library (search, copy, add / edit / delete your own scripts, export / import, and
+    the GDAP mapping file) now lives in Admin › PowerShell scripts, below Feature flags and
+    Appearance. Double-click the version label to open Admin.
+  - Guided audit › Storage and Usage steps keep "Copy … Extraction Script" and "Copy Tenant ID";
+    the "Manage scripts" link there was removed. Clicking the gdap pill still opens the library.
+  - The built-in scripts are now safe to paste in parts: their description header is plain
+    "#" comment lines instead of a <# … #> block, so starting a paste in the middle of the header
+    no longer makes PowerShell run the description text as commands.
+  - Storage script: the USAGE value now reads "X TB of Y GB used" to match the admin center.
+
+UPDATE — 2026-10-09 — v1.34.0 [BETA] Inventory: remaining stock by category
+  - The Laptops / Desktops / Monitors tiles are now quick "remaining stock" filters. Click one to
+    see only its IN-STOCK units (before, it showed every unit of that type, deployed ones included).
+    A new "📦 All in stock" tile shows the total across every category.
+  - The list groups the in-stock units by model (most first) with the batches they came from and
+    the earliest warranty end. Click a model to see its serials; each serial opens Asset 360.
+    "Units" switches back to one row per unit (bulk edit still works there).
+  - A "Remaining stock: Laptops ✕" chip shows what you're looking at; click ✕, or click the same
+    tile again, to go back to all assets. Clicking a tile clears other filters (client, serial,
+    batch) so the list always matches the tile's number.
+  - The Type filter now lists every category in your workbook, not only Laptop/Desktop/Monitor.
+
+UPDATE — 2026-10-09 — v1.33.0 [BETA] "Open folder": allow editing ONCE for all your workbooks
+  - NEW "📁 Open folder…" (welcome page, top bar "Folder", and the Workbooks list). Pick the folder
+    that holds your workbooks — subfolders are searched too (3 levels). Tick the workbooks to load
+    (last time's choice is remembered) and click "Load & link". They load AND get Direct save /
+    ↻ reload-from-file in one go, with ONE "Allow editing" for the folder instead of re-picking and
+    approving every file.
+  - Why it was one-by-one before: a normal Upload only gives the browser a copy of each file, never
+    where it lives, so each Direct-save tick had to ask for the file again. That stays true for Upload;
+    Open folder is the way around it.
+  - Next time you open the dashboard the browser forgets the permission (browser rule). The first
+    Save or ↻ asks ONCE for the folder and that covers every linked workbook in it (or click
+    "🔓 Reconnect folder"). On the beta site choose "Allow on every visit" and it stops asking.
+  - "↻ Reload all" re-reads every folder-linked workbook (picks up edits made in Excel); a workbook
+    with unsaved dashboard edits is skipped until you save it.
+  - Two files with the same name in different subfolders: only one can be loaded — the newest is
+    ticked. Excel lock files (~$…) and hidden folders are ignored. Chrome / Edge only.
+  - Workbooks with no sheets the dashboard edits (e.g. the tracker) are linked for ↻ reload only;
+    nothing is ever written to them.
+
+UPDATE — 2026-10-09 — v1.32.0 [BETA] SOC investigation, Bulk user generator, Script library, Scan "Save all"
+  - NEW Security & identity › Risky investigation: load the Entra risky-users + sign-in exports (plus
+    optional sources), Analyze, and get the full SOC report (charts, per-user timelines). Export is named
+    <TENANT>_<MON>_SOC_RiskyInvestigation_<time>.xlsx; "Import past investigation" rebuilds a report from
+    an earlier export. Works offline (nothing is downloaded from the internet).
+  - NEW User management › Bulk generator: the M365 bulk user wizard (Excel or manual entry → domain,
+    password, email/display-name formats → map columns → process → classify Faculty/Student → export).
+    Files are named <TENANT>_<MON>_O365_Users_Export.csv and <TENANT>_<MON>_Skipped_Rows_Audit.csv.
+  - Guided audit › Storage and Usage steps: "Copy Storage/Usage Extraction Script" and "Copy Tenant ID".
+    Load GranularAdministerRelationship.csv with your workbooks and the tenant ID is filled into the
+    script for the school (falls back to the tracker's GDAP column). "Manage scripts" keeps your own
+    scripts in this browser (add / edit / export / import). The dashboard never runs PowerShell itself.
+  - Scan › "Save all images" downloads every scanned photo named after its serial (duplicates get -2,
+    -3); duplicate serials now say "Duplicate of row #N".
+  - Source pills (top bar) explain which file/sheet each one needs and whether it's required.
+  - Admin panel now opens by DOUBLE-CLICKING the version label ("v1.21.0" in the top bar, or in the
+    sidebar footer). The keyboard shortcuts were removed.
+
+UPDATE — 2026-10-06 — v1.31.0 [BETA] Admin panel (feature flags + appearance) + "Beta version" label
+  - Hidden Admin panel (opened by double-clicking the version label since v1.32.0). The first time, you set an admin password (typed in
+    a masked box; only a hash is kept in this browser). After that the password is asked each time.
+  - Admin › Feature flags: switch whole sections of the menu on or off (Security & identity, Tenant
+    health, Adoption & capacity, Domains & email, Reporting, Inventory, Audit, Data). Hidden
+    sections keep all their data. "Reset to defaults" turns everything back on. Settings are per
+    browser. Note: the password only stops casual changes — it is not real security.
+  - Admin › Appearance: Light / Dark theme, page background, card and accent colours, heading
+    text colour, and body-text and heading size (90–150 %). A "Hard to read" note appears if the
+    chosen colours have too little contrast. "Reset appearance" undoes everything. Exports and
+    printing always use the standard look.
+  - A label next to the logo shows which copy you are using: "Beta version" (develop branch:
+    the beta site, the QBR-Dashboard_dev test folder, or ?beta) or "Preview · <branch>" (feature
+    preview sites). The live version shows no label. (Replaces the old "DEV · develop branch" label.)
+  - Beta and preview SITES (on netlify.app) now ask you to sign in first (invite-only Netlify
+    login). The live version and the offline folders are unchanged — no login, nothing downloaded.
+UPDATE — 2026-10-06 — v1.30.0 Unsaved edits are safer (nothing is dropped silently)
+  - Edits waiting to be saved to Excel are now also backed up inside the browser. If browser
+    storage is full, a red bar says so, the edits stay in the backup, and closing the tab asks
+    first. Next time you open the dashboard they are restored ("Recovered N unsaved edits").
+  - No more limits: the old 500-edit cap and the 90-day clean-up are gone. The "● N unsaved"
+    badge turns red above 400 edits for one file — save to Excel soon.
+  - Click the "● N unsaved" badge (or "Review edits" in the yellow bar) for the Unsaved edits panel:
+      · Made on an older copy of a file — e.g. you re-uploaded the workbook after editing it in
+        Excel. "Apply to loaded file" puts them back by school / serial number (not by row
+        number); anything that can't be matched stays listed. Or Export / Discard.
+      · In another dashboard folder — each dashboard folder (live, _dev test copy…) now keeps its
+        OWN edits, so testing in a copy can no longer clear the live folder's edits. "Move to this
+        dashboard" brings them over if you need them.
+      · Couldn't be placed during a merge — edits Excel's changes made impossible to place (row
+        deleted, heading renamed) are now KEPT here so you can re-enter them, then Dismiss.
+      · Export all (JSON) / Import… — take pending edits to another PC or browser, or keep a copy.
+        Exports contain school names and contacts: store them like the workbook.
+      · Backups — edits cleared after a save are kept 14 days and can be exported.
+  - First open after the update: your existing unsaved edits are picked up automatically when
+    you load their workbook. Open the LIVE folder first; a test copy opened first would take
+    them (they then show in the live folder under "In another dashboard folder" → Move).
+
 UPDATE — 2026-10-06 — v1.29.0 Save to Excel works after the file was edited in Excel (no re-linking)
   - If a Direct-save workbook was changed in Excel after you loaded it, Save no longer refuses
     and downloads a copy. The dashboard reads the file as it is now and puts your edits into it:
@@ -16,7 +114,8 @@ UPDATE — 2026-10-06 — v1.29.0 Save to Excel works after the file was edited 
       · If the SAME cell was changed in Excel and in the dashboard, a short list asks which
         value to keep (Excel or dashboard) — or Cancel to save nothing.
       · An edit that can't be placed (its row was deleted, or its column heading renamed in
-        Excel) is listed and not saved, so nothing lands in the wrong cell.
+        Excel) is listed and not saved, so nothing lands in the wrong cell (since v1.30.0 it is
+        kept under Unsaved edits → "Couldn't be placed").
   - After saving, the dashboard reloads the file, so you see the changes made in Excel too.
   - ↻ next to a Direct-save workbook now reloads it straight from the file — no file picker.
   - If the file is open in desktop Excel, Save says "close it there, then click Save again";
