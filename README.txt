@@ -6,6 +6,19 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-11 — v1.34.0 [BETA] patch: MTM from Lenovo labels + tenant ID in any script
+  - Scan: the MTM (Machine Type Model, e.g. 21M4S5VD00) is read from the label's (31P) barcode, or
+    from the front of the (1S) barcode, and shown in a new MTM column next to the serial. You can
+    type or correct it in the table or in the photo view. It is carried into "Tag batch" (new MTM
+    column in the review) and into the Register assets form.
+  - Inventory: Register assets has an MTM box; Asset 360 shows the MTM; Export adds an MTM column
+    after Model; Save to Excel adds an "MTM" column at the end of 02 DEVICES the first time a unit
+    with an MTM is saved (no existing column moves). MTM is kept separate from Model.
+  - Scripts: any script (built-in or your own) that contains "QBR_TENANT_ID" gets the school's
+    tenant ID swapped in when copied with a GDAP match. With no match, the built-in Storage script
+    asks for the ID and the Usage script keeps its previous default, as before. Only a valid tenant
+    ID (GUID) is ever pasted into a script.
+
 UPDATE — 2026-10-09 — v1.34.0 [BETA] patch: PowerShell scripts moved to the Admin panel
   - The script library (search, copy, add / edit / delete your own scripts, export / import, and
     the GDAP mapping file) now lives in Admin › PowerShell scripts, below Feature flags and

@@ -113,6 +113,51 @@ function scanSplitMtmSn(v) {
   return m ? m[2].toUpperCase() : null;
 }
 
+
+/* MTM head of a Lenovo (1S) concatenation, e.g. "21M4S5VD00" from "21M4S5VD00PF62SDPW". */
+function scanSplitMtm(v) {
+  const m = /^([A-Z0-9]{10,12})([A-Z0-9]{8})$/i.exec(scanStripDi(v));
+  return m ? m[1].toUpperCase() : null;
+}
+
+/* Standalone Lenovo MTM shape (the (31P) barcode), e.g. "21M4S5VD00". */
+function scanLooksLikeMtm(v) {
+  return /^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{10}$/i.test(scanStripDi(v));
+}
+
+/* Drop a leading ANSI data identifier the decoder may return with the value:
+ * "1S" before an 18-20 char MTM+SN, "31P" before a 10-char MTM. */
+function scanStripDi(v) {
+  const t = String(v == null ? "" : v).trim().toUpperCase();
+  if (/^1S[A-Z0-9]{18,20}$/.test(t)) return t.slice(2);
+  if (/^31P[A-Z0-9]{10}$/.test(t)) return t.slice(3);
+  return t;
+}
+
+/* Pick the MTM from barcode candidates via prefix-correlation: when one
+ * scanned value is a strict prefix of another (31P vs 1S), the shorter is
+ * the MTM. Falls back to the (1S) head, then the standalone MTM pattern.
+ * The picked serial is excluded so the two never collide. */
+function scanPickMtm(cands, serial) {
+  const vals = (cands || []).map(scanStripDi).filter(Boolean);
+  const sn = String(serial || "").toUpperCase().trim();
+  for (const a of vals) {
+    if (a === sn || !scanLooksLikeMtm(a)) continue;
+    for (const b of vals) {
+      if (a !== b && b.startsWith(a)) return a;
+    }
+  }
+  for (const v of vals) {
+    if (v === sn) continue;
+    const h = scanSplitMtm(v);
+    if (h && h !== sn) return h;
+  }
+  for (const v of vals) {
+    if (v === sn) continue;
+    if (scanLooksLikeMtm(v)) return v;
+  }
+  return "";
+}
 /* Lenovo unit serial shape: 7-10 alphanumerics mixing letters and digits. */
 function scanLooksLikeSerial(v) {
   return /^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{7,10}$/.test(String(v || ""));
@@ -161,7 +206,8 @@ function scanMergeFindings(barcodes, parsed, ocrText) {
   let productKey = bcKey || (parsed && parsed.productKey) || "";
   const model = (parsed && parsed.model) || "";
   serial = serial.replace(/^S\/?N\s*[:=]?\s*/i, "").trim();
-  return { serial, productKey, model };
+  const mtm = scanPickMtm(barcodes, serial);
+  return { serial, productKey, model, mtm };
 }
 
 /* ====================== browser-only detection =========================== */
@@ -379,7 +425,7 @@ QBR.scanImage = async function (dataUrl) {
   const ocr = await scanRunOCR(dataUrl);
   const merged = scanMergeFindings(barcodes, scanParseOCRText(ocr.text), ocr.text);
   return { barcodes, serial: merged.serial, productKey: merged.productKey,
-           model: merged.model, ocrOk: ocr.ocrOk, barcodeOk: barcodes.length > 0 };
+           model: merged.model, mtm: merged.mtm, ocrOk: ocr.ocrOk, barcodeOk: barcodes.length > 0 };
 };
 
 /* ============================ UI state =================================== */
@@ -463,7 +509,7 @@ function renderScan() {
       </div>
       <div class="table-responsive"><table class="table table-sm inv-tbl"><thead><tr>
         <th style="width:36px"><input type="checkbox" id="scan-sel-all" title="Select all"></th>
-        <th style="width:52px">Photo</th><th>Model</th><th>Serial number</th><th>Product key</th>
+        <th style="width:52px">Photo</th><th>Model</th><th>Serial number</th><th>MTM</th><th>Product key</th>
         <th>Raw barcodes</th><th style="width:90px">Status</th><th style="width:210px">Actions</th>
       </tr></thead><tbody id="scan-tbody"></tbody></table></div>
       <p class="text-muted small mb-0" id="scan-empty"${ui.rows.length ? " hidden" : ""}>No scans yet — upload a photo to start.</p>
@@ -476,6 +522,8 @@ function renderScan() {
         <h6>Manual entry</h6>
         <label class="form-label small mb-1" for="scan-lb-serial">Serial number</label>
         <input id="scan-lb-serial" class="form-control form-control-sm" style="font-family:monospace" placeholder="Type serial from photo…" autocomplete="off">
+        <label class="form-label small mb-1 mt-2" for="scan-lb-mtm">MTM (Machine Type Model)</label>
+        <input id="scan-lb-mtm" class="form-control form-control-sm" style="font-family:monospace" placeholder="e.g. 21M4S5VD00" autocomplete="off">
         <label class="form-label small mb-1 mt-2" for="scan-lb-model">Model</label>
         <input id="scan-lb-model" class="form-control form-control-sm" placeholder="Model" autocomplete="off">
         <div class="d-flex gap-2 mt-3">
@@ -516,6 +564,7 @@ function scanRenderRows() {
       <td>${thumb}</td>
       <td><input class="scan-input" data-f="model" data-id="${row.id}" value="${esc(row.model)}" placeholder="Model"></td>
       <td><input class="scan-input" data-f="serial" data-id="${row.id}" value="${esc(row.serial)}" placeholder="Serial" style="font-family:monospace"></td>
+      <td><input class="scan-input" data-f="mtm" data-id="${row.id}" value="${esc(row.mtm || "")}" placeholder="MTM" style="font-family:monospace"></td>
       <td><input class="scan-input" data-f="productKey" data-id="${row.id}" value="${esc(row.productKey)}" placeholder="—"></td>
       <td class="small text-muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(row.barcodeRaw)}">${esc(row.barcodeRaw) || "—"}</td>
       <td>${scanRowStatus(row)}</td>
@@ -627,7 +676,7 @@ function scanBind(host) {
         scanPreviewSave(false);
         if (l) l.classList.remove("open");
         var row = QBR._scanUI.rows.find(function (r) { return String(r.id) === String(rid); });
-        if (row && row.dataUrl) { row.status = "pending"; row.serial = ""; row.model = ""; scanRenderRows(); scanPump(); }
+        if (row && row.dataUrl) { row.status = "pending"; row.serial = ""; row.model = ""; row.mtm = ""; scanRenderRows(); scanPump(); }
       }
     });
     /* Enter in the serial box saves; focus starts in the serial box. */
@@ -693,7 +742,7 @@ function scanAddFiles(files) {
         scanToast("This photo is already in the list — skipped.");
       } else {
         ui.rows.push({ id: ui.nextId++, file: f, dataUrl: rd.result, fp: fp,
-          model: "", serial: "", productKey: "", barcodeRaw: "", status: "pending", dup: null });
+          model: "", serial: "", mtm: "", productKey: "", barcodeRaw: "", status: "pending", dup: null });
       }
       scanRenderRows();
       if (n === imgs.length) {
@@ -726,6 +775,7 @@ async function scanRowScan(id) {
     row.barcodeRaw = res.barcodes.join(" | ");
     // never overwrite a hand-edited field
     if (!row.serial) row.serial = res.serial;
+    if (!row.mtm) row.mtm = res.mtm || "";
     if (!row.productKey) row.productKey = res.productKey;
     if (!row.model) row.model = res.model;
     row.status = "done";
@@ -799,10 +849,11 @@ function scanPreview(id) {
   if (!row || !row.dataUrl || !lb) return;
   lb.dataset.rowId = id;
   const img = $("scan-lb-img"), se = $("scan-lb-serial"),
-        mo = $("scan-lb-model"), hint = $("scan-lb-hint");
+        mo = $("scan-lb-model"), mt = $("scan-lb-mtm"), hint = $("scan-lb-hint");
   if (img) img.src = row.dataUrl;
   if (se) se.value = row.serial || "";
   if (mo) mo.value = row.model || "";
+  if (mt) mt.value = row.mtm || "";
   if (hint) hint.textContent = row.serial
     ? "Detected — correct it here if wrong."
     : "Nothing detected — read the label and type the serial.";
@@ -817,9 +868,10 @@ function scanPreviewSave(close) {
   const rid = lb && lb.dataset.rowId;
   const row = QBR._scanUI.rows.find(function (r) { return String(r.id) === String(rid); });
   if (row) {
-    const se = $("scan-lb-serial"), mo = $("scan-lb-model");
+    const se = $("scan-lb-serial"), mo = $("scan-lb-model"), mt = $("scan-lb-mtm");
     if (se) row.serial = se.value.trim().toUpperCase();
     if (mo) row.model = mo.value.trim();
+    if (mt) row.mtm = mt.value.trim().toUpperCase();
     scanRenderRows();
   }
   if (close !== false && lb) lb.classList.remove("open");
@@ -879,11 +931,11 @@ function scanBatchClassify(rows, client) {
   rows.forEach(r => {
     const sn = (r.serial || "").trim(); if (!sn) return;
     const key = scanKey(sn);
-    if (seen.has(key)) { out.push({ sn, key, model: r.model || null, kind: "dup" }); return; }
+    if (seen.has(key)) { out.push({ sn, key, model: r.model || null, mtm: r.mtm || null, kind: "dup" }); return; }
     seen.add(key);
     const a = scanFindAsset(sn);
     const kind = !a ? "new" : !String(a.client || "").trim() ? "stock" : scanSameClient(a.client, client) ? "same" : (client ? "other" : "assigned");
-    out.push({ sn, key, model: r.model || (a && a.model) || null, kind, asset: a });
+    out.push({ sn, key, model: r.model || (a && a.model) || null, mtm: r.mtm || (a && a.mtm) || null, kind, asset: a });
   });
   return out;
 }
@@ -973,7 +1025,7 @@ function scanBatchTagDialog(mode, preset) {
       cnt("dup") && scanPill("dup", cnt("dup") + " scanned twice (counted once)"),
     ].filter(Boolean).join(" ") +
       `<span class="scan-filter">Show: ${["all", "new", "update", "moves", "skipped"].map(k => `<button type="button" class="btn btn-sm btn-link p-0${st.filter === k ? " fw-bold" : ""}" data-sb-filter="${k}">${k[0].toUpperCase() + k.slice(1)}</button>`).join(" · ")}</span>`;
-    $("sb-thead").innerHTML = `<tr><th>Serial</th><th>Found</th><th>Change</th><th>Warranty end</th><th>Action</th></tr>`;
+    $("sb-thead").innerHTML = `<tr><th>Serial</th><th>MTM</th><th>Found</th><th>Change</th><th>Warranty end</th><th>Action</th></tr>`;
     const show = items.filter(i => st.filter === "all" ? true : st.filter === "new" ? i.kind === "new" :
       st.filter === "update" ? (i.kind !== "new" && i.kind !== "dup") : st.filter === "moves" ? (i.kind === "other" || i.kind === "assigned") : act(i) === "skip");
     $("sb-body").innerHTML = show.map(i => {
@@ -986,8 +1038,8 @@ function scanBatchTagDialog(mode, preset) {
       const cur = a && a.wend instanceof Date && !isNaN(a.wend) ? scanDateStr(a.wend) : "";
       const endCell = i.kind === "dup" ? "" : `<input type="date" class="form-control form-control-sm scan-rowend" data-sb-end="${escAttr(i.key)}" value="${escAttr(st.rowEnd[i.key] || "")}" aria-label="Warranty end for ${escAttr(i.sn)}">` +
         `<div class="small text-muted">${cur ? "now " + cur : "none yet"}</div>`;
-      return `<tr><td><code>${esc(i.sn)}</code>${i.model ? `<div class="small text-muted">${esc(i.model)}</div>` : ""}</td><td>${scanPill(i.kind)}</td><td class="scan-chg">${change}</td><td>${endCell}</td><td>${opts ? `<span class="scan-seg">${opts}</span>` : ""}</td></tr>`;
-    }).join("") || `<tr><td colspan="5" class="text-muted">Nothing in this view.</td></tr>`;
+      return `<tr><td><code>${esc(i.sn)}</code>${i.model ? `<div class="small text-muted">${esc(i.model)}</div>` : ""}</td><td>${i.mtm ? `<code>${esc(i.mtm)}</code>` : `<span class="text-muted">—</span>`}</td><td>${scanPill(i.kind)}</td><td class="scan-chg">${change}</td><td>${endCell}</td><td>${opts ? `<span class="scan-seg">${opts}</span>` : ""}</td></tr>`;
+    }).join("") || `<tr><td colspan="6" class="text-muted">Nothing in this view.</td></tr>`;
     $("sb-actions").innerHTML = `<button type="button" class="btn btn-sm btn-primary" id="sb-go"${willAdd.length + willUpd.length ? "" : " disabled"}>Apply: add ${willAdd.length} · update ${willUpd.length}</button>
       <button type="button" class="btn btn-sm btn-outline-secondary" id="sb-cancel">Cancel</button>`;
     $("sb-cancel").addEventListener("click", close);
@@ -1004,7 +1056,7 @@ function scanBatchTagDialog(mode, preset) {
     if (f.wMode === "end" && !f.wEnd && !Object.values(st.rowEnd).some(Boolean)) {
       $("sb-msg").textContent = "Pick the known warranty end date, or choose another warranty option."; return;
     }
-    if (adds.length) QBR.invIntake(adds.map(i => ({ sn: i.sn, model: i.model || null, cat: "Laptop", dr: f.dr || null,
+    if (adds.length) QBR.invIntake(adds.map(i => ({ sn: i.sn, model: i.model || null, mtm: i.mtm || null, cat: "Laptop", dr: f.dr || null,
       client: f.client, wstart: f.wMode === "keep" ? null : f.date, batch: f.batch || null })));
     const moves = upds.filter(i => i.asset && i.asset.client && !scanSameClient(i.asset.client, f.client)).map(i => ({ sn: i.sn, from: i.asset.client }));
     QBR.invDeploy(adds.concat(upds).map(i => i.sn), f.client, f.date, f.sq || null);
@@ -1222,6 +1274,8 @@ function scanPrefillIntake(row) {
     if (ta) ta.value = row.serial || "";
     const ms = $("in-model");
     if (ms && row.model) ms.selectedIndex = scanModelOption(row.model);
+    const mm = $("in-mtm");
+    if (mm && row.mtm) mm.value = row.mtm;
     scanToast("Scanned details filled into the intake form — review and click Register.");
     const first = $("in-serials"); if (first) first.focus();
   }, 80);
@@ -1308,5 +1362,5 @@ function scanOpenTagDialog(row) {
 
 /* ---------- Node export guard (test harness only; inert in browser) ------ */
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { QBR, scanParseOCRText, scanClassifyBarcode, scanMergeFindings, scanPickSerial, scanSplitMtmSn, scanLooksLikeSerial };
+  module.exports = { QBR, scanParseOCRText, scanClassifyBarcode, scanMergeFindings, scanPickSerial, scanSplitMtmSn, scanLooksLikeSerial, scanSplitMtm, scanLooksLikeMtm, scanPickMtm, scanStripDi };
 }

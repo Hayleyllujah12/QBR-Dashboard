@@ -99,7 +99,7 @@ function invParseDeviceRows(rows, meta) {
   const idx = makeResolver(rows[0]);
   const c = {
     sn: idx(["serial number", "serial"]), client: idx(["client / organization", "client", "organization"]),
-    model: idx(["model"]), desc: idx(["description", "specification"]), cat: idx(["category"]),
+    model: idx(["model"]), mtm: idx(["mtm", "machine type model"]), desc: idx(["description", "specification"]), cat: idx(["category"]),
     brand: idx(["brand"]), supplier: idx(["supplier"]), dr: idx(["dr #", "dr"]),
     delivered: idx(["date delivered"]), wstart: idx(["warranty start"]), wend: idx(["warranty end"]),
     wyears: idx(["warranty years"]), cond: idx(["condition"]), contact: idx(["contact person"]),
@@ -114,7 +114,7 @@ function invParseDeviceRows(rows, meta) {
     const get = i => (i >= 0 && row[i] != null ? String(row[i]).trim() : null);
     out.push({
       key: QBR.invSerialKey(sn), sn: String(sn).trim(),
-      client: get(c.client), model: get(c.model), desc: get(c.desc), cat: get(c.cat) || "Laptop",
+      client: get(c.client), model: get(c.model), mtm: get(c.mtm), desc: get(c.desc), cat: get(c.cat) || "Laptop",
       brand: get(c.brand) || "Lenovo", supplier: get(c.supplier), dr: get(c.dr),
       delivered: invDate(row[c.delivered]), wstart: invDate(row[c.wstart]), wend: invDate(row[c.wend]),
       wyears: row[c.wyears] != null && row[c.wyears] !== "" ? Number(row[c.wyears]) : null,
@@ -498,7 +498,7 @@ QBR.invIntake = function (list) {
     const key = QBR.invSerialKey(sn);
     if (inv.assets.some(a => a.key === key)) return; // no duplicates
     inv.assets.push({
-      key, sn, client: r.client || null, model: r.model || null, desc: r.desc || null,
+      key, sn, client: r.client || null, model: r.model || null, mtm: r.mtm || null, desc: r.desc || null,
       cat: r.cat || "Laptop", brand: r.brand || "Lenovo", supplier: r.supplier || null,
       dr: r.dr || null, delivered: null, wstart: invDate(r.wstart) || invToday(),
       wend: null, wyears: r.wyears != null ? Number(r.wyears) : 3,
@@ -979,10 +979,10 @@ QBR.invBuildWorkbook = function () {
   const inv = invModel();
   if (!inv || typeof XLSX === "undefined") return null;
   const openByKey = QBR.invOpenByKey(inv.tickets);
-  const dev = [["Serial Number","Client / Organization","Model","Description / Specifications","Category",
+  const dev = [["Serial Number","Client / Organization","Model","MTM","Description / Specifications","Category",
     "Brand","Supplier","DR #","Date Delivered","Warranty Start","Warranty End","Warranty Years",
     "Condition","Contact Person","Address","Contact Details","Batch Code","Status (derived)"]];
-  inv.assets.forEach(a => dev.push([a.sn, a.client || "", a.model || "", a.desc || "", a.cat, a.brand || "",
+  inv.assets.forEach(a => dev.push([a.sn, a.client || "", a.model || "", a.mtm || "", a.desc || "", a.cat, a.brand || "",
     a.supplier || "", a.dr || "", invFmtDate(a.delivered) === "—" ? "" : invFmtDate(a.delivered),
     invFmtDate(a.wstart) === "—" ? "" : invFmtDate(a.wstart), invFmtDate(a.wend) === "—" ? "" : invFmtDate(a.wend),
     a.wyears == null ? "" : a.wyears, a.cond || "", a.contact || "", a.addr || "", a.phone || "", a.batch || "",
@@ -1667,6 +1667,8 @@ function invShowForm(which) {
           <div class="col-md-6"><label class="form-label small">Model</label>
             <select id="in-model" class="form-select form-select-sm">
               <option>ThinkPad E14 Gen 5</option><option>ThinkCentre M75t Gen 2</option><option>C22-20 21.5"</option><option>Other</option></select></div>
+          <div class="col-md-6"><label class="form-label small">MTM (Machine Type Model)</label>
+            <input id="in-mtm" class="form-control form-control-sm" style="font-family:monospace" placeholder="e.g. 21M4S5VD00"></div>
           <div class="col-md-6"><label class="form-label small">Category</label>
             <select id="in-cat" class="form-select form-select-sm"><option>Laptop</option><option>Desktop</option><option>Monitor</option></select></div>
           <div class="col-md-6"><label class="form-label small">Supplier</label><input id="in-supplier" class="form-control form-control-sm" value="Twireless"></div>
@@ -1687,7 +1689,7 @@ function invShowForm(which) {
       const serials = $("in-serials").value.split(/\n+/).map(s => s.trim()).filter(Boolean);
       if (!serials.length) { $("in-msg").textContent = "Enter at least one serial number."; return; }
       const had = new Set((invModel() || { assets: [] }).assets.map(a => a.key));
-      const n = QBR.invIntake(serials.map(sn => ({ sn, model: $("in-model").value, cat: $("in-cat").value,
+      const n = QBR.invIntake(serials.map(sn => ({ sn, model: $("in-model").value, mtm: $("in-mtm").value.trim().toUpperCase() || null, cat: $("in-cat").value,
         supplier: $("in-supplier").value.trim() || null, wyears: Number($("in-wy").value),
         dr: $("in-dr").value.trim() || null, client: $("in-client").value.trim() || null, wstart: $("in-ws").value || null })));
       const we = $("in-we") ? $("in-we").value : "";
@@ -2115,6 +2117,7 @@ function renderAsset360Panel() {
     kpi("Deployments", fmt(deps.length), "blue") + `</div>`;
 
   const facts = [["Serial", `<code>${esc(a.sn)}</code>`], ["Client", esc(a.client || "—")], ["Model", esc(a.model || "—")],
+    ["MTM", a.mtm ? `<code>${esc(a.mtm)}</code>` : "—"],
     ["Description", esc(a.desc || "—")], ["Category", esc(a.cat)], ["Brand", esc(a.brand || "—")],
     ["Supplier", esc(a.supplier || "—")], ["DR #", esc(a.dr || "—")],
     ["Date delivered", invFmtDate(a.delivered)],

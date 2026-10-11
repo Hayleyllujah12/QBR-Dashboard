@@ -312,6 +312,7 @@ function patchInvIntake(wb, fp, args) {
     put("addr", src.addr || "");
     put("phone", src.phone || "");
     if (src.batch) { pEnsureCol(ws, cols, "batch", "Batch Code"); put("batch", src.batch); }
+    if (src.mtm) { pEnsureCol(ws, cols, "mtm", "MTM"); put("mtm", src.mtm); }
     const r = pAppendRow(ws, cells);
     pBumpRanges(wb, sheetName, r - 1, r);
     if (a) a._src = { fp, sheet: sheetName, row: r };
