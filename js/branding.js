@@ -30,8 +30,35 @@
   }
   window.RCT_BRAND = { apply: apply, reset: function () { save(null); apply(null); }, KEY: KEY };
 
+  // Environment badge (2026-10-06, v1.31.0). Detected from where the app runs, so the
+  // same code is safe on every branch (nothing shows on the live folder / GitHub Pages):
+  //   Beta version — Netlify is the beta/testing host (live = GitHub Pages), so the project's main
+  //                  address "<site>.netlify.app" and "develop--<site>" are beta; also the
+  //                  QBR-Dashboard_dev test folder, or ?beta (?dev kept as an alias)
+  //   Preview      — any other Netlify branch / deploy-preview URL ("<branch>--<site>.netlify.app")
+  function envInfo() {
+    var path = "", host = "", q = "";
+    try { path = decodeURIComponent(location.pathname); } catch (e) { path = location.pathname || ""; }
+    try { host = String(location.hostname || "").toLowerCase(); q = location.search || ""; } catch (e) {}
+    var m = /^([a-z0-9-]+)--[a-z0-9-]+\.netlify\.app$/.exec(host);
+    var netlifyMain = !m && /\.netlify\.app$/.test(host);
+    if (netlifyMain || (m && m[1] === "develop") || /QBR-Dashboard_dev/i.test(path) || /[?&](beta|dev)\b/i.test(q))
+      return { kind: "beta", text: "Beta version", tag: "[BETA]", tip: "Beta (develop branch) — for testing before release. Changes here are not live." };
+    if (m) return { kind: "preview", text: "Preview · " + m[1], tag: "[PREVIEW]", tip: "Feature preview (" + m[1] + ") — not live, not beta." };
+    return null;
+  }
+  function devBadge() {
+    var env = envInfo(); if (!env) return;
+    var sub = document.querySelector(".app-sub"); if (!sub || document.getElementById("dev-badge")) return;
+    var b = document.createElement("span");
+    b.id = "dev-badge"; b.className = "dev-badge env-" + env.kind; b.textContent = env.text; b.title = env.tip;
+    sub.insertBefore(b, sub.firstChild);
+    if (document.title.indexOf(env.tag) !== 0) document.title = env.tag + " " + document.title;
+  }
+  window.RCT_ENV = envInfo;
   function init() {
     var btn = $("brand-btn"), menu = $("brand-menu"), file = $("brand-file");
+    devBadge();
     apply(load());
     if (!btn || !menu || !file) return;
     function open(v) {
