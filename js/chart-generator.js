@@ -33,6 +33,23 @@ QBR.applyChartTheme = function () {
   }
 };
 
+// Admin › Appearance "Chart & graph text size": on-screen multiplier from --fs-c (1 = default).
+// Exports (renderChartPng, print) always use the standard sizes.
+QBR.chartFontScale = function () {
+  try {
+    const v = parseFloat(getComputedStyle(document.body).getPropertyValue("--fs-c"));
+    return isFinite(v) && v > 0 ? Math.min(2, Math.max(0.9, v)) : 1;
+  } catch (e) { return 1; }
+};
+function _qbrScaleFonts(o, k, depth) {   // multiply every font.size in a live chart's options
+  if (!o || typeof o !== "object" || depth > 6) return;
+  Object.keys(o).forEach(key => {
+    const v = o[key];
+    if (key === "font" && v && typeof v === "object" && typeof v.size === "number") v.size = Math.round(v.size * k);
+    else if (v && typeof v === "object" && !Array.isArray(v)) _qbrScaleFonts(v, k, depth + 1);
+  });
+}
+
 // N distinct colors cycled from the categorical palette (for single-series bars).
 QBR.paletteColors = function (n) {
   const out = [];
@@ -64,6 +81,9 @@ QBR.draw = function (canvasId, config) {
   // data (no callbacks), so a JSON round-trip is a safe deep clone.
   try { QBR._configs[canvasId] = JSON.parse(JSON.stringify(config)); }
   catch (e) { QBR._configs[canvasId] = null; }
+  const k = QBR.chartFontScale();
+  if (typeof Chart !== "undefined") Chart.defaults.font.size = Math.round(12 * k);
+  if (k !== 1) _qbrScaleFonts(config.options, k, 0);   // after the snapshot → exports keep standard sizes
   const c = new Chart(el.getContext("2d"), config);
   QBR._charts[canvasId] = c;
   return c;
@@ -94,6 +114,8 @@ QBR.renderChartPng = function (canvasId, opts) {
   document.body.appendChild(holder);
 
   let url = null, tmp = null;
+  const liveFont = (typeof Chart !== "undefined") ? Chart.defaults.font.size : 12;
+  if (typeof Chart !== "undefined") Chart.defaults.font.size = 12;   // exports: standard sizes
   try {
     tmp = new Chart(cv.getContext("2d"), {
       type: cfg.type,
@@ -116,6 +138,7 @@ QBR.renderChartPng = function (canvasId, opts) {
     url = out.toDataURL("image/png");
   } catch (e) { url = null; }
   if (tmp) { try { tmp.destroy(); } catch (e) {} }
+  if (typeof Chart !== "undefined") Chart.defaults.font.size = liveFont;
   holder.remove();
   return url;
 };
@@ -305,7 +328,7 @@ const QBRLabelsPlugin = {
     // Export renders offscreen with responsive:false — scale the font up there so
     // labels aren't tiny in the 1920x1080 PNG. On-screen (responsive:true) → 11px.
     th.isExport = chart.options && chart.options.responsive === false;
-    th.fpx = th.isExport ? Math.max(14, Math.round(chart.height / 28)) : 11;
+    th.fpx = th.isExport ? Math.max(14, Math.round(chart.height / 28)) : Math.round(11 * QBR.chartFontScale());
     th.halo = th.isExport ? 4 : 3;
     ctx.save();
     ctx.font = '700 ' + th.fpx + 'px "Segoe UI",system-ui,sans-serif';
@@ -352,8 +375,9 @@ const QBRCenterPlugin = {
       g.addColorStop(0, o.color || "#107C10"); g.addColorStop(1, o.color2 || "#13a10e");
       ctx.fillStyle = g;
       const isExport = chart.options && chart.options.responsive === false;
-      const vpx = isExport ? Math.max(30, Math.round(chart.height / 12)) : 30;
-      const spx = isExport ? Math.max(11, Math.round(vpx * 0.36)) : 11;
+      const ck = isExport ? 1 : QBR.chartFontScale();
+      const vpx = isExport ? Math.max(30, Math.round(chart.height / 12)) : Math.round(30 * ck);
+      const spx = isExport ? Math.max(11, Math.round(vpx * 0.36)) : Math.round(11 * ck);
       ctx.font = '800 ' + vpx + 'px "Segoe UI",system-ui,sans-serif';
       ctx.fillText(String(o.value), cx, cy - (o.label ? vpx * 0.24 : 0));
       if (o.label) {
@@ -392,7 +416,7 @@ const QBRXCatsPlugin = {
     if (!Array.isArray(cats) || !chart.scales.x) return;
     const ctx = chart.ctx, xs = chart.scales.x, ca = chart.chartArea, th = _qbrTheme();
     const isExport = chart.options && chart.options.responsive === false;
-    const fpx = isExport ? Math.max(13, Math.round(chart.height / 34)) : 11;
+    const fpx = isExport ? Math.max(13, Math.round(chart.height / 34)) : Math.round(11 * QBR.chartFontScale());
     ctx.save();
     ctx.fillStyle = th.axis || th.ink; ctx.textAlign = "center"; ctx.textBaseline = "top";
     ctx.font = "600 " + fpx + 'px "Segoe UI",system-ui,sans-serif';

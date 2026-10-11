@@ -93,7 +93,7 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
     ok(Math.abs((await fsz("body")) - 16.8) < 0.05 && await p.evaluate(() => getComputedStyle(document.body).backgroundColor) === "rgb(18, 52, 86)", "appearance persists after reload");
     // Admin UI
     await p.evaluate(() => { document.body.classList.add("show-admin"); document.querySelector('[data-tab="dash-admin"]').click(); }); await p.waitForTimeout(200);
-    ok(await p.$$eval(".admin-theme input[type=color]", x => x.length) === 4 && await p.$$eval(".admin-theme input[type=range]", x => x.length) === 2, "Appearance section: 4 colour pickers + 2 size sliders");
+    ok(await p.$$eval(".admin-theme input[type=color]", x => x.length) === 4 && await p.$$eval(".admin-theme input[type=range]", x => x.length) === 3, "Appearance section: 4 colour pickers + 3 size sliders (paragraph, heading, chart)");
     ok(await p.$$eval("[data-admin-toggle]", x => x.length) === 8, "module toggles still listed once");
     await p.click('[data-admin-toggle="audit"]'); await p.waitForTimeout(150);
     ok(await p.evaluate(() => QBR.adminFlags().audit === false), "one click toggles a module exactly once");

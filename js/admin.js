@@ -73,9 +73,9 @@
 
   /* ---------- appearance (theme, colours, text sizes) ---------------------- */
   const THEME_KEY = "qbr-theme-custom";
-  const THEME_DEFAULTS = { pageBg: "", cardBg: "", accent: "", headerText: "", textScale: 100, headScale: 100 };
+  const THEME_DEFAULTS = { pageBg: "", cardBg: "", accent: "", headerText: "", textScale: 100, headScale: 100, chartScale: 100 };
   const COLOR_VARS = { pageBg: ["--bg"], cardBg: ["--surface", "--card"], accent: ["--brand", "--brand-fg"] };
-  const clampScale = v => { v = parseInt(v, 10); return isFinite(v) ? Math.min(150, Math.max(90, v)) : 100; };
+  const clampScale = (v, max) => { v = parseInt(v, 10); return isFinite(v) ? Math.min(max || 150, Math.max(90, v)) : 100; };
   const isHex = v => /^#[0-9a-f]{6}$/i.test(String(v || ""));
 
   QBR.adminThemeLoad = function () {
@@ -83,7 +83,7 @@
     try { t = JSON.parse(localStorage.getItem(THEME_KEY) || "{}") || {}; } catch (e) {}
     const o = Object.assign({}, THEME_DEFAULTS, t);
     Object.keys(COLOR_VARS).concat("headerText").forEach(k => { if (!isHex(o[k])) o[k] = ""; });
-    o.textScale = clampScale(o.textScale); o.headScale = clampScale(o.headScale);
+    o.textScale = clampScale(o.textScale); o.headScale = clampScale(o.headScale); o.chartScale = clampScale(o.chartScale, 200);
     return o;
   };
   QBR.adminThemeSave = function (patch) {
@@ -100,7 +100,7 @@
     const b = document.body, r = document.documentElement;
     if (!b) return;
     Object.keys(COLOR_VARS).forEach(k => COLOR_VARS[k].forEach(v => b.style.removeProperty(v)));
-    ["--qbr-head-ink", "--fs-t", "--fs-h"].forEach(v => b.style.removeProperty(v));
+    ["--qbr-head-ink", "--fs-t", "--fs-h", "--fs-c"].forEach(v => b.style.removeProperty(v));
     r.removeAttribute("data-qbr-fs"); r.removeAttribute("data-qbr-headink");
   }
   // Overrides go on <body>: the dark theme redefines its tokens on body, so :root would lose there.
@@ -117,7 +117,21 @@
       b.style.setProperty("--fs-h", String(t.headScale / 100));
       r.setAttribute("data-qbr-fs", "");
     }
+    // Chart text (canvas, so CSS can't reach it): chart-generator.js reads --fs-c on screen only.
+    if (t.chartScale !== 100) b.style.setProperty("--fs-c", String(t.chartScale / 100));
+    chartRedraw();
   };
+  // Charts bake their font sizes in when drawn → redraw once the slider settles (not on every tick).
+  let chartScaleDrawn = 1, chartTimer = null;
+  function chartRedraw() {
+    const k = (typeof QBR.chartFontScale === "function") ? QBR.chartFontScale() : 1;
+    if (k === chartScaleDrawn) return;
+    clearTimeout(chartTimer);
+    chartTimer = setTimeout(() => {
+      chartScaleDrawn = k;
+      try { if (typeof renderAll === "function" && typeof APP !== "undefined" && APP.model) renderAll(); } catch (e) {}
+    }, 250);
+  }
   // Exports (Export Tab / Deck / print) always use the standard look.
   window.addEventListener("beforeprint", () => { QBR._adminPrinting = true; themeClear(); });
   window.addEventListener("afterprint", () => { QBR._adminPrinting = false; QBR.adminThemeApply(); });
@@ -325,10 +339,10 @@
         `<input type="color" class="admin-color" data-theme-color="${esc(key)}" value="${esc(cur || "#ffffff")}" aria-label="${esc(label)}">` +
         (t[key] ? `<button type="button" class="btn btn-sm btn-outline-secondary" data-theme-clear="${esc(key)}">Default</button>` : "") + `</div>`;
     };
-    const sizeRow = (key, label) =>
+    const sizeRow = (key, label, max) =>
       `<div class="admin-row"><span class="admin-row-txt"><span class="admin-row-label">${esc(label)}</span><br>` +
       `<span class="admin-row-desc" data-size-out="${esc(key)}">${t[key]}%${t[key] === 100 ? " (default)" : ""}</span></span>` +
-      `<input type="range" class="admin-range" data-theme-size="${esc(key)}" min="90" max="150" step="5" value="${t[key]}" aria-label="${esc(label)}"></div>`;
+      `<input type="range" class="admin-range" data-theme-size="${esc(key)}" min="90" max="${max || 150}" step="5" value="${t[key]}" aria-label="${esc(label)}"></div>`;
     const warns = contrastWarnings();
     const sec = document.createElement("div");
     sec.className = "admin-theme";
@@ -343,8 +357,9 @@
       colorRow("cardBg", "Cards / tiles", "Theme default") +
       colorRow("accent", "Accent colour", "Brand blue") +
       colorRow("headerText", "Heading text", "Same as body text") +
-      sizeRow("textScale", "Body text size") +
-      sizeRow("headScale", "Heading size") +
+      sizeRow("textScale", "Paragraph & body text size (paragraphs, tables, menus, labels)") +
+      sizeRow("headScale", "Heading & tile number size") +
+      sizeRow("chartScale", "Chart & graph text size (axes, legends, value labels)", 200) +
       `</div>` +
       (warns.length ? `<div class="merge-warn mt-2" role="status"><b>Hard to read:</b><ul>${warns.map(w => `<li>${esc(w)}</li>`).join("")}</ul></div>` : "") +
       `<div class="mt-2"><button type="button" class="btn btn-sm btn-outline-secondary" id="admin-theme-reset">Reset appearance</button></div>`;
