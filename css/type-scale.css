@@ -268,3 +268,11 @@
 :root[data-qbr-fs] #um-generator .stat .l{font-size:calc(11px * var(--fs-t,1))}
 :root[data-qbr-fs] #um-generator .errors-box{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .um-subtab{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-todo .todo-legend{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-todo .todo-hot{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-todo .todo-title{font-size:calc(14px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-todo .todo-sub{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-todo .todo-auto{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-todo .todo-chip{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-todo .todo-ctl .todo-prio{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-todo .todo-empty{font-size:calc(13px * var(--fs-t,1))}
