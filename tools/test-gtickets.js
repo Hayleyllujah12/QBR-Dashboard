@@ -23,6 +23,7 @@ const eq = (a, b) => a === b;
 vm.runInContext('QBR.users.register("Pedro")', sb);
 const stamp = (() => { const d = new Date(); return d.getFullYear() +
   String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0"); })();
+const todayLocal = stamp.slice(0,4) + "-" + stamp.slice(4,6) + "-" + stamp.slice(6,8); // local YYYY-MM-DD ("today")
 
 /* numbering */
 let r1 = vm.runInContext('QBR.gtickets.create({title:"Fix wifi",requester:"Ana"})', sb);
@@ -47,18 +48,18 @@ t("note stored", eq(vm.runInContext(`QBR.gtickets.find("${r2.ticket.tno}").notes
 
 /* fingerprint dedup */
 const fp1 = vm.runInContext(
-  'QBR.gtickets.fingerprint({date:"2026-10-12",time:"09:00",title:"Fix wifi",requester:"Ana"})', sb);
+  'QBR.gtickets.fingerprint({date:"' + todayLocal + '",time:"09:00",title:"Fix wifi",requester:"Ana"})', sb);
 const fp2 = vm.runInContext(
-  'QBR.gtickets.fingerprint({date:"2026-10-12",time:"09:00",title:"  fix WIFI ",requester:"ana"})', sb);
+  'QBR.gtickets.fingerprint({date:"' + todayLocal + '",time:"09:00",title:"  fix WIFI ",requester:"ana"})', sb);
 t("fingerprint case/space-insensitive", eq(fp1, fp2));
 const fp3 = vm.runInContext(
-  'QBR.gtickets.fingerprint({date:"2026-10-12",time:"10:00",title:"Fix wifi",requester:"Ana"})', sb);
+  'QBR.gtickets.fingerprint({date:"' + todayLocal + '",time:"10:00",title:"Fix wifi",requester:"Ana"})', sb);
 t("different time -> different fp", fp1 !== fp3);
 
 /* import preview: existing ticket detected as dupe */
 const prev = vm.runInContext(`QBR.gtickets.previewImport([
-  {date:"2026-10-12",time:"",title:"Install Office",requester:""},
-  {date:"2026-10-12",time:"11:00",title:"New printer",requester:"Bo"}
+  {date:"${todayLocal}",time:"",title:"Install Office",requester:""},
+  {date:"${todayLocal}",time:"11:00",title:"New printer",requester:"Bo"}
 ])`, sb);
 t("existing flagged dupe", prev[0].dupe === true);
 t("new one not dupe", prev[1].dupe === false);
@@ -69,7 +70,7 @@ t("imported count", eq(cr.imported, 1));
 t("ticket created from import",
   vm.runInContext("QBR.gtickets.list().some(t => t.title === 'New printer')", sb));
 const prev2 = vm.runInContext(`QBR.gtickets.previewImport([
-  {date:"2026-10-12",time:"11:00",title:"New printer",requester:"Bo"}
+  {date:"${todayLocal}",time:"11:00",title:"New printer",requester:"Bo"}
 ])`, sb);
 t("re-import detected via seen-set", prev2[0].dupe === true);
 

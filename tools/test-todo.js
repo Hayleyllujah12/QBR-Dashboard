@@ -92,5 +92,46 @@ t("ticket urgency from follow-up", autos[0] && autos[0].urgency === "high");
 /* badge */
 t("badge counts high/overdue", vm.runInContext("QBR.todo.badgeCount()", sb) >= 1);
 
+/* tighten pass: render with a capturing host -------------------------- */
+const sb2 = makeSb();
+const hostStub = {
+  _html: "",
+  set innerHTML(v) { this._html = String(v); },
+  get innerHTML() { return this._html; },
+  querySelectorAll() { return []; },
+  querySelector() { return null; },
+};
+sb2.document.getElementById = (id) => id === "dash-todo" ? hostStub : null;
+vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "js", "users.js"), "utf8"), sb2, { filename: "users.js" });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "js", "todo.js"), "utf8"), sb2, { filename: "todo.js" });
+vm.runInContext('QBR.users.register("Pedro")', sb2);
+for (let i = 0; i < 12; i++) {
+  vm.runInContext(`QBR.todo.add({title:"G task ${i}",product:"general"})`, sb2);
+}
+sb2.APP.model.inventory = { tickets: [
+  { tno: "PF9-20260101", sn: "PF9SN01", issue: "Wifi", status: "Open" }
+]};
+const _mnames = ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"];
+const _mkey = _mnames[new Date().getMonth()];
+vm.runInContext(`QBR._audit = { months: { "${_mkey}": { rows: [{ school: "Demo School", org: "DEMO" }] } } }`, sb2);
+vm.runInContext("QBR.todo.render()", sb2);
+const html = hostStub._html;
+
+t("tile order: General first", html.indexOf('id="todo-tile-general"') < html.indexOf('id="todo-tile-tickets"'));
+t("tile order: manual before auto", html.indexOf('id="todo-tile-lenovo"') < html.indexOf('id="todo-tile-schools"'));
+t("jump chips render", html.includes('data-todo-jump="schools"') && html.includes('data-todo-jump="general"'));
+t("capped tile: Show all footer", html.includes("Show all 12"));
+t("capped tile: 10 rows shown", (html.match(/G task /g) || []).length === 10);
+t("no row-level No-date noise", !html.includes(">No date</span>"));
+t("ticket title deep-links", html.includes('#ticket/PF9-20260101'));
+t("serial deep-links to asset", html.includes('#asset/PF9SN01'));
+t("school row links to audit", html.includes('data-todo-goto="audit"') && html.includes('data-month="' + _mkey + '"'));
+t("manual row links to edit", html.includes('data-todo-goto="edit"'));
+
+const mid2 = vm.runInContext("QBR.todo.add({title:'Old name',product:'microsoft'})", sb2).todo.id;
+t("update ok", vm.runInContext(`QBR.todo.update("${mid2}", {title:"New name",product:"general"})`, sb2) === true);
+t("update applied", vm.runInContext("QBR.todo.all().some(t => t.title === 'New name' && t.product === 'general')", sb2));
+t("update missing -> false", vm.runInContext('QBR.todo.update("nope", {title:"x"})', sb2) === false);
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

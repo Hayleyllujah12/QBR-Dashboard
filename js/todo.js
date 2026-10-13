@@ -18,12 +18,16 @@
   "use strict";
 
   var PRODUCTS = [
+    { id: "general", label: "General" },
     { id: "microsoft", label: "Microsoft" },
     { id: "lenovo", label: "Lenovo" },
     { id: "tickets", label: "Pending tickets" },
-    { id: "schools", label: "Unaudited schools" },
-    { id: "general", label: "General" }
+    { id: "schools", label: "Unaudited schools" }
   ];
+  /* Tighten pass: capped tiles (TILE_LIMIT rows + "Show all"), jump chips,
+   * clickable rows (deep links), manual tiles first. */
+  var TILE_LIMIT = 10;
+  var _expanded = {};
   var MANUAL_PRODUCTS = ["microsoft", "lenovo", "general"];
 
   function esc(s) {
@@ -77,7 +81,7 @@
           auto: true, kind: "ticket",
           title: (t.tno || "Ticket") + " — " + (t.issue || t.subject || "Lenovo ticket"),
           product: "tickets", due: t.followUp || t.due || null,
-          notes: t.sn ? "Serial " + t.sn : "", urgency: "low"
+          tno: t.tno || null, sn: t.sn || null, urgency: "low"
         });
       });
     } catch (e) {}
@@ -95,7 +99,7 @@
           id: "auto:gen:" + t.tno, auto: true, kind: "genticket",
           title: t.tno + " — " + t.title, product: "tickets",
           due: t.due || null, notes: t.requester ? "From " + t.requester : "",
-          urgency: autoUrgency(t.due)
+          tno: t.tno, urgency: autoUrgency(t.due)
         });
       });
     } catch (e) {}
@@ -120,7 +124,8 @@
           id: "auto:school:" + m + ":" + String(rec.school || "").toLowerCase(),
           auto: true, kind: "school",
           title: (rec.school || "Unknown school") + " — " + m.charAt(0) + m.slice(1).toLowerCase() + " audit missing",
-          product: "schools", due: null, notes: rec.org || "", urgency: "medium"
+          product: "schools", due: null, notes: rec.org || "", urgency: "medium",
+          month: m, school: rec.school || ""
         });
       });
     } catch (e) {}
@@ -173,6 +178,19 @@
     return true;
   }
 
+  function updateTodo(manualId, f) {
+    var d = QBR.users.myData();
+    var t = (d.todos || []).filter(function (x) { return x.id === manualId; })[0];
+    if (!t) return false;
+    if (String(f.title || "").trim()) t.title = String(f.title).trim();
+    if (MANUAL_PRODUCTS.indexOf(f.product) >= 0) t.product = f.product;
+    t.due = f.due || null;
+    t.priority = ["auto", "high", "medium", "low"].indexOf(f.priority) >= 0 ? f.priority : "auto";
+    t.notes = String(f.notes || "").trim();
+    QBR.users.saveMyData(d);
+    return true;
+  }
+
   function setPriority(manualId, p) {
     var d = QBR.users.myData();
     var t = (d.todos || []).filter(function (x) { return x.id === manualId; })[0];
@@ -195,11 +213,31 @@
   var URG = { high: ["●", "HIGH", "danger"], medium: ["▲", "MED", "warning"], low: ["○", "LOW", "secondary"] };
 
   function dueLabel(t) {
-    if (!t.due) return '<span class="text-muted">No date</span>';
+    if (!t.due) return "";
     var d = daysUntil(t.due);
     var cls = d < 0 ? "text-danger fw-bold" : (d <= 7 ? "text-warning" : "text-muted");
     var extra = d < 0 ? " — OVERDUE" : "";
     return '<span class="' + cls + '">' + esc(t.due) + extra + "</span>";
+  }
+
+  /* Row title link per kind: lenovo ticket -> #ticket/<tno> (Ticket 360),
+   * general ticket -> General tickets tab, school -> audit editor (month
+   * preselected), manual task -> edit dialog. Serial -> #asset/<sn>. */
+  function titleLink(t) {
+    var label = esc(t.title);
+    if (t.kind === "ticket" && t.tno) {
+      return '<a href="#ticket/' + esc(encodeURIComponent(t.tno)) + '" data-todo-hash title="Open in Ticket 360">' + label + "</a>";
+    }
+    if (t.kind === "genticket") {
+      return '<a href="#" data-todo-goto="gtickets" title="Open in General tickets">' + label + "</a>";
+    }
+    if (t.kind === "school") {
+      return '<a href="#" data-todo-goto="audit" data-month="' + esc(t.month || "") + '" title="Open in audit editor">' + label + "</a>";
+    }
+    if (!t.auto) {
+      return '<a href="#" data-todo-goto="edit" data-id="' + esc(t.id) + '" title="Edit task">' + label + "</a>";
+    }
+    return label;
   }
 
   function taskRow(t) {
@@ -213,11 +251,20 @@
         return '<option value="' + p + '"' + ((t.priority || "auto") === p ? " selected" : "") + ">" +
           (p === "auto" ? "Auto" : p.charAt(0).toUpperCase() + p.slice(1)) + "</option>";
       }).join("") + "</select>";
+    var notesHtml = "";
+    if (t.kind === "ticket" && t.sn) {
+      /* Asset 360 routes on the normalized serial key (upper-case, no invisible chars). */
+      var akey = (QBR.invSerialKey ? QBR.invSerialKey(t.sn) : String(t.sn).toUpperCase().trim());
+      notesHtml = '<div class="small text-muted">Serial <a href="#asset/' + esc(encodeURIComponent(akey)) +
+        '" data-todo-hash title="Open in Asset 360">' + esc(t.sn) + "</a></div>";
+    } else if (t.notes) {
+      notesHtml = '<div class="small text-muted">' + esc(t.notes) + "</div>";
+    }
+    var dueHtml = dueLabel(t) ? '<div class="small">' + dueLabel(t) + "</div>" : "";
     return '<div class="todo-task d-flex align-items-center gap-2 py-1 border-bottom">' +
       '<span class="badge bg-' + u[2] + '">' + u[0] + " " + u[1] + "</span>" +
-      '<div class="flex-grow-1"><div>' + esc(t.title) + "</div>" +
-      (t.notes ? '<div class="small text-muted">' + esc(t.notes) + "</div>" : "") + "</div>" +
-      "<div class=\"small\">" + dueLabel(t) + "</div>" + prioCtl + doneBtn + "</div>";
+      '<div class="flex-grow-1"><div>' + titleLink(t) + "</div>" + notesHtml + "</div>" +
+      dueHtml + prioCtl + doneBtn + "</div>";
   }
 
   function render() {
@@ -227,14 +274,30 @@
     if (!u) { renderPicker(host); return; }
 
     var tasks = allTasks().filter(passFilters);
+    var counts = {};
+    PRODUCTS.forEach(function (p) {
+      counts[p.id] = tasks.filter(function (t) { return t.product === p.id; }).length;
+    });
+    var chips = PRODUCTS.map(function (p) {
+      return '<button class="btn btn-sm btn-outline-secondary" data-todo-jump="' + p.id + '">' +
+        esc(p.label) + ' <span class="badge bg-secondary">' + counts[p.id] + "</span></button>";
+    }).join("");
     var tiles = PRODUCTS.map(function (p) {
       var items = tasks.filter(function (t) { return t.product === p.id; });
-      var body = items.length
-        ? items.map(taskRow).join("")
+      var expanded = !!_expanded[p.id];
+      var shown = expanded ? items : items.slice(0, TILE_LIMIT);
+      var body = shown.length
+        ? shown.map(taskRow).join("")
         : '<div class="text-muted small px-2 py-1">Nothing here.</div>';
-      return '<div class="col-md-6 col-lg-4 mb-3"><div class="card-box h-100">' +
+      var more = "";
+      if (items.length > TILE_LIMIT) {
+        more = '<button class="btn btn-sm btn-link w-100" data-todo-more="' + p.id + '">' +
+          (expanded ? "Show less ↑" : "Show all " + items.length + " ↓") + "</button>";
+      }
+      return '<div class="col-md-6 col-lg-4 mb-3" id="todo-tile-' + p.id + '" style="scroll-margin-top:72px"><div class="card-box h-100">' +
         '<h6 class="mb-2">' + esc(p.label) + ' <span class="badge bg-secondary">' + items.length + "</span></h6>" +
-        body + "</div></div>";
+        '<div class="todo-tile-body" style="max-height:520px;overflow-y:auto;">' + body + "</div>" + more +
+        "</div></div>";
     }).join("");
 
     host.innerHTML =
@@ -255,6 +318,7 @@
               return '<option value="' + o[0] + '"' + (_filters.deadline === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
             }).join("") + "</select>" +
         "</span></div>" +
+      '<div class="d-flex flex-wrap gap-2 mb-3">' + chips + "</div>" +
       '<div class="row">' + tiles + "</div>" +
       '<div id="todo-modal-host"></div>';
 
@@ -296,21 +360,29 @@
     host.querySelector('[data-todo-act="back"]').addEventListener("click", render);
   }
 
-  function addDialog() {
+  function addDialog(editId) {
     var host = $("todo-modal-host");
+    var d = QBR.users.myData();
+    var ex = editId ? (d.todos || []).filter(function (t) { return t.id === editId; })[0] : null;
+    var ev = function (v) { return esc(v == null ? "" : v); };
     host.innerHTML = '<div class="modal-overlay open"><div class="scan-dialog card-box" role="dialog" aria-modal="true">' +
-      "<h6>Add task</h6>" +
-      '<label class="form-label small">Title *</label><input id="todo-a-title" class="form-control form-control-sm mb-2">' +
+      "<h6>" + (ex ? "Edit task" : "Add task") + "</h6>" +
+      '<label class="form-label small">Title *</label><input id="todo-a-title" class="form-control form-control-sm mb-2" value="' + ev(ex && ex.title) + '">' +
       '<div class="row g-2 mb-2"><div class="col-6"><label class="form-label small">Product</label>' +
       '<select id="todo-a-prod" class="form-select form-select-sm">' +
-      MANUAL_PRODUCTS.map(function (p) { return '<option value="' + p + '">' + p.charAt(0).toUpperCase() + p.slice(1) + "</option>"; }).join("") +
+      MANUAL_PRODUCTS.map(function (p) {
+        return '<option value="' + p + '"' + (ex && ex.product === p ? " selected" : "") + ">" +
+          p.charAt(0).toUpperCase() + p.slice(1) + "</option>";
+      }).join("") +
       '</select></div><div class="col-6"><label class="form-label small">Due date</label>' +
-      '<input id="todo-a-due" type="date" class="form-control form-control-sm"></div></div>' +
+      '<input id="todo-a-due" type="date" class="form-control form-control-sm" value="' + ev(ex && ex.due) + '"></div></div>' +
       '<label class="form-label small">Priority</label>' +
       '<select id="todo-a-prio" class="form-select form-select-sm mb-2">' +
-      '<option value="auto">Auto (from due date)</option><option value="high">High</option>' +
-      '<option value="medium">Medium</option><option value="low">Low</option></select>' +
-      '<label class="form-label small">Notes</label><textarea id="todo-a-notes" class="form-control form-control-sm mb-3" rows="2"></textarea>' +
+      [["auto", "Auto (from due date)"], ["high", "High"], ["medium", "Medium"], ["low", "Low"]].map(function (o) {
+        return '<option value="' + o[0] + '"' + (ex && (ex.priority || "auto") === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+      }).join("") + "</select>" +
+      '<label class="form-label small">Notes</label><textarea id="todo-a-notes" class="form-control form-control-sm mb-3" rows="2">' +
+      ev(ex && ex.notes) + "</textarea>" +
       '<div class="d-flex gap-2"><button class="btn btn-sm btn-primary" id="todo-a-save">Save</button>' +
       '<button class="btn btn-sm btn-outline-secondary" id="todo-a-cancel">Cancel</button></div>' +
       '<div id="todo-a-msg" class="small text-danger mt-2"></div></div></div>';
@@ -319,20 +391,72 @@
       if (e.target.classList.contains("modal-overlay")) host.innerHTML = "";
     });
     $("todo-a-save").addEventListener("click", function () {
-      var r = addTodo({
+      var f = {
         title: $("todo-a-title").value, product: $("todo-a-prod").value,
         due: $("todo-a-due").value || null, priority: $("todo-a-prio").value,
         notes: $("todo-a-notes").value
-      });
-      if (!r.ok) { $("todo-a-msg").textContent = r.error; return; }
+      };
+      if (ex) {
+        if (!String(f.title || "").trim()) { $("todo-a-msg").textContent = "Give the task a title."; return; }
+        if (!updateTodo(ex.id, f)) { $("todo-a-msg").textContent = "Task not found."; return; }
+      } else {
+        var r = addTodo(f);
+        if (!r.ok) { $("todo-a-msg").textContent = r.error; return; }
+      }
       render();
     });
+  }
+
+  function gotoTabSafe(tabId) {
+    if (typeof goToTab === "function") { goToTab(tabId); return; }
+    var btn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
+    if (btn) btn.click();
   }
 
   function bind(host) {
     var fu = $("todo-f-urg"), fd = $("todo-f-due");
     if (fu) fu.addEventListener("change", function () { _filters.urgency = fu.value; render(); });
     if (fd) fd.addEventListener("change", function () { _filters.deadline = fd.value; render(); });
+    host.querySelectorAll("[data-todo-jump]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var el = document.getElementById("todo-tile-" + b.dataset.todoJump);
+        if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+    host.querySelectorAll("[data-todo-more]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var k = b.dataset.todoMore;
+        _expanded[k] = !_expanded[k];
+        render();
+      });
+    });
+    /* Ticket 360 / Asset 360 links: openTicket360/openAsset360 leave the hash on
+     * #ticket/<tno>, so clicking the same row again after coming back would not
+     * fire hashchange (dead link), and the 360 handlers skip a ticket they think
+     * is already open. Clear that memo and re-apply the route ourselves. */
+    host.querySelectorAll("a[data-todo-hash]").forEach(function (a) {
+      a.addEventListener("click", function (e) {
+        var h = a.getAttribute("href");
+        try { QBR._invT360 = null; QBR._invA360 = null; } catch (err) {}
+        if (location.hash === h && typeof invApplyHash === "function") { e.preventDefault(); invApplyHash(); }
+      });
+    });
+    host.querySelectorAll("[data-todo-goto]").forEach(function (b) {
+      b.addEventListener("click", function (e) {
+        e.preventDefault();
+        var g = b.dataset.todoGoto;
+        if (g === "gtickets") { gotoTabSafe("dash-gtickets"); }
+        else if (g === "audit") {
+          try {
+            var m = b.dataset.month;
+            if (QBR._auditUI) { if (m) QBR._auditUI.month = m; }
+            else QBR._auditUI = { month: m || null, editing: null, adding: false, pasteFor: null };
+          } catch (err) {}
+          gotoTabSafe("dash-audit");
+        }
+        else if (g === "edit" && b.dataset.id) { addDialog(b.dataset.id.replace(/^m:/, "")); }
+      });
+    });
     host.querySelectorAll("[data-todo-act]").forEach(function (b) {
       b.addEventListener("click", function () {
         var act = b.dataset.todoAct, id = b.dataset.id;
@@ -377,6 +501,7 @@
     autoUrgency: autoUrgency,
     badgeCount: badgeCount,
     add: addTodo,
+    update: updateTodo,
     complete: completeTodo,
     setPriority: setPriority
   };
