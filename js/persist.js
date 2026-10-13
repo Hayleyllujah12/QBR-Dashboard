@@ -677,8 +677,17 @@ QBR.fsAfterSave = async function (kind, link, freshFile) {
     //     coordinates are still valid — carry them to the new fingerprint.
     //     (The rebuild path drops them beforehand via fsDropPatchState.)
     if (typeof QBR.fsCarryPatchState === "function") QBR.fsCarryPatchState(oldFp, newFp);
-    // 4. journal entries are now in the file — clear them
-    QBR.journalClearFp(oldFp);
+    // 4. journal entries now in the file — clear exactly those (2026-10-13: was the whole
+    //    fingerprint, which also dropped edits made during the save, other kinds' pending
+    //    edits and skipped ops). Whatever is left follows the file to its new fingerprint.
+    const lp = QBR._lastPatch;
+    if (lp && lp.fp === oldFp && lp.kind === kind && typeof QBR.journalClearIds === "function") {
+      QBR.journalClearIds(oldFp, lp.ids, "saved");
+      if (newFp && newFp !== oldFp && typeof QBR.journalMove === "function") QBR.journalMove(oldFp, newFp);
+    } else {
+      QBR.journalClearFp(oldFp);
+    }
+    QBR._lastPatch = null;
     // 5. persist the fresh bytes for session restore
     if (typeof cacheSession === "function") cacheSession();
   } catch (e) { console.warn("[QBR] post-save bookkeeping failed:", e && e.message); }

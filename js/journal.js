@@ -359,6 +359,21 @@
     }
     refreshUi();
   };
+  // 2026-10-13: clear only the ops a save actually wrote (by id). Kept 14 days in the trash.
+  QBR.journalClearIds = function (fp, ids, reason) {
+    if (!fp || !ids || !ids.length) { refreshUi(); return; }
+    var e = MEM.files[fp];
+    if (e && e.ops.length) {
+      var set = {}; ids.forEach(function (id) { set[id] = 1; });
+      var done = e.ops.filter(function (o) { return set[o.id]; });
+      if (done.length) {
+        trashAdd(fp, { fileName: e.fileName, ops: done }, reason || "saved");
+        removeOps(fp, done.map(function (o) { return o.id; }));
+        persist();
+      }
+    }
+    refreshUi();
+  };
   // Same bytes, new fingerprint (OneDrive touched the timestamp): move the ops.
   QBR.journalMove = function (oldFp, newFp) {
     if (!oldFp || !newFp || oldFp === newFp) return;
@@ -567,7 +582,7 @@
       var el = document.querySelector('[data-unsaved="' + kind + '"]');
       if (!el) return;
       el.dataset.persistBusy = "1";
-      el.innerHTML = " " + html;
+      el.textContent = " " + html;   // 2026-10-13: text only — messages carry file names (XSS via a crafted file name)
       setTimeout(function () { delete el.dataset.persistBusy; QBR.persistRefreshBadge(); }, ms || 3500);
     } catch (e) {}
   };

@@ -78,7 +78,7 @@ function dedupeBySchool(rows, metricFn) {
 function computeAggregates() {
   const m = APP.model, f = APP.filters;
   const risky = applyFilters(m.risky, { hasMonth: true });
-  const sec = m.security.filter(s => f.school === "ALL" || s.schoolRaw === f.school);
+  const sec = m.security.filter(s => (f.org === "ALL" || orgOf(s.key) === f.org) && (f.school === "ALL" || s.schoolRaw === f.school));
   const storage = applyFilters(m.storage);
   const usage = applyFilters(m.usage);
   const canva = applyFilters(m.canva);
