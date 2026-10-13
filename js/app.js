@@ -2250,7 +2250,11 @@ function applyFilterVisibility(tabId) {
     const el = $(id);
     if (el) el.style.display = applicable.includes(key) ? "" : "none";
   });
+  // Per-user pages have no shared filters at all → hide the whole bar (a lone Reset did nothing there).
+  const bar = document.querySelector(".filter-bar");
+  if (bar) bar.style.display = NO_FILTER_BAR.includes(tabId) ? "none" : "";
 }
+const NO_FILTER_BAR = ["dash-todo", "dash-gtickets"];
 
 function wireFilters() {
   // dropdown/select filters

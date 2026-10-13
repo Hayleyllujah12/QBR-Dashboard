@@ -21,6 +21,9 @@ const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail
     QBR._audit = QBR._audit || { months: {} }; QBR._audit.months = QBR._audit.months || {};
     QBR._audit.months[M] = QBR._audit.months[M] || { rows: [] };
     QBR._audit.months[M].rows.push({ school: "Demo School", org: "DEMO" });
+    QBR._audit.months[M].rows.push({ school: "Twin College Inc", org: "DEMO" }, { school: "TWIN COLLEGE INC.", org: "DEMO" });
+    QBR._audit.months[M].rows.push({ school: "Done Academy", org: "DEMO", risky: "" }, { school: "DONE ACADEMY", org: "DEMO", risky: 3 });
+    QBR.todo.add({ title: "Lenovo RMA follow-up", product: "lenovo", priority: "high" });
     goToTab("dash-todo");
   });
   await p.waitForTimeout(300);
@@ -65,6 +68,50 @@ const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail
   ok(/title/i.test(await p.textContent("#todo-a-msg")), "blank title on edit is refused with a message");
   await p.fill("#todo-a-title", "MS renewal (edited)"); await p.click("#todo-a-save"); await p.waitForTimeout(150);
   ok(await p.evaluate(() => /MS renewal \(edited\)/.test(document.getElementById("todo-tile-microsoft").textContent)), "edit saved");
+  console.log("== Phase A/B: urgency signals + colour coding");
+  const v = await p.evaluate(() => {
+    const rows = [...document.querySelectorAll("#dash-todo .todo-row")];
+    const lv = r => (r.className.match(/lv-(\w+)/) || [])[1];
+    const tix = [...document.querySelectorAll("#todo-tile-tickets .todo-row")];
+    const sch = [...document.querySelectorAll("#todo-tile-schools .todo-row")].map(r => r.querySelector(".todo-title").textContent);
+    const chip = r => (r.querySelector(".todo-chip") || {}).textContent || "";
+    const ms = [...document.querySelectorAll("#todo-tile-microsoft .todo-row")][0];
+    const bar = getComputedStyle(document.querySelector(".filter-bar")).display;
+    const rank = { overdue: 0, high: 1, medium: 2, low: 3 };
+    const tl = tix.map(lv);
+    return {
+      tixLevels: [...new Set(tl)], tixSorted: tl.every((x, i) => !i || rank[tl[i - 1]] <= rank[x]),
+      tixChip: chip(tix[0]), msLv: lv(ms), msChip: chip(ms), msBar: getComputedStyle(ms).borderLeftColor, msBg: getComputedStyle(ms).backgroundColor,
+      twin: sch.filter(t => /twin college/i.test(t)).length, done: sch.some(t => /done academy/i.test(t)),
+      schoolChip: chip([...document.querySelectorAll("#todo-tile-schools .todo-row")][0]),
+      lenovoHigh: lv(document.querySelector("#todo-tile-lenovo .todo-row")),
+      titlesUnderlined: getComputedStyle(document.querySelector("#dash-todo a.todo-title")).textDecorationLine,
+      legend: document.querySelectorAll("#dash-todo .todo-legend span[class^=lv-]").length,
+      filterBar: bar, badge: QBR.todo.badgeCount(),
+      wrapDate: [...document.querySelectorAll("#dash-todo .todo-chip")].every(c => c.getClientRects().length === 1),
+    };
+  });
+  ok(v.tixLevels.length > 1 && v.tixSorted, "tickets no longer all LOW, sorted worst first  " + JSON.stringify(v.tixLevels));
+  ok(/open \d+ days/.test(v.tixChip), "ticket chip shows its age  " + v.tixChip);
+  ok(v.msLv === "overdue" && /overdue/.test(v.msChip) && v.msBg !== "rgba(0, 0, 0, 0)", "overdue task: red bar + tint + 'N days overdue'  " + v.msChip);
+  ok(v.twin === 1 && !v.done, "audit: same school under two spellings listed once; audited-in-either counts as done");
+  ok(/in \d+ days|due today|overdue|[A-Z][a-z]{2} \d+/.test(v.schoolChip), "school rows carry the audit deadline  " + v.schoolChip);
+  ok(v.lenovoHigh === "high", "manual High task coloured high");
+  ok(v.titlesUnderlined === "none", "titles are plain text (underline only on hover)");
+  ok(v.legend === 4, "legend: Overdue / High / Due soon / Planned");
+  ok(v.filterBar === "none", "shared filter bar hidden on My To-Do");
+  ok(v.wrapDate, "time chips stay on one line");
+  await p.click("#todo-tile-microsoft .todo-row .todo-sub, #todo-tile-microsoft .todo-row .todo-main"); await p.waitForTimeout(150);
+  ok(await p.evaluate(() => !!document.getElementById("todo-a-title")), "clicking the row (not the title) opens the item");
+  await p.evaluate(() => { const c = document.getElementById("todo-a-cancel"); if (c) c.click(); });
+  await p.click("#todo-tile-lenovo input.todo-check"); await p.waitForTimeout(150);
+  ok(await p.evaluate(() => !document.querySelector("#todo-tile-lenovo .todo-row") && QBR.users.myData().history.some(h => /RMA/.test(h.title))), "checkbox marks done → History");
+  await p.evaluate(() => goToTab("dash-overview")); await p.waitForTimeout(150);
+  ok(await p.evaluate(() => getComputedStyle(document.querySelector(".filter-bar")).display !== "none"), "filter bar back on other tabs");
+  await p.evaluate(() => goToTab("dash-todo")); await p.waitForTimeout(150);
+  await p.screenshot({ path: path.join(__dirname, "..", "todo_light.png"), fullPage: true });
+  await p.evaluate(() => { document.body.setAttribute("data-theme", "dark"); QBR.todo.render(); }); await p.waitForTimeout(150);
+  await p.screenshot({ path: path.join(__dirname, "..", "todo_dark.png"), fullPage: true });
   ok(errs.length === 0, "no page errors  " + JSON.stringify(errs.slice(0, 3)));
   await b.close();
   console.log(`\nRESULT: ${pass} passed, ${fail} failed`);

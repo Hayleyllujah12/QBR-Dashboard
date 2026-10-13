@@ -27,6 +27,11 @@
   /* Tighten pass: capped tiles (TILE_LIMIT rows + "Show all"), jump chips,
    * clickable rows (deep links), manual tiles first. */
   var TILE_LIMIT = 10;
+  /* Urgency rules (2026-10-13, Lito): an open Lenovo ticket is HIGH after 30 days, MED after 14
+   * (or HIGH when the sheet's Priority says High/Critical/Urgent); the monthly risky sign-in audit
+   * is due on AUDIT_DUE_DAY, so a missing audit is LOW before the last week, MED in it, HIGH after. */
+  var TICKET_HIGH_DAYS = 30, TICKET_MED_DAYS = 14, AUDIT_DUE_DAY = 25;
+  var RANK = { high: 1, medium: 2, low: 3 };
   var _expanded = {};
   var MANUAL_PRODUCTS = ["microsoft", "lenovo", "general"];
 
@@ -76,17 +81,40 @@
       if (!inv || !inv.tickets) return out;
       inv.tickets.forEach(function (t) {
         if (typeof invTixOpen === "function" ? !invTixOpen(t) : /^(resolved|completed|closed)$/i.test(String(t.status || ""))) return;
+        var age = ticketAgeDays(t);
         out.push({
           id: "auto:lenovo:" + (t.tno || t.key || Math.random().toString(36).slice(2)),
           auto: true, kind: "ticket",
-          title: (t.tno || "Ticket") + " — " + (t.issue || t.subject || "Lenovo ticket"),
-          product: "tickets", due: t.followUp || t.due || null,
+          title: (t.issue || t.subject || "Lenovo ticket"),
+          product: "tickets", due: t.followUp || t.due || null, age: age,
+          client: t.client || "", sheetPriority: t.priority || "",
           tno: t.tno || null, sn: t.sn || null, urgency: "low"
         });
       });
     } catch (e) {}
-    out.forEach(function (x) { x.urgency = autoUrgency(x.due); });
+    out.forEach(function (x) { x.urgency = ticketUrgency(x); });
     return out;
+  }
+
+  /* Days a Lenovo ticket has been open: the ticket number carries its date (<SERIAL>-YYYYMMDD);
+   * else the date it was reported to EdTech / Lenovo. null when unknown. */
+  function ticketAgeDays(t) {
+    var d = null, m = /(\d{4})(\d{2})(\d{2})(?:-\d+)?$/.exec(String(t.tno || ""));
+    if (m) d = new Date(+m[1], +m[2] - 1, +m[3]);
+    if ((!d || isNaN(d)) && t.repEdtech instanceof Date) d = t.repEdtech;
+    if ((!d || isNaN(d)) && t.repLenovo instanceof Date) d = t.repLenovo;
+    if (!d || isNaN(d)) return null;
+    var now = new Date(); now.setHours(0, 0, 0, 0);
+    var n = Math.round((now - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+    return n >= 0 ? n : 0;
+  }
+  function ticketUrgency(x) {
+    var u = [];
+    if (/^(high|critical|urgent|p1)/i.test(String(x.sheetPriority || "").trim())) u.push("high");
+    if (x.age != null) u.push(x.age > TICKET_HIGH_DAYS ? "high" : x.age >= TICKET_MED_DAYS ? "medium" : "low");
+    if (x.due) u.push(autoUrgency(x.due));
+    if (!u.length) return "low";
+    return u.sort(function (a, b) { return RANK[a] - RANK[b]; })[0];
   }
 
   function openGeneralTickets() {
@@ -113,19 +141,36 @@
       if (!a || !a.months) return out;
       var months = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
                     "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
-      var m = months[new Date().getMonth()];
+      var now = new Date(), m = months[now.getMonth()];
       var ms = a.months[m];
       if (!ms || !ms.rows) return out;
+      var due = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(AUDIT_DUE_DAY).padStart(2, "0");
+      /* One entry per school: the audit sheet can hold the same school under two spellings
+       * ("Dr Yanga's Colleges Inc" / "DR. YANGA'S COLLEGES INC."). Same join key as the rest of
+       * the dashboard; audited if ANY of its rows has a value; display = master-list name. */
+      var keyOf = typeof schoolKey === "function" ? schoolKey : function (n) { return String(n || "").toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim(); };
+      var master = (typeof APP !== "undefined" && APP.model && APP.model.master) || null;
+      var groups = {}, order = [];
       ms.rows.forEach(function (rec) {
-        if (rec.exempt) return;
-        var hasRisky = rec.risky != null && String(rec.risky).trim() !== "";
-        if (hasRisky) return;
+        var k = keyOf(rec.school);
+        if (!k) return;
+        if (!groups[k]) { groups[k] = { recs: [], done: false, exempt: false }; order.push(k); }
+        var g = groups[k];
+        g.recs.push(rec);
+        if (rec.exempt) g.exempt = true;
+        if (rec.risky != null && String(rec.risky).trim() !== "") g.done = true;
+      });
+      order.forEach(function (k) {
+        var g = groups[k], rec = g.recs[0];
+        if (g.done || g.exempt) return;
+        var mm = master && master.get ? master.get(k) : null;
+        var name = (mm && mm.name) || rec.school || "Unknown school";
         out.push({
-          id: "auto:school:" + m + ":" + String(rec.school || "").toLowerCase(),
+          id: "auto:school:" + m + ":" + k.toLowerCase(),
           auto: true, kind: "school",
-          title: (rec.school || "Unknown school") + " — " + m.charAt(0) + m.slice(1).toLowerCase() + " audit missing",
-          product: "schools", due: null, notes: rec.org || "", urgency: "medium",
-          month: m, school: rec.school || ""
+          title: name + " — " + m.charAt(0) + m.slice(1).toLowerCase() + " audit missing",
+          product: "schools", due: due, notes: rec.org || "", urgency: autoUrgency(due),
+          month: m, school: rec.school || "", dupes: g.recs.length
         });
       });
     } catch (e) {}
@@ -204,7 +249,7 @@
   function badgeCount() {
     try {
       return allTasks().filter(function (t) {
-        return t.urgency === "high" || daysUntil(t.due) < 0;
+        return isOverdue(t) || (!t.auto && t.urgency === "high");
       }).length;
     } catch (e) { return 0; }
   }
@@ -212,59 +257,90 @@
   /* --- render ------------------------------------------------------------ */
   var URG = { high: ["●", "HIGH", "danger"], medium: ["▲", "MED", "warning"], low: ["○", "LOW", "secondary"] };
 
-  function dueLabel(t) {
-    if (!t.due) return "";
-    var d = daysUntil(t.due);
-    var cls = d < 0 ? "text-danger fw-bold" : (d <= 7 ? "text-warning" : "text-muted");
-    var extra = d < 0 ? " — OVERDUE" : "";
-    return '<span class="' + cls + '">' + esc(t.due) + extra + "</span>";
+  function isOverdue(t) { var d = daysUntil(t.due); return d != null && d < 0; }
+  /* Visual level: overdue > high > medium > low (colour + word, never colour alone). */
+  function levelOf(t) { return isOverdue(t) ? "overdue" : (t.urgency || "low"); }
+  var LEVEL = {
+    overdue: { word: "Overdue", icon: "⚠" },
+    high: { word: "High", icon: "●" },
+    medium: { word: "Due soon", icon: "▲" },
+    low: { word: "Planned", icon: "○" }
+  };
+  function sortTasks(list) {
+    var r = { overdue: 0, high: 1, medium: 2, low: 3 };
+    return list.slice().sort(function (a, b) {
+      var x = r[levelOf(a)] - r[levelOf(b)];
+      if (x) return x;
+      var da = daysUntil(a.due), db = daysUntil(b.due);
+      if (da != null || db != null) { if (da == null) return 1; if (db == null) return -1; if (da !== db) return da - db; }
+      return (b.age || 0) - (a.age || 0);
+    });
+  }
+  var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  /* One-line time chip: "5 days overdue", "today", "in 3 days", "Oct 16"; tickets: "open 207 days". */
+  function timeChip(t) {
+    var lv = levelOf(t), d = daysUntil(t.due), txt = "";
+    if (d != null) {
+      if (d < -60) { var q = String(t.due).split("-"); txt = "overdue since " + MON[(+q[1] || 1) - 1] + " " + q[0]; }
+      else if (d < 0) txt = (-d) + (d === -1 ? " day" : " days") + " overdue";
+      else if (d === 0) txt = "due today";
+      else if (d <= 7) txt = "in " + d + (d === 1 ? " day" : " days");
+      else { var p = String(t.due).split("-"); txt = MON[(+p[1] || 1) - 1] + " " + (+p[2] || ""); }
+    }
+    if (t.kind === "ticket" && t.age != null) txt = (txt ? txt + " · " : "") + "open " + t.age + (t.age === 1 ? " day" : " days");
+    if (!txt) return "";
+    return '<span class="todo-chip lv-' + lv + '" title="' + esc(t.due || "") + '">' + esc(txt) + "</span>";
   }
 
-  /* Row title link per kind: lenovo ticket -> #ticket/<tno> (Ticket 360),
-   * general ticket -> General tickets tab, school -> audit editor (month
-   * preselected), manual task -> edit dialog. Serial -> #asset/<sn>. */
+  /* Title opens the item (row click does the same): lenovo ticket -> #ticket/<tno> (Ticket 360),
+   * general ticket -> General tickets tab, school -> audit editor (month preselected),
+   * manual task -> edit dialog. Plain text look; underline on hover/focus only. */
   function titleLink(t) {
     var label = esc(t.title);
     if (t.kind === "ticket" && t.tno) {
-      return '<a href="#ticket/' + esc(encodeURIComponent(t.tno)) + '" data-todo-hash title="Open in Ticket 360">' + label + "</a>";
+      return '<a class="todo-title" href="#ticket/' + esc(encodeURIComponent(t.tno)) + '" data-todo-hash title="Open in Ticket 360">' + label + "</a>";
     }
     if (t.kind === "genticket") {
-      return '<a href="#" data-todo-goto="gtickets" title="Open in General tickets">' + label + "</a>";
+      return '<a class="todo-title" href="#" data-todo-goto="gtickets" title="Open in General tickets">' + label + "</a>";
     }
     if (t.kind === "school") {
-      return '<a href="#" data-todo-goto="audit" data-month="' + esc(t.month || "") + '" title="Open in audit editor">' + label + "</a>";
+      return '<a class="todo-title" href="#" data-todo-goto="audit" data-month="' + esc(t.month || "") + '" title="Open in audit editor">' + label + "</a>";
     }
     if (!t.auto) {
-      return '<a href="#" data-todo-goto="edit" data-id="' + esc(t.id) + '" title="Edit task">' + label + "</a>";
+      return '<a class="todo-title" href="#" data-todo-goto="edit" data-id="' + esc(t.id) + '" title="Edit task">' + label + "</a>";
     }
-    return label;
+    return '<span class="todo-title">' + label + "</span>";
+  }
+
+  function subLine(t) {
+    var bits = [];
+    if (t.kind === "ticket") {
+      if (t.tno) bits.push(esc(t.tno));
+      if (t.sn) {
+        /* Asset 360 routes on the normalized serial key (upper-case, no invisible chars). */
+        var akey = (QBR.invSerialKey ? QBR.invSerialKey(t.sn) : String(t.sn).toUpperCase().trim());
+        bits.push('Serial <a href="#asset/' + esc(encodeURIComponent(akey)) + '" data-todo-hash title="Open in Asset 360">' + esc(t.sn) + "</a>");
+      }
+      if (t.client) bits.push(esc(t.client));
+    } else if (t.notes) bits.push(esc(t.notes));
+    if (t.auto) bits.push('<span class="todo-auto" title="Clears automatically when the work is done at the source">auto</span>');
+    return bits.length ? '<span class="todo-sub">' + bits.join(" · ") + "</span>" : "";
   }
 
   function taskRow(t) {
-    var u = URG[t.urgency] || URG.low;
-    var doneBtn = t.auto
-      ? '<span class="badge bg-info" title="Resolves automatically when the underlying work is done">auto</span>'
-      : '<button class="btn btn-sm btn-outline-success" data-todo-act="done" data-id="' + esc(t.id) + '">✓ Done</button>';
+    var lv = levelOf(t), L = LEVEL[lv];
+    var check = t.auto ? '<span class="todo-check-ph" aria-hidden="true"></span>'
+      : '<input type="checkbox" class="form-check-input todo-check" data-todo-act="done" data-id="' + esc(t.id) + '" aria-label="Mark this task done">';
     var prioCtl = t.auto ? "" :
-      '<select class="form-select form-select-sm d-inline-block w-auto" data-todo-prio="' + esc(t.id) + '" title="Urgency override">' +
+      '<select class="form-select form-select-sm todo-prio" data-todo-prio="' + esc(t.id) + '" aria-label="Urgency override">' +
       ["auto", "high", "medium", "low"].map(function (p) {
         return '<option value="' + p + '"' + ((t.priority || "auto") === p ? " selected" : "") + ">" +
           (p === "auto" ? "Auto" : p.charAt(0).toUpperCase() + p.slice(1)) + "</option>";
       }).join("") + "</select>";
-    var notesHtml = "";
-    if (t.kind === "ticket" && t.sn) {
-      /* Asset 360 routes on the normalized serial key (upper-case, no invisible chars). */
-      var akey = (QBR.invSerialKey ? QBR.invSerialKey(t.sn) : String(t.sn).toUpperCase().trim());
-      notesHtml = '<div class="small text-muted">Serial <a href="#asset/' + esc(encodeURIComponent(akey)) +
-        '" data-todo-hash title="Open in Asset 360">' + esc(t.sn) + "</a></div>";
-    } else if (t.notes) {
-      notesHtml = '<div class="small text-muted">' + esc(t.notes) + "</div>";
-    }
-    var dueHtml = dueLabel(t) ? '<div class="small">' + dueLabel(t) + "</div>" : "";
-    return '<div class="todo-task d-flex align-items-center gap-2 py-1 border-bottom">' +
-      '<span class="badge bg-' + u[2] + '">' + u[0] + " " + u[1] + "</span>" +
-      '<div class="flex-grow-1"><div>' + titleLink(t) + "</div>" + notesHtml + "</div>" +
-      dueHtml + prioCtl + doneBtn + "</div>";
+    return '<div class="todo-task todo-row lv-' + lv + '">' + check +
+      '<div class="todo-main"><span class="visually-hidden">' + L.word + ": </span>" + titleLink(t) +
+      '<div class="todo-meta">' + timeChip(t) + subLine(t) + "</div></div>" +
+      (prioCtl ? '<span class="todo-ctl">' + prioCtl + "</span>" : "") + "</div>";
   }
 
   function render() {
@@ -283,19 +359,23 @@
         esc(p.label) + ' <span class="badge bg-secondary">' + counts[p.id] + "</span></button>";
     }).join("");
     var tiles = PRODUCTS.map(function (p) {
-      var items = tasks.filter(function (t) { return t.product === p.id; });
+      var items = sortTasks(tasks.filter(function (t) { return t.product === p.id; }));
       var expanded = !!_expanded[p.id];
       var shown = expanded ? items : items.slice(0, TILE_LIMIT);
       var body = shown.length
         ? shown.map(taskRow).join("")
-        : '<div class="text-muted small px-2 py-1">Nothing here.</div>';
+        : '<div class="todo-empty">Nothing here.</div>';
       var more = "";
       if (items.length > TILE_LIMIT) {
         more = '<button class="btn btn-sm btn-link w-100" data-todo-more="' + p.id + '">' +
           (expanded ? "Show less ↑" : "Show all " + items.length + " ↓") + "</button>";
       }
-      return '<div class="col-md-6 col-lg-4 mb-3" id="todo-tile-' + p.id + '" style="scroll-margin-top:72px"><div class="card-box h-100">' +
-        '<h6 class="mb-2">' + esc(p.label) + ' <span class="badge bg-secondary">' + items.length + "</span></h6>" +
+      var manual = MANUAL_PRODUCTS.indexOf(p.id) >= 0;
+      var hot = items.filter(function (t) { var l = levelOf(t); return l === "overdue" || l === "high"; }).length;
+      return '<div class="' + (manual ? "col-md-6 col-lg-4" : "col-xl-6") + ' mb-3" id="todo-tile-' + p.id + '" style="scroll-margin-top:72px">' +
+        '<div class="card-box todo-tile todo-p-' + p.id + '">' +
+        '<h6 class="mb-2">' + esc(p.label) + ' <span class="badge bg-secondary">' + items.length + "</span>" +
+        (hot ? ' <span class="todo-hot">' + hot + " urgent</span>" : "") + "</h6>" +
         '<div class="todo-tile-body" style="max-height:520px;overflow-y:auto;">' + body + "</div>" + more +
         "</div></div>";
     }).join("");
@@ -318,8 +398,12 @@
               return '<option value="' + o[0] + '"' + (_filters.deadline === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
             }).join("") + "</select>" +
         "</span></div>" +
-      '<div class="d-flex flex-wrap gap-2 mb-3">' + chips + "</div>" +
-      '<div class="row">' + tiles + "</div>" +
+      '<div class="d-flex flex-wrap gap-2 mb-2">' + chips + "</div>" +
+      '<div class="todo-legend mb-3" aria-hidden="true">' + ["overdue", "high", "medium", "low"].map(function (k) {
+        return '<span class="lv-' + k + '"><i></i>' + LEVEL[k].word + "</span>";
+      }).join("") + '<span class="todo-legend-note">Tickets: High after ' + TICKET_HIGH_DAYS + " days open, due soon after " + TICKET_MED_DAYS +
+      " · Audit due on the " + AUDIT_DUE_DAY + "th</span></div>" +
+      '<div class="row align-items-start">' + tiles + "</div>" +
       '<div id="todo-modal-host"></div>';
 
     bind(host);
@@ -457,7 +541,17 @@
         else if (g === "edit" && b.dataset.id) { addDialog(b.dataset.id.replace(/^m:/, "")); }
       });
     });
-    host.querySelectorAll("[data-todo-act]").forEach(function (b) {
+    host.querySelectorAll("input.todo-check").forEach(function (c) {
+      c.addEventListener("change", function () { if (c.checked) { completeTodo(c.dataset.id.replace(/^m:/, "")); render(); } });
+    });
+    /* Whole row opens the item, except clicks on its own controls/links. */
+    host.querySelectorAll(".todo-row").forEach(function (row) {
+      row.addEventListener("click", function (e) {
+        if (e.target.closest("a, button, input, select, label")) return;
+        var a = row.querySelector("a.todo-title"); if (a) a.click();
+      });
+    });
+    host.querySelectorAll("[data-todo-act]:not(input)").forEach(function (b) {
       b.addEventListener("click", function () {
         var act = b.dataset.todoAct, id = b.dataset.id;
         if (act === "done" && id) { completeTodo(id.replace(/^m:/, "")); render(); }
