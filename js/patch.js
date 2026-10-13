@@ -794,7 +794,7 @@ function pBumpRanges(wb, srcSheet, oldLast, newLast) {
 /* Replay the mutation journal for (kind, fp) as cell writes into the ORIGINAL
  * workbook. Returns {ok, applied, skipped, appended, notes[]}. */
 QBR.patchWorkbookFromJournal = function (kind, wb, fp) {
-  const report = { ok: true, applied: 0, skipped: 0, appended: 0, bumped: 0, notes: [] };
+  const report = { ok: true, applied: 0, skipped: 0, appended: 0, bumped: 0, notes: [], ids: [] };
   if (!wb || !fp || typeof XLSX === "undefined") return Object.assign(report, { ok: false, error: "no workbook" });
   // v1.30.0: read through the journal module (in-memory store survives a full localStorage).
   if (typeof QBR.journalEntries !== "function") return Object.assign(report, { ok: false, error: "no journal" });
@@ -810,6 +810,7 @@ QBR.patchWorkbookFromJournal = function (kind, wb, fp) {
     catch (err) { res = "skip: " + ((err && err.message) || err); }
     if (res === "ok" || res === "noop") {
       report.applied++;
+      if (o.id) report.ids.push(o.id);
       if (res === "ok") logRows.push([new Date(), o.op, pLogDetail(o.op, o.args)]);
     } else {
       report.skipped++;
@@ -819,6 +820,9 @@ QBR.patchWorkbookFromJournal = function (kind, wb, fp) {
   if (logRows.length) {
     try { pAppendEditLog(wb, logRows); } catch (e) { report.notes.push("edit-log: " + (e && e.message)); }
   }
+  /* 2026-10-13: remember exactly which ops this pass wrote, so the save clears only those
+   * (edits made while the save was running, other kinds, and skipped ops stay pending). */
+  QBR._lastPatch = { kind: kind, fp: fp, ids: report.ids.slice(), at: Date.now() };
   return report;
 };
 

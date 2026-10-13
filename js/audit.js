@@ -443,12 +443,15 @@
    * without a header row. Returns {values} or {error}. */
   QBR.auditParsePaste = function (text) {
     if (text == null || String(text).trim() === "") return { error: "empty" };
-    const lines = String(text).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const lines = String(text).split(/\r?\n/).filter(l => l.trim() !== "");
     if (!lines.length) return { error: "empty" };
     const splitLine = l => {
       // Prefer tabs (Excel copy); fall back to commas (raw CSV).
-      let parts = l.split("\t");
-      if (parts.length < 2) parts = l.split(",");
+      // 2026-10-13: blanks are KEPT (a blank Risky cell must not shift Health into Risky);
+      // commas only when there is no tab, and quoted fields may contain commas.
+      let parts;
+      if (l.indexOf("\t") >= 0) parts = l.split("\t");
+      else { parts = []; let cur = "", q = false; for (const ch of l) { if (ch === '"') q = !q; else if (ch === "," && !q) { parts.push(cur); cur = ""; } else cur += ch; } parts.push(cur); }
       return parts.map(p => p.trim().replace(/^"|"$/g, "").trim());
     };
     let vals = splitLine(lines[0]);
@@ -457,8 +460,8 @@
       if (lines.length < 2) return { error: "header-only" };
       vals = splitLine(lines[1]);
     }
-    vals = vals.filter(v => v !== "");
-    if (!vals.length) return { error: "empty" };
+    while (vals.length && vals[vals.length - 1] === "") vals.pop();   // trailing blanks only
+    if (!vals.some(v => v !== "")) return { error: "empty" };
     return { values: vals };
   };
 

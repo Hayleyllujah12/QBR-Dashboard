@@ -54,6 +54,22 @@ function invDate(v) {
   if (!isNaN(t)) { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
   return null;
 }
+/* Warranty end = start + N years (fractions in whole months), same day of month or the
+ * month's last day (31 Jan + 1 y -> 31 Jan; 29 Feb + 1 y -> 28 Feb). Was capped at day 28
+ * (ended up to 3 days early) and dropped fractional years. */
+QBR.invAddYears = function (start, years) {
+  if (!(start instanceof Date) || isNaN(start) || years == null || !isFinite(years)) return null;
+  const months = Math.round(Number(years) * 12);
+  const y = start.getFullYear(), m = start.getMonth() + months;
+  const last = new Date(y, m + 1, 0).getDate();
+  return new Date(y, m, Math.min(start.getDate(), last));
+};
+/* Local YYYY-MM-DD for <input type=date> (toISOString is UTC: one day early east of UTC). */
+function invYmd(d) {
+  const dd = (d instanceof Date && !isNaN(d)) ? d : invDate(d);
+  if (!dd || isNaN(dd)) return "";
+  return dd.getFullYear() + "-" + String(dd.getMonth() + 1).padStart(2, "0") + "-" + String(dd.getDate()).padStart(2, "0");
+}
 function invFmtDate(d) {
   if (!d) return "—";
   // Defensive: coerce strings/serials (e.g. a journal-replayed ISO date that
@@ -505,7 +521,7 @@ QBR.invIntake = function (list) {
       cond: "No Issue", contact: null, addr: null, phone: null, batch: r.batch || null, statusOverride: null,
     });
     const a = inv.assets[inv.assets.length - 1];
-    if (a.wstart && a.wyears) a.wend = new Date(a.wstart.getFullYear() + a.wyears, a.wstart.getMonth(), Math.min(a.wstart.getDate(), 28));
+    if (a.wstart && a.wyears) a.wend = QBR.invAddYears(a.wstart, a.wyears);
     QBR.invLog("intake", sn + (r.client ? " → " + r.client : " (in stock)"));
     n++;
   });
@@ -515,7 +531,8 @@ QBR.invIntake = function (list) {
 
 QBR.invDeploy = function (keys, client, dateDelivered, sq) {
   const inv = invModel(); if (!inv) return 0;
-  const byKey = new Map(inv.assets.map(a => [a.key, a]));
+  const byKey = new Map();   // first row wins, like invUpdateAsset / Asset 360 / patchInvDeploy (.find)
+  inv.assets.forEach(a => { if (!byKey.has(a.key)) byKey.set(a.key, a); });
   let n = 0;
   (keys || []).forEach(k => {
     const a = byKey.get(QBR.invSerialKey(k));
@@ -945,7 +962,7 @@ QBR.invBulkPlan = function (keys, f) {
       const y = yrs != null ? yrs : (a.wyears || 3);
       if (st instanceof Date && !isNaN(st)) {
         const months = Math.round(y * 12);
-        set("wend", "Warranty end", new Date(st.getFullYear(), st.getMonth() + months, Math.min(st.getDate(), 28)));
+        set("wend", "Warranty end", QBR.invAddYears(st, months / 12));
       }
     }
     let wend = null;
@@ -2287,8 +2304,8 @@ function renderTicket360Panel() {
         <select id="t360e-cat" class="form-select form-select-sm">${["Hardware", "Software", "Network"].map(c => `<option${c === t.cat ? " selected" : ""}>${c}</option>`).join("")}</select></div>
       <div class="col-md-4"><label class="form-label small">Priority</label>
         <select id="t360e-prio" class="form-select form-select-sm"><option value="">—</option>${TIX_PRIORITIES.map(p => `<option${p === t.priority ? " selected" : ""}>${p}</option>`).join("")}</select></div>
-      <div class="col-md-4"><label class="form-label small">Reported to EdTech</label><input id="t360e-edtech" type="date" class="form-control form-control-sm" value="${t.repEdtech ? t.repEdtech.toISOString().slice(0, 10) : ""}"></div>
-      <div class="col-md-4"><label class="form-label small">Reported to Lenovo</label><input id="t360e-lenovo" type="date" class="form-control form-control-sm" value="${t.repLenovo ? t.repLenovo.toISOString().slice(0, 10) : ""}"></div>
+      <div class="col-md-4"><label class="form-label small">Reported to EdTech</label><input id="t360e-edtech" type="date" class="form-control form-control-sm" value="${t.repEdtech ? invYmd(t.repEdtech) : ""}"></div>
+      <div class="col-md-4"><label class="form-label small">Reported to Lenovo</label><input id="t360e-lenovo" type="date" class="form-control form-control-sm" value="${t.repLenovo ? invYmd(t.repLenovo) : ""}"></div>
       <div class="col-12"><label class="form-label small">Initial findings</label><input id="t360e-act" class="form-control form-control-sm" value="${esc(t.act || "")}"></div>
     </div>
     <div class="mt-2"><button type="button" class="btn btn-sm btn-primary" id="t360e-save">Save changes</button></div></div>` : "";

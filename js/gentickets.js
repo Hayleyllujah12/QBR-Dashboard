@@ -94,7 +94,8 @@
     if (!text) return false;
     var arr = list(), t = arr.filter(function (x) { return x.tno === tno; })[0];
     if (!t) return false;
-    t.notes.push({ d: new Date().toISOString().slice(0, 10), text: text });
+    if (!Array.isArray(t.notes)) t.notes = t.notes ? [{ d: "", text: String(t.notes) }] : [];   // older string notes
+    t.notes.push({ d: localDay(new Date().toISOString()), text: text });
     saveAll(arr);
     return true;
   }
@@ -115,11 +116,25 @@
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   }
 
+  /* Import ledger per user (was one global key: a second user importing the same file got 0 tickets). */
+  function seenKey() {
+    var u = (QBR.users && QBR.users.current) ? QBR.users.current() : null;
+    return "qbr-gtix-import-v1:" + ((u && u.id) || "nouser");
+  }
+  /* Excel date cells / common date text -> local YYYY-MM-DD; "" when not a date. */
+  function normDate(v) {
+    if (v instanceof Date && !isNaN(v)) return v.getFullYear() + "-" + String(v.getMonth() + 1).padStart(2, "0") + "-" + String(v.getDate()).padStart(2, "0");
+    var t = String(v == null ? "" : v).trim(), m;
+    if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(t))) return m[1] + "-" + m[2].padStart(2, "0") + "-" + m[3].padStart(2, "0");
+    if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(t))) return m[3] + "-" + m[1].padStart(2, "0") + "-" + m[2].padStart(2, "0");   // m/d/yyyy (Excel US)
+    return "";
+  }
+
   function existingFingerprints() {
     var set = {};
     list().forEach(function (t) { set[fingerprint({ date: localDay(t.createdAt), time: "", title: t.title, requester: t.requester })] = 1; });
     try {
-      var seen = JSON.parse(localStorage.getItem("qbr-gtix-import-v1") || "{}");
+      var seen = JSON.parse(localStorage.getItem(seenKey()) || "{}");
       Object.keys(seen).forEach(function (k) { set[k] = 1; });
     } catch (e) {}
     return set;
@@ -133,7 +148,7 @@
       var rd = new FileReader();
       rd.onload = function () {
         try {
-          var wb = XLSX.read(rd.result, { type: "array" });
+          var wb = XLSX.read(rd.result, { type: "array", cellDates: true });
           var ws = wb.Sheets[wb.SheetNames[0]];
           var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
           if (!rows.length) return res([]);
@@ -154,11 +169,16 @@
           if (c.title < 0) return rej(new Error("No Title column found."));
           var out = [];
           for (var r = 1; r < rows.length; r++) {
-            var row = rows[r], g = function (i) { return i >= 0 && row[i] != null ? String(row[i]).trim() : ""; };
+            var row = rows[r], g = function (i) {
+              if (i < 0 || row[i] == null) return "";
+              var v = row[i];
+              if (v instanceof Date) return (i === c.time) ? String(v.getHours()).padStart(2, "0") + ":" + String(v.getMinutes()).padStart(2, "0") : normDate(v);
+              return String(v).trim();
+            };
             if (!g(c.title)) continue;
             out.push({
               title: g(c.title), requester: g(c.requester), client: g(c.client),
-              priority: g(c.priority), due: g(c.due), date: g(c.date), time: g(c.time),
+              priority: g(c.priority), due: normDate(g(c.due)), date: normDate(g(c.date)) || g(c.date), time: g(c.time),
               notes: g(c.notes), serial: g(c.serial)
             });
           }
@@ -171,16 +191,18 @@
   }
 
   function previewImport(cands) {
-    var seen = existingFingerprints();
+    var seen = existingFingerprints(), inFile = {};
     return cands.map(function (r) {
       var fp = fingerprint(r);
-      return { row: r, fp: fp, dupe: !!seen[fp] };
+      var dupe = !!seen[fp] || !!inFile[fp];   // also the same row twice in one file
+      inFile[fp] = 1;
+      return { row: r, fp: fp, dupe: dupe };
     });
   }
 
   function confirmImport(items) {
     var seen = {};
-    try { seen = JSON.parse(localStorage.getItem("qbr-gtix-import-v1") || "{}"); } catch (e) {}
+    try { seen = JSON.parse(localStorage.getItem(seenKey()) || "{}"); } catch (e) {}
     var n = 0, skipped = 0;
     items.forEach(function (it) {
       if (it.dupe || seen[it.fp]) { skipped++; return; }
@@ -191,7 +213,7 @@
       });
       if (r.ok) { n++; seen[it.fp] = 1; }
     });
-    try { localStorage.setItem("qbr-gtix-import-v1", JSON.stringify(seen)); } catch (e) {}
+    try { localStorage.setItem(seenKey(), JSON.stringify(seen)); } catch (e) {}
     return { imported: n, skipped: skipped };
   }
 

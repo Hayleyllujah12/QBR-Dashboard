@@ -99,8 +99,13 @@
   /* Days a Lenovo ticket has been open: the ticket number carries its date (<SERIAL>-YYYYMMDD);
    * else the date it was reported to EdTech / Lenovo. null when unknown. */
   function ticketAgeDays(t) {
-    var d = null, m = /(\d{4})(\d{2})(\d{2})(?:-\d+)?$/.exec(String(t.tno || ""));
-    if (m) d = new Date(+m[1], +m[2] - 1, +m[3]);
+    /* Only "<SERIAL>-YYYYMMDD[-n]" with a real calendar date counts (a numeric Lenovo case
+     * number like "PF12345678" must not read as the year 1234). */
+    var d = null, m = /-(\d{4})(\d{2})(\d{2})(?:-\d+)?$/.exec(String(t.tno || ""));
+    if (m && +m[1] >= 2000 && +m[1] <= 2100) {
+      d = new Date(+m[1], +m[2] - 1, +m[3]);
+      if (d.getMonth() !== +m[2] - 1 || d.getDate() !== +m[3]) d = null;
+    }
     if ((!d || isNaN(d)) && t.repEdtech instanceof Date) d = t.repEdtech;
     if ((!d || isNaN(d)) && t.repLenovo instanceof Date) d = t.repLenovo;
     if (!d || isNaN(d)) return null;

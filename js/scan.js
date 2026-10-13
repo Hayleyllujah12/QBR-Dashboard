@@ -1090,7 +1090,7 @@ function scanBatchTagDialog(mode, preset) {
       if (ws && f.wMode === "start" && i.kind !== "new" && (!a.wstart || f.wOver)) {
         const yrs = a.wyears || 3;
         patch.wstart = f.date;
-        patch.wend = new Date(ws.getFullYear() + yrs, ws.getMonth(), Math.min(ws.getDate(), 28));
+        patch.wend = QBR.invAddYears ? QBR.invAddYears(ws, yrs) : new Date(ws.getFullYear() + yrs, ws.getMonth(), Math.min(ws.getDate(), 28));
       }
       if (Object.keys(patch).length) QBR.invUpdateAsset(a.key, patch);
       // known warranty end: the row's own date wins; else the batch date (per scope)
