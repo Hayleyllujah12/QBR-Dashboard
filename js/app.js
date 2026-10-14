@@ -182,6 +182,11 @@ function makeTablesResizable() {
 /* ---------- data-label spec helper (in-chart value labels) --------------- */
 // Builds the dataLabels option consumed by the qbrLabels plugin. `mode` is one
 // of donut|hbar|vbar|line. Merges into an existing opts object when given.
+/* Category-axis label trim for horizontal org charts (full name stays in the tooltip). */
+function orgAxis(max) {
+  max = max || 30;
+  return { autoSkip: false, callback: function (v) { const t = String(this.getLabelForValue(v)); return t.length > max ? t.slice(0, max - 1) + "…" : t; } };
+}
 function DL(mode, labels, opts) { return Object.assign({}, opts, { dataLabels: { mode, labels } }); }
 // value · % strings for a donut/pie (null for zero slices so they're skipped)
 function pctLabels(values) { const t = values.reduce((a, b) => a + (b || 0), 0) || 1; return values.map(v => v ? `${fmt(v)} · ${Math.round(v / t * 100)}%` : null); }
@@ -874,8 +879,9 @@ function renderRisky() {
   const org = {}; rows.forEach(r => { if (r.risky != null) { const o = r.org || orgOf(r.key); org[o] = (org[o] || 0) + r.risky; } });
   const orgE = Object.entries(org).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const orgTot = Object.values(org).reduce((a, b) => a + b, 0);
-  QBR.chart.bar("ch-risky-org", orgE.map(x => x[0]), [{ label: "Risky Users", data: orgE.map(x => x[1]), backgroundColor: QBR.paletteColors(orgE.length) }],
-    DL("vbar", orgE.map(x => sharePct(x[1], orgTot) || fmt(x[1])), { plugins: { legend: { display: false } } }));
+  // 2026-10-14: horizontal (long organization names stay readable), largest first
+  QBR.chart.hbar("ch-risky-org", orgE.map(x => x[0]), orgE.map(x => x[1]), QBR.COLORS.red,
+    DL("hbar", orgE.map(x => fmt(x[1]) + (sharePct(x[1], orgTot) ? " · " + sharePct(x[1], orgTot) : "")), { scales: { y: { ticks: orgAxis() } } }));
   setNote("risky-org-note", orgE.length ? `Bar labels show each organization's share of ${fmt(orgTot)} risky users. ` +
     `${esc(orgE[0][0])} leads with ${fmt(orgE[0][1])} (${sharePct(orgE[0][1], orgTot)}).` : "");
 
@@ -946,14 +952,25 @@ function renderDomainHealth() {
   QBR.chart.hbar("ch-health-dist", hSorted.map(x => x.h), hSorted.map(x => x.c),
     hSorted.map(x => HEALTH_COLOR[x.h] || QBR.COLORS.gray), DL("hbar", hSorted.map(x => fmt(x.c))));
 
-  // health by organization (stacked)
-  const orgs = [...new Set(list.map(e => e.org || orgOf(e.key)))].sort();
+  // health by organization — 2026-10-14: horizontal stacked bars, largest organizations first,
+  // top 12 + "Other (n orgs)". Was a vertical stack of ~30 orgs whose rotated names collided.
+  const ORG_TOP = 15;
+  const orgOfE = e => e.org || orgOf(e.key);
+  const orgCount = {}; list.forEach(e => { const o = orgOfE(e); orgCount[o] = (orgCount[o] || 0) + 1; });
+  const ranked = Object.keys(orgCount).sort((a, b) => orgCount[b] - orgCount[a] || a.localeCompare(b));
+  const topOrgs = ranked.slice(0, ORG_TOP), rest = new Set(ranked.slice(ORG_TOP));
+  const orgLabels = topOrgs.concat(rest.size ? [`Other (${rest.size} orgs)`] : []);
+  const bucket = e => { const o = orgOfE(e); return rest.has(o) ? orgLabels[orgLabels.length - 1] : o; };
   const datasets = nonZero.map(h => ({
-    label: h, backgroundColor: HEALTH_COLOR[h] || QBR.COLORS.gray,
-    data: orgs.map(o => list.filter(e => (e.org || orgOf(e.key)) === o && e.status === h).length),
+    label: h, backgroundColor: HEALTH_COLOR[h] || QBR.COLORS.gray, borderRadius: 3,
+    data: orgLabels.map(o => list.filter(e => bucket(e) === o && e.status === h).length),
   }));
-  QBR.chart.bar("ch-health-org", orgs, datasets,
-    { scales: { x: { stacked: true }, y: { stacked: true } }, dataLabels: { mode: "stack" } });
+  const hw = document.querySelector("#ch-health-org") && document.querySelector("#ch-health-org").closest(".chart-wrap");
+  if (hw) hw.style.height = Math.max(220, 60 + orgLabels.length * 30) + "px";
+  QBR.chart.bar("ch-health-org", orgLabels, datasets,
+    { indexAxis: "y", scales: { x: { stacked: true, ticks: { precision: 0 } }, y: { stacked: true, ticks: orgAxis() } },
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 12 } } }, layout: { padding: { right: 34 } },
+      dataLabels: { mode: "stack", showTotal: true } });
 
   // table (all schools) — stored for live search filtering
   APP._healthList = list;
@@ -1349,8 +1366,9 @@ function renderUsage() {
   const org = {}; rows.forEach(u => { const o = u.org || orgOf(u.key); org[o] = (org[o] || 0) + (u.office365Active || 0); });
   const orgE = Object.entries(org).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const activeTot = Object.values(org).reduce((a, b) => a + b, 0);
-  QBR.chart.bar("ch-usage-org", orgE.map(x => x[0]), [{ label: "O365 Active Users", data: orgE.map(x => x[1]), backgroundColor: QBR.paletteColors(orgE.length) }],
-    DL("vbar", orgE.map(x => sharePct(x[1], activeTot) || fmt(x[1])), { plugins: { legend: { display: false } } }));
+  // 2026-10-14: horizontal (long organization names stay readable), largest first
+  QBR.chart.hbar("ch-usage-org", orgE.map(x => x[0]), orgE.map(x => x[1]), QBR.COLORS.blue,
+    DL("hbar", orgE.map(x => fmt(x[1]) + (sharePct(x[1], activeTot) ? " · " + sharePct(x[1], activeTot) : "")), { scales: { y: { ticks: orgAxis() } } }));
   const actDesc = rows.map(u => u.office365Active || 0).filter(v => v > 0).sort((a, b) => b - a);
   const topAct = rows.filter(u => u.office365Active > 0).sort(byDesc(u => u.office365Active))[0];
   setNote("usage-org-note", activeTot ? `Bar labels show each organization's share of ${fmt(activeTot)} active O365 users. ` +
@@ -2638,6 +2656,16 @@ function restoreSession() {
 // Deck order — the single source of truth for both the printed deck and the
 // image gallery. Executive Report leads, then risk → security → email →
 // adoption → storage → readiness, with Data Quality last as an appendix.
+/* 2026-10-14: `DECK_ORDER[id] || 99` turned the Overview's 0 into 99, so the deck printed the
+ * Overview AFTER every other page. And every panel was printed, including operational tools
+ * (Inventory, Scan, My To-Do, General tickets, Ticket 360, Audit editor) and the raw Data
+ * explorer → 44 pages. Only QBR pages listed here are in the deck / image gallery now. */
+const DECK_EXCLUDE = { "dash-fulldata": 1 };
+function deckRank(id) { return Object.prototype.hasOwnProperty.call(DECK_ORDER, id) ? DECK_ORDER[id] : 99; }
+function inDeck(panel) {
+  return !!panel && panel.dataset.deck !== "skip" && !DECK_EXCLUDE[panel.id] &&
+    Object.prototype.hasOwnProperty.call(DECK_ORDER, panel.id);
+}
 const DECK_ORDER = {
   "dash-overview": 0,
   "dash-report": 1, "dash-risky": 2, "dash-health": 3, "dash-sec": 4, "dash-gdap": 4.5,
@@ -2783,8 +2811,7 @@ function applyDeckOrder() {
   const original = Array.from(body.children);      // exact pre-export order
   const cover = $("print-cover");
   const panels = original.filter(el => el.classList.contains("dash-panel"));
-  const sorted = panels.slice().sort((a, b) =>
-    (DECK_ORDER[a.id] || 99) - (DECK_ORDER[b.id] || 99));
+  const sorted = panels.slice().sort((a, b) => deckRank(a.id) - deckRank(b.id));
 
   if (cover) body.appendChild(cover);             // cover first…
   sorted.forEach(p => body.appendChild(p));       // …then panels, in deck order
@@ -2806,6 +2833,8 @@ async function exportDeck() {
   if (btn) { btn.disabled = true; btn.textContent = "Preparing…"; }
   // 2x keeps chart text crisp on paper without bloating the print spool
   buildPrintCover();
+  const outs = [];
+  document.querySelectorAll("#app-body > .dash-panel").forEach(p => { if (!inDeck(p)) { p.classList.add("deck-out"); outs.push(p); } });
   const { restore } = await prepareExport({ dpr: 2, deckOrder: true });
   const unsnap = swapChartsForPrint(document.getElementById("app-body"));
 
@@ -2814,6 +2843,7 @@ async function exportDeck() {
     document.body.removeAttribute("data-print");
     unsnap();
     restore();
+    outs.forEach(p => p.classList.remove("deck-out"));
     if (btn) { btn.disabled = false; btn.textContent = "Export Deck"; }
   };
   window.addEventListener("afterprint", done);
@@ -2836,7 +2866,7 @@ function collectChartImages() {
   const groups = [];
   let skipped = 0;
   document.querySelectorAll(".dash-panel").forEach(panel => {
-    if (panel.dataset.deck === "skip") return;           // per-school pages (School 360) stay out of the portfolio gallery
+    if (!inDeck(panel)) return;                          // QBR pages only (School 360, tools, raw data stay out)
     const h = panel.querySelector(".dash-h");
     const title = h ? h.textContent.trim() : panel.id;
     const items = [];
@@ -2847,7 +2877,7 @@ function collectChartImages() {
       if (url) items.push({ caption: cap ? cap.textContent.trim() : cv.id, url, id: cv.id });
       else skipped++;
     });
-    if (items.length) groups.push({ title, items, order: DECK_ORDER[panel.id] || 99 });
+    if (items.length) groups.push({ title, items, order: deckRank(panel.id) });
   });
   groups.sort((a, b) => a.order - b.order);
   groups.skipped = skipped;

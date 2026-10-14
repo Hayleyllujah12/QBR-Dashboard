@@ -576,6 +576,7 @@ table.resizable th{position:relative}
      Block layout is the only layout model that paginates reliably here. */
   body[data-print="ALL"] #app-body{display:block}
   body[data-print="ALL"] .dash-panel{display:block !important;break-before:page;break-inside:auto}
+  body[data-print="ALL"] .dash-panel.deck-out,body[data-print="ALL"] .dash-panel[data-deck="skip"]{display:none !important}   /* 2026-10-14: QBR pages only */
   body[data-print="ALL"] #print-cover{display:block;break-after:page}
   /* The panel right after the cover rides the cover's own break-after, so it
      must not add one of its own or a blank page appears between them.

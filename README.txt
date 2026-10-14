@@ -6,6 +6,18 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-14 — v1.35.0 [BETA] patch: Export Deck cleaned up
+  - The deck now starts with the Executive Overview (it used to print last) and contains only the
+    QBR pages: Overview, Executive report, Risky, Tenant status, Security, GDAP, Postmaster, Usage,
+    Canva, Storage, User management, Domain registration, Data quality. Inventory, Scan, My To-Do,
+    General tickets, Ticket/Asset 360, the audit editor and the raw Data explorer are left out
+    (Export Images follows the same list).
+  - Printed / exported charts show their numbers: values on bars, slices and line points (empty
+    months are skipped), and long organization or school names are shortened instead of colliding.
+  - "Health by Organization" is now a horizontal stacked bar, largest organizations first: the top 15
+    plus "Other (n orgs)", with the total at the end of each bar. "Risky Users by Organization" and
+    "O365 Active by Organization" are horizontal too, so long names stay readable on screen and paper.
+
 UPDATE — 2026-10-13 — v1.35.0 [BETA] NEW: My To-Do + General tickets (sidebar › My work)
   - Pick or register your name once ("Switch user" changes it). Each person sees only their own
     list, kept in this browser; "Export my file" saves it as an Excel workbook.

@@ -114,13 +114,17 @@ QBR.renderChartPng = function (canvasId, opts) {
   document.body.appendChild(holder);
 
   let url = null, tmp = null;
+  // Options come from the pristine JSON clone: deep-copy so the export polish below never leaks into it.
+  let expOpts;
+  try { expOpts = JSON.parse(JSON.stringify(cfg.options || {})); } catch (e) { expOpts = Object.assign({}, cfg.options); }
+  try { _qbrExportPolish(cfg, expOpts); } catch (e) {}
   const liveFont = (typeof Chart !== "undefined") ? Chart.defaults.font.size : 12;
   if (typeof Chart !== "undefined") Chart.defaults.font.size = 12;   // exports: standard sizes
   try {
     tmp = new Chart(cv.getContext("2d"), {
       type: cfg.type,
       data: cfg.data,
-      options: Object.assign({}, cfg.options, {
+      options: Object.assign(expOpts, {
         responsive: false, maintainAspectRatio: false,
         animation: false, devicePixelRatio: dpr,
       }),
@@ -142,6 +146,43 @@ QBR.renderChartPng = function (canvasId, opts) {
   holder.remove();
   return url;
 };
+
+/* Export polish (2026-10-14, Export Deck / Images / print snapshots).
+ * 1. The JSON clone loses the on-screen category-label callback, so long org names were
+ *    printed in full, rotated, and collided (and squeezed the plot). Re-add a trimming
+ *    callback on the category axis (full text stays in the data).
+ * 2. Most charts only had value labels on screen-opted-in Overview charts, so printed charts
+ *    were "lines without numbers". When a chart has no qbrLabels spec, add one: values on
+ *    single-series bars, every segment of stacked bars, slices of pies/donuts, and points of
+ *    line charts with few points/series. Busy charts are left alone (labels would collide). */
+function _qbrExportPolish(cfg, o) {
+  const type = cfg.type, data = cfg.data || {}, dss = data.datasets || [], n = (data.labels || []).length;
+  const horiz = o.indexAxis === "y";
+  o.plugins = o.plugins || {};
+  if ((type === "bar" || type === "line") && n) {
+    const ax = horiz ? "y" : "x";
+    o.scales = o.scales || {}; o.scales[ax] = o.scales[ax] || {};
+    const max = n > 16 ? 14 : 22;
+    o.scales[ax].ticks = Object.assign({}, o.scales[ax].ticks, {
+      autoSkip: n > 40, maxRotation: horiz ? 0 : 60, minRotation: 0,
+      callback: function (v) { const s = String(this.getLabelForValue(v)); return s.length > max ? s.slice(0, max - 1) + "…" : s; },
+    });
+  }
+  if (o.plugins.qbrLabels) return;
+  const fmt = v => (v == null || v === "" || isNaN(v)) ? null : _qbrNum(v);
+  const stacked = !!((o.scales && ((o.scales.x && o.scales.x.stacked) || (o.scales.y && o.scales.y.stacked))));
+  if (type === "bar") {
+    if (stacked && n <= 40) o.plugins.qbrLabels = { mode: "stack" };
+    else if (dss.length === 1 && n <= 30) o.plugins.qbrLabels = { mode: horiz ? "hbar" : "vbar", labels: (dss[0].data || []).map(fmt) };
+  } else if (type === "line") {
+    const pts = dss.reduce((m, d) => Math.max(m, (d.data || []).length), 0);
+    if (dss.length && dss.length <= 3 && pts <= 14) o.plugins.qbrLabels = { mode: "line", colored: dss.length > 1, labels: dss.map(d => (d.data || []).map(v => (+v === 0 ? null : fmt(v)))) };   // zeros (empty future months) would crowd the axis
+  } else if ((type === "pie" || type === "doughnut") && dss.length === 1) {
+    const tot = (dss[0].data || []).reduce((s, v) => s + (+v || 0), 0);
+    o.plugins.qbrLabels = { mode: "donut", labels: (dss[0].data || []).map(v => (+v && tot) ? _qbrNum(v) + " · " + Math.round(v / tot * 100) + "%" : null) };
+    o.layout = Object.assign({ padding: { left: 52, right: 52, top: 6, bottom: 6 } }, o.layout);
+  }
+}
 
 /* =============================================================================
  * Offline data-label + leader-line plugin (no external dependency).
