@@ -6,6 +6,21 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-13 — [PREVIEW] My To-Do: colour-coded urgency you can trust
+  - Every row now shows its urgency four ways: a coloured bar on the left, a light tint for
+    Overdue and High rows, a coloured time chip ("3 days overdue", "in 2 days", "Oct 25",
+    "open 45 days") and a legend at the top: red Overdue · orange High · yellow Due soon · blue Planned.
+  - Lenovo tickets are ranked by how long they've been open (the date in the ticket number): High
+    after 30 days, Due soon after 14, or High straight away when the sheet's Priority says High.
+    Oldest and most urgent first in every tile.
+  - Unaudited schools: the month's audit is due on the 25th — Planned before the last week, Due soon in
+    it, Overdue after. A school written two ways in the audit sheet is listed once, and it counts as
+    audited if either row has a value.
+  - Cleaner rows: plain titles (click anywhere on the row to open), a checkbox to mark your own tasks
+    done, the urgency dropdown appears on hover. Ticket / serial / school still open their pages.
+  - Layout: your own tiles (General, Microsoft, Lenovo) on top, Pending tickets and Unaudited schools
+    side by side below, each with an "N urgent" count. The shared filter bar is hidden on this page.
+
 UPDATE — 2026-10-09 — v1.34.0 [BETA] patch: PowerShell scripts moved to the Admin panel
   - The script library (search, copy, add / edit / delete your own scripts, export / import, and
     the GDAP mapping file) now lives in Admin › PowerShell scripts, below Feature flags and
