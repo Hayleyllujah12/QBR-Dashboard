@@ -2775,10 +2775,18 @@ function swapChartsForPrint(scope) {
     added.push(img);
   });
   document.body.classList.add("print-snap");
-  return function removePrintSnapshots() {
+  const remove = function removePrintSnapshots() {
     added.forEach(img => img.remove());
     document.body.classList.remove("print-snap");
   };
+  /* 2026-10-14: data-URL images load ASYNCHRONOUSLY. window.print() right after inserting them
+   * printed every chart as an empty box (measured: 0 of 47 snapshots decoded at print time).
+   * Callers await `ready` (all decoded, or 5 s cap) before printing. */
+  remove.ready = Promise.race([
+    Promise.all(added.map(img => (img.decode ? img.decode() : new Promise(r => { img.onload = img.onerror = r; })).catch(() => {}))),
+    new Promise(r => setTimeout(r, 5000)),
+  ]);
+  return remove;
 }
 
 // Human-readable snapshot of the filters an export was taken under, so a deck
@@ -2837,6 +2845,7 @@ async function exportDeck() {
   document.querySelectorAll("#app-body > .dash-panel").forEach(p => { if (!inDeck(p)) { p.classList.add("deck-out"); outs.push(p); } });
   const { restore } = await prepareExport({ dpr: 2, deckOrder: true });
   const unsnap = swapChartsForPrint(document.getElementById("app-body"));
+  await unsnap.ready;
 
   const done = () => {
     window.removeEventListener("afterprint", done);
@@ -3236,7 +3245,7 @@ function initShell() {
   const drs = $("dr-status");
   if (drs) drs.addEventListener("change", () => renderDrTable(($("dr-search") || {}).value || ""));
 
-  $("btn-pdf").addEventListener("click", () => {
+  $("btn-pdf").addEventListener("click", async () => {
     // print only the active panel: mark body with the active tab id; charts
     // print from fixed-size snapshots (see swapChartsForPrint) and are removed
     // on afterprint, or by the safety net if the browser never fires it.
@@ -3244,6 +3253,7 @@ function initShell() {
     const theme = forceLightTheme();                // paper is white: print light-theme charts
     if (theme.changed) renderAll();
     const unsnap = swapChartsForPrint($(APP.activeTab));
+    await unsnap.ready;                              // snapshots must be decoded before print() freezes the page
     let cleaned = false;
     const done = () => {
       if (cleaned) return; cleaned = true; window.removeEventListener("afterprint", done); unsnap();
