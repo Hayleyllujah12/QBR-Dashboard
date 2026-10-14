@@ -10,11 +10,13 @@ UPDATE — 2026-10-14 — v1.36.0 [PREVIEW: rmt] NEW: Remote feature flags (Admi
   - Inventory features (Assets, Support tickets, Supplies, Scan) can now be switched on/off for EVERY
     machine from the hosted site, not just this browser. The hosted setting always wins.
   - Admin panel › Remote flags: one switch per feature, the current remote version, and Publish.
-    Publishing needs a GitHub token on that computer; without one the section is read-only.
-  - The token is kept for the open tab only unless you tick "Remember on this machine". Never enter
-    it on a shared computer; "Forget token" removes it.
-  - The publish target follows the site you are on (a preview publishes to its own branch, beta to
-    develop). Publishing to main shows a red warning and asks for confirmation — it changes the live site.
+  - Publishing to main or develop opens a PULL REQUEST on GitHub ("Open pull request"); nothing changes
+    until someone reviews and merges it. Preview branches (e.g. rmt) are updated directly.
+  - GitHub token safety: only fine-grained tokens (github_pat_…) are accepted — classic tokens are refused.
+    Give it access to this repository only, Contents + Pull requests (read & write), 90 days or less.
+    By default it is kept for the open tab only and locks after 30 minutes without use. "Remember on this
+    machine" saves it encrypted with a passphrase you choose; after a reload click "Unlock saved token".
+    A token saved in plain text by the first preview build is deleted automatically — add it again.
   - Offline copy (double-clicked index.html): uses the last flags this browser saw, or all on.
 
 UPDATE — 2026-10-14 — v1.35.0 [BETA] patch: Export Deck cleaned up

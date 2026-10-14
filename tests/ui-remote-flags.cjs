@@ -56,7 +56,7 @@ function serve() {
   ok(await p.$$eval("#admin-body [data-rf-toggle]", x => x.length) === 4, "4 remote toggles listed");
   ok(await p.$$eval("#admin-body .admin-remote .badge", x => x.length) === 4, "each toggle has a REMOTE badge");
   ok(await p.$$eval("#admin-body [data-rf-toggle]:disabled", x => x.length) === 4, "toggles disabled without a token on this machine");
-  ok(/This machine can publish: No/.test(await p.textContent("#admin-body .admin-remote")), "publish indicator says No without token");
+  ok(/This tab can publish: No/.test(await p.textContent("#admin-body .admin-remote")), "publish indicator says No without token");
   ok(await p.evaluate(() => { const b = document.querySelector("#rf-publish"); return b && b.disabled; }), "Publish button disabled without token");
   ok(/only on your own machine/.test(await p.textContent("#admin-body .admin-remote")), "own-machine token warning shown");
 
@@ -73,17 +73,46 @@ function serve() {
   ok(await p.evaluate(() => APP.activeTab) === before, "click guard blocks the disabled feature's tab switch");
 
   // Token flow: enabling publish on this machine only (fake token, never published).
-  await p.evaluate(() => { QBR.remoteFlagsToken.set("fake"); QBR.renderAdmin(); });
+  const TOK = "github_pat_" + "A1b2C3d4E5".repeat(4);
+  await p.evaluate(async t => { await QBR.remoteFlagsToken.set(t); QBR.renderAdmin(); }, TOK);
   await p.waitForTimeout(200);
-  ok(/This machine can publish: Yes/.test(await p.textContent("#admin-body .admin-remote")), "publish indicator says Yes with token");
+  ok(/This tab can publish: Yes/.test(await p.textContent("#admin-body .admin-remote")), "publish indicator says Yes with token");
   ok(await p.evaluate(() => { const b = document.querySelector("#rf-publish"); return b && !b.disabled; }), "Publish button enabled with token");
   ok(await p.$$eval("#admin-body [data-rf-toggle]:disabled", x => x.length) === 0, "toggles enabled with token");
   await p.evaluate(() => { QBR.remoteFlagsToken.clear(); QBR.renderAdmin(); });
   await p.waitForTimeout(200);
-  ok(/This machine can publish: No/.test(await p.textContent("#admin-body .admin-remote")), "forgetting the token returns to read-only");
+  ok(/This tab can publish: No/.test(await p.textContent("#admin-body .admin-remote")), "forgetting the token returns to read-only");
 
   console.log("== review fixes (v1.36.0)");
-  ok(/Target branch is main/.test(await p.textContent("#admin-body .admin-remote")), "127.0.0.1 → target main → live-site warning shown");
+  ok(/Target main.*pull request/.test(await p.textContent("#rf-target")) && /Open pull request/.test(await p.textContent("#rf-publish")),
+    "127.0.0.1 → target main → publish opens a pull request (button says so)");
+  // classic token refused in the UI, never stored
+  await p.fill("#rf-pat", "ghp_" + "x".repeat(36)); await p.click("#rf-pat-save"); await p.waitForTimeout(200);
+  ok(/classic token/.test(await p.textContent("#rf-msg")) && await p.evaluate(() => !QBR.remoteFlagsToken.present() && !sessionStorage.getItem("qbr-gh-pat") && !localStorage.getItem("qbr-gh-pat")),
+    "classic token rejected with an explanation, nothing stored");
+  ok(await p.evaluate(() => !document.querySelector("#rf-pat-remember").disabled), "'Remember (encrypted)' offered on the https/localhost site");
+  // Save via the form with "Remember": passphrase modal → encrypted, token checked against a mocked GitHub
+  const exp = new Date(Date.now() + 30 * 86400000).toISOString().replace("T", " ").replace(/\..*/, " UTC");
+  await p.route(/api\.github\.com/, route => route.fulfill({ status: 200, contentType: "application/json",
+    headers: { "access-control-allow-origin": "*", "access-control-expose-headers": "github-authentication-token-expiration", "github-authentication-token-expiration": exp },
+    body: JSON.stringify({ permissions: { push: true } }) }));
+  await p.fill("#rf-pat", TOK); await p.check("#rf-pat-remember"); await p.click("#rf-pat-save"); await p.waitForTimeout(200);
+  await p.fill("#admin-pw-1", "correct horse"); await p.fill("#admin-pw-2", "correct horse"); await p.click("#admin-pw-ok"); await p.waitForTimeout(2000);
+  ok(/encrypted on this machine/.test(await p.textContent("#rf-msg")) && /expires in 30 days/.test(await p.textContent("#rf-msg")),
+    "Save + Remember: passphrase asked, saved encrypted, expiry reported  [" + (await p.textContent("#rf-msg")).trim() + "]");
+  ok(await p.evaluate(() => !!localStorage.getItem("qbr-gh-pat-enc") && QBR.remoteFlagsToken.present()), "…and the tab can publish");
+  await p.unroute(/api\.github\.com/);
+  await p.evaluate(() => { QBR.remoteFlagsToken.clear(); QBR.renderAdmin(); });
+  // encrypted + locked state
+  await p.evaluate(async t => { await QBR.remoteFlagsToken.set(t, { remember: true, passphrase: "correct horse" }); QBR.remoteFlagsToken.lock(); QBR.renderAdmin(); }, TOK);
+  await p.waitForTimeout(150);
+  ok(await vis(p, "#rf-unlock") && /locked/.test(await p.textContent("#admin-body .admin-remote")) && await p.evaluate(() => document.querySelector("#rf-publish").disabled),
+    "saved token shows as locked: Unlock button, Publish disabled");
+  ok(await p.evaluate(t => (localStorage.getItem("qbr-gh-pat-enc") || "").indexOf(t) < 0, TOK), "nothing readable in localStorage");
+  await p.click("#rf-unlock"); await p.waitForTimeout(150);
+  await p.fill("#admin-pw-1", "correct horse"); await p.click("#admin-pw-ok"); await p.waitForTimeout(1500);
+  ok(await p.evaluate(() => QBR.remoteFlagsToken.present() && !document.querySelector("#rf-publish").disabled), "Unlock with the passphrase enables Publish");
+  await p.evaluate(() => { QBR.remoteFlagsToken.clear(); QBR.renderAdmin(); });
   // remote parent "inventory": false hides the whole Inventory sidebar group and locks the local toggle
   await p.evaluate(() => {
     QBR._remoteFlagsTestLoad({ version: 10, flags: { inventory: false } }, "live");

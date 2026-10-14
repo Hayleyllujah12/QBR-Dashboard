@@ -453,11 +453,17 @@
     var hasApi = !!(QBR.remoteFlagsStatus && QBR.remoteFlagsPublish && QBR.features);
     var st = { ready: false, source: "none", remote: null };
     try { if (QBR.remoteFlagsStatus) st = QBR.remoteFlagsStatus(); } catch (e) {}
-    var canPublish = false;
-    try { canPublish = hasApi && QBR.remoteFlagsToken.present(); } catch (e) {}
+    var T = QBR.remoteFlagsToken || { present: function () { return false; } };
+    var canPublish = false, locked = false, remembered = false, canRemember = false, purged = false;
+    try {
+      canPublish = hasApi && T.present(); locked = hasApi && T.locked(); remembered = hasApi && T.remembered();
+      canRemember = hasApi && T.canRemember(); purged = hasApi && T.purgedPlain() && !canPublish && !remembered;
+    } catch (e) {}
     var working = rfWorkingFlags();
     var repo = rfRepoCfg();
     var ui = QBR._rfUI;
+    var base = repo.branch || "main";
+    var prot = !!(QBR.remoteFlagsIsProtected && QBR.remoteFlagsIsProtected(base));
 
     var statusTxt;
     if (!hasApi) statusTxt = "Remote flags module not loaded.";
@@ -481,7 +487,7 @@
             '<span class="admin-row-desc">' + esc(f.desc) + "</span></span>" +
             '<button type="button" class="btn btn-sm ' + (on ? "btn-success" : "btn-outline-secondary") + '" ' +
             'data-rf-toggle="' + esc(f.key) + '" aria-pressed="' + on + '"' +
-            (canPublish ? "" : ' disabled title="Add your GitHub token on this machine to change remote flags"') +
+            (canPublish ? "" : ' disabled title="Add or unlock your GitHub token to change remote flags"') +
             ">" + (on ? "ON" : "OFF") + "</button></div>";
         }).join("") + "</div>";
     }).join("");
@@ -489,30 +495,39 @@
     sec.innerHTML =
       '<h4 class="mb-1 mt-4">Admin &middot; Remote flags</h4>' +
       '<div class="small text-muted mb-2">Turn features on/off on the <b>hosted</b> app for every machine. ' +
-      "Publishing commits <code>config/features.json</code> to the repo; the site rebuilds in a minute or two and machines pick it up on next load.</div>" +
+      "Publishing updates <code>config/features.json</code> in the repo (through a pull request for main and develop); the site rebuilds in a minute or two and machines pick it up on next load.</div>" +
       '<div class="small mb-2">' + esc(statusTxt) + "</div>" +
       (feats.length ? '<div class="admin-list">' + rows + "</div>" : '<div class="small text-muted">No remotely-managed features registered.</div>') +
       '<div class="card-box mt-3"><h6 class="mb-2">Publish to GitHub</h6>' +
-      '<div class="small mb-2">This machine can publish: <b>' + (canPublish ? "Yes" : "No") + "</b></div>" +
+      '<div class="small mb-2">This tab can publish: <b>' + (canPublish ? "Yes" : "No") + "</b>" +
+      (canPublish ? ' <span class="text-muted">(locks after ' + T.IDLE_MIN + " min without use)</span>" : "") +
+      (locked ? ' · <span class="text-muted">a saved token is <b>locked</b> on this machine</span>' : "") + "</div>" +
+      (purged ? '<div class="small text-danger mb-2">A token saved in plain text by an earlier build was deleted from this browser. Add it again below.</div>' : "") +
       '<div class="d-flex flex-wrap gap-2 align-items-end mb-2">' +
       '<label class="small mb-0">Owner<br><input class="form-control form-control-sm" style="max-width:180px" data-rf-repo="owner" value="' + esc(repo.owner || "") + '"></label>' +
       '<label class="small mb-0">Repo<br><input class="form-control form-control-sm" style="max-width:200px" data-rf-repo="repo" value="' + esc(repo.repo || "") + '"></label>' +
       '<label class="small mb-0">Branch<br><input class="form-control form-control-sm" style="max-width:110px" data-rf-repo="branch" value="' + esc(repo.branch || "main") + '"></label>' +
       "</div>" +
-      '<div class="d-flex flex-wrap gap-2 align-items-end mb-2">' +
-      '<label class="small mb-0">GitHub token (personal access token)<br><input type="password" id="rf-pat" class="form-control form-control-sm" style="max-width:280px" autocomplete="off" placeholder="Paste token on your own machine only"></label>' +
-      '<label class="small mb-0"><input type="checkbox" id="rf-pat-remember"> Remember on this machine</label>' +
-      '<button type="button" class="btn btn-sm btn-outline-primary" id="rf-pat-save">Save token</button>' +
-      (canPublish ? ' <button type="button" class="btn btn-sm btn-outline-secondary" id="rf-pat-forget">Forget token</button>' : "") +
-      "</div>" +
-      '<div class="small text-muted mb-2">Enter the token <b>only on your own machine</b> — never on a shared computer. ' +
-      "It is stored in this browser only and is never written to the repo. Use a fine-grained token with contents write access to this repo; you can revoke it anytime in GitHub settings.</div>" +
-      ((repo.branch || "main") === "main"
-        ? '<div class="small text-danger mb-2" id="rf-live-warn"><b>Target branch is main</b> — publishing changes the <b>live</b> site for every user.</div>'
-        : '<div class="small text-muted mb-2">Target branch <b>' + esc(repo.branch) + '</b> — only that branch\'s site is affected.</div>') +
-      '<div class="d-flex gap-2 align-items-center">' +
-      '<button type="button" class="btn btn-sm btn-primary" id="rf-publish"' + (canPublish ? "" : " disabled") + ">Publish flags</button>" +
-      '<span class="small" id="rf-msg" role="status">' + (ui.msg ? esc(ui.msg) : "") + "</span>" +
+      (locked
+        ? '<div class="d-flex flex-wrap gap-2 align-items-center mb-2"><button type="button" class="btn btn-sm btn-primary" id="rf-unlock">Unlock saved token</button>' +
+          '<button type="button" class="btn btn-sm btn-outline-secondary" id="rf-pat-forget">Forget token</button></div>'
+        : '<div class="d-flex flex-wrap gap-2 align-items-end mb-2">' +
+          '<label class="small mb-0">GitHub fine-grained token<br><input type="password" id="rf-pat" class="form-control form-control-sm" style="max-width:280px" autocomplete="off" spellcheck="false" placeholder="github_pat_… (your own machine only)"></label>' +
+          '<label class="small mb-0"' + (canRemember ? "" : ' title="Needs the https site — not available when opened as a file"') + '><input type="checkbox" id="rf-pat-remember"' + (canRemember ? "" : " disabled") + "> Remember on this machine (encrypted with a passphrase)</label>" +
+          '<button type="button" class="btn btn-sm btn-outline-primary" id="rf-pat-save">Save token</button>' +
+          (canPublish || remembered ? ' <button type="button" class="btn btn-sm btn-outline-secondary" id="rf-pat-forget">Forget token</button>' : "") +
+          (canPublish ? ' <button type="button" class="btn btn-sm btn-outline-secondary" id="rf-lock">Lock now</button>' : "") +
+          "</div>") +
+      '<div class="small text-muted mb-2">Enter the token <b>only on your own machine</b>. Use a <b>fine-grained</b> token for this repository only — ' +
+      "permissions <b>Contents</b> and <b>Pull requests</b>: read &amp; write, nothing else — with an expiry of 90 days or less. " +
+      "Classic tokens (ghp_…) are refused. It is only ever sent to api.github.com and never written to the repo.</div>" +
+      (prot
+        ? '<div class="small mb-2" id="rf-target">Target <b>' + esc(base) + "</b> — Publish opens a <b>pull request</b>. Nothing changes until someone reviews and merges it on GitHub.</div>"
+        : '<div class="small text-muted mb-2" id="rf-target">Target <b>' + esc(base) + "</b> (preview branch) — Publish commits directly; only that branch's preview site is affected.</div>") +
+      '<div class="d-flex flex-wrap gap-2 align-items-center">' +
+      '<button type="button" class="btn btn-sm btn-primary" id="rf-publish"' + (canPublish ? "" : " disabled") + ">" + (prot ? "Open pull request" : "Publish flags") + "</button>" +
+      '<span class="small" id="rf-msg" role="status">' + (ui.msg ? esc(ui.msg) : "") +
+      (ui.prUrl ? ' <a href="' + esc(ui.prUrl) + '" target="_blank" rel="noopener noreferrer">Open the pull request</a>' : "") + "</span>" +
       "</div></div>";
 
     host.appendChild(sec);
@@ -526,45 +541,78 @@
         renderAdminPanel();
       });
     });
-    // Repo fields survive re-renders via QBR._rfUI.repo.
+    // Repo fields survive re-renders via QBR._rfUI.repo; a branch change re-renders the target note.
     sec.querySelectorAll("[data-rf-repo]").forEach(function (inp) {
       inp.addEventListener("input", function () {
         repo[inp.getAttribute("data-rf-repo")] = inp.value.trim();
         try { if (QBR.remoteFlagsRepo) QBR.remoteFlagsRepo.set(repo); } catch (e) {}
       });
+      inp.addEventListener("change", function () { renderAdminPanel(); });
     });
+    var say = function (m) { ui.msg = m; ui.prUrl = ""; renderAdminPanel(); };
     var patInp = sec.querySelector("#rf-pat");
     var saveBtn = sec.querySelector("#rf-pat-save");
-    if (saveBtn) saveBtn.addEventListener("click", function () {
+    if (saveBtn) saveBtn.addEventListener("click", async function () {
       var v = patInp ? patInp.value.trim() : "";
-      if (!v) { ui.msg = "Paste a token first."; renderAdminPanel(); return; }
-      var okSet = false;
+      var bad = T.formatError(v);
+      if (bad) { if (patInp) patInp.value = ""; say(bad); return; }
       var remember = !!(sec.querySelector("#rf-pat-remember") || {}).checked;
-      try { okSet = QBR.remoteFlagsToken.set(v, remember); } catch (e) {}
-      ui.msg = !okSet ? "Could not save the token in this browser." :
-        remember ? "Token saved on this machine." : "Token saved for this tab only (gone when the tab closes).";
+      var pass = null;
+      if (remember) {
+        pass = await pwModal("Passphrase to encrypt the token (8+ characters, not your GitHub password)", true);
+        if (pass == null) return;
+      }
       if (patInp) patInp.value = "";
-      renderAdminPanel();
+      try {
+        await T.set(v, { remember: remember, passphrase: pass });
+      } catch (err) { say(err.message || String(err)); return; }
+      var note = remember ? "Token saved, encrypted on this machine." : "Token kept for this tab only.";
+      try {
+        var chk = await QBR.remoteFlagsCheckToken();
+        if (chk.daysLeft == null) note += " Couldn't read its expiry — make sure it expires within 90 days.";
+        else if (chk.daysLeft > 90) note += " Warning: it expires in " + chk.daysLeft + " days — use 90 days or less.";
+        else note += " It can reach the repository and expires in " + chk.daysLeft + " day" + (chk.daysLeft === 1 ? "" : "s") + ".";
+      } catch (err) {
+        var m = String((err && err.message) || err);
+        if (/^Token check failed/.test(m)) { T.clear(); say("Token not accepted and removed: " + m); return; }
+        note += " Couldn't reach GitHub to check it (" + m + ") — it will be checked when you publish.";
+      }
+      say(note);
     });
+    var unlockBtn = sec.querySelector("#rf-unlock");
+    if (unlockBtn) unlockBtn.addEventListener("click", async function () {
+      var pass = await pwModal("Passphrase for the saved GitHub token", false);
+      if (pass == null) return;
+      try { await T.unlock(pass); say("Token unlocked for this tab."); }
+      catch (err) { say(err.message || String(err)); }
+    });
+    var lockBtn = sec.querySelector("#rf-lock");
+    if (lockBtn) lockBtn.addEventListener("click", function () { T.lock(); say(remembered ? "Locked — the saved token needs its passphrase again." : "Token removed from this tab."); });
     var forgetBtn = sec.querySelector("#rf-pat-forget");
     if (forgetBtn) forgetBtn.addEventListener("click", function () {
-      try { QBR.remoteFlagsToken.clear(); } catch (e) {}
-      ui.msg = "Token forgotten on this machine.";
-      renderAdminPanel();
+      try { T.clear(); } catch (e) {}
+      say("Token forgotten on this machine. You can also revoke it in GitHub › Settings › Developer settings.");
     });
     var pubBtn = sec.querySelector("#rf-publish");
     if (pubBtn) pubBtn.addEventListener("click", async function () {
       var msg = sec.querySelector("#rf-msg");
-      if ((repo.branch || "main") === "main" && !window.confirm("Publish to main? This changes the LIVE site for every user.")) return;
       pubBtn.disabled = true;
-      if (msg) msg.textContent = "Publishing…";
+      if (msg) msg.textContent = prot ? "Opening a pull request…" : "Publishing…";
       try {
-        var doc = await QBR.remoteFlagsPublish(Object.assign({}, working));
-        ui.working = Object.assign({}, doc.flags);
+        var res = await QBR.remoteFlagsPublish(Object.assign({}, working));
         ui.dirty = false;
-        ui.msg = "Published — the site rebuilds in ~2 min, then machines pick it up on next load.";
+        if (res.pr) {
+          ui.working = null;   // the live flags haven't changed yet — show them again
+          ui.msg = "Pull request #" + res.pr.number + " opened for v" + res.doc.version + ". Merge it on GitHub to apply; the site rebuilds after the merge.";
+          ui.prUrl = res.pr.url || "";
+        } else {
+          ui.working = Object.assign({}, res.doc.flags);
+          ui.msg = "Published to " + base + " — that site rebuilds in ~2 min, then machines pick it up on next load.";
+          ui.prUrl = "";
+        }
       } catch (err) {
         ui.msg = "Publish failed: " + (err && err.message ? err.message : err);
+        ui.prUrl = "";
       }
       renderAdminPanel();
     });

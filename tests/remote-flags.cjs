@@ -44,7 +44,7 @@ function freshEnv(opts) {
     querySelectorAll: opts.querySelectorAll || (() => []),
     querySelector: opts.querySelector || (() => null),
   };
-  const sstore = {};
+  const sstore = Object.assign({}, opts.sessionStorage || {});
   global.location = { hostname: opts.hostname || "hayleyllujah12.github.io", pathname: "/", search: "" };
   global.sessionStorage = {
     getItem: k => (k in sstore ? sstore[k] : null),
@@ -165,53 +165,81 @@ async function settled(QBR) {
   ok(QBR.remoteFlagsStatus().source === "cache", "bad-shaped remote doc falls back to cache");
 }
 
-// ============ 4. publish ======================================================
-{
-  let putBody = null;
-  const { QBR, fetchCalls } = freshEnv({
-    fetch: async (url, init) => {
-      if ((init.method || "GET") === "GET") return jsonRes({ sha: "abc123" });
-      putBody = JSON.parse(init.body);
-      return { ok: true, status: 201, json: async () => ({}), text: async () => "" };
-    },
-    localStorage: {
-      "qbr-gh-pat": "tok123",
-      "qbr-gh-repo": JSON.stringify({ owner: "Hayleyllujah12", repo: "QBR-Dashboard", branch: "main" }),
-      "qbr-remote-flags": JSON.stringify({ savedAt: 1, data: { version: 4, updated: "2026-10-01", flags: {} } }),
-    },
-  });
-  await settled(QBR);
-  fetchCalls.length = 0; // drop the loader's own startup fetch
-  const doc = await QBR.remoteFlagsPublish({ "inventory.scan": false, "inventory.supplies": true });
-  ok(fetchCalls.length === 2, "publish does GET (sha) then PUT", "calls=" + fetchCalls.length);
-  ok(/\/repos\/Hayleyllujah12\/QBR-Dashboard\/contents\/config\/features\.json/.test(fetchCalls[0].url), "targets config/features.json in the configured repo");
-  ok(fetchCalls[0].init.headers.Authorization === "Bearer tok123", "token sent as Bearer");
-  ok(putBody.sha === "abc123" && putBody.branch === "main", "PUT carries sha + branch");
-  ok(/Update remote feature flags/.test(putBody.message), "PUT has a commit message");
-  const decoded = JSON.parse(Buffer.from(putBody.content, "base64").toString("utf8"));
-  ok(decoded.flags["inventory.scan"] === false && decoded.flags["inventory.supplies"] === true, "PUT content carries the flags");
-  ok(decoded.version === 5, "version bumps from the loaded remote doc");
-  ok(doc.flags["inventory.scan"] === false, "publish resolves with the new doc");
-  ok(QBR.remoteFlagsStatus().source === "live", "local copy refreshed after publish");
+// ============ 4. publish + token security (hardened 2026-10-14) ===============
+const TOK = "github_pat_" + "A1b2C3d4E5".repeat(4);
+const sess = t => ({ "qbr-gh-pat": JSON.stringify({ t: t || TOK, at: Date.now() }) });
+function ghMock(o) {
+  o = o || {};
+  const calls = [], files = Object.assign({}, o.files || {});   // branch -> doc
+  const res = (status, data, hdr) => ({ ok: status < 300, status, json: async () => data, text: async () => JSON.stringify(data),
+    headers: { get: k => (hdr || {})[String(k).toLowerCase()] || null } });
+  const handler = async (url, init) => {
+    const m = (init.method || "GET"), u = String(url).replace("https://api.github.com", "");
+    const body = init.body ? JSON.parse(init.body) : null;
+    calls.push({ m, u, body, auth: init.headers && init.headers.Authorization });
+    if (!/^https:\/\/api\.github\.com\//.test(String(url))) return res(200, {});        // loader's own fetch etc.
+    let r;
+    if (m === "GET" && (r = /^\/repos\/[^/]+\/[^/]+$/.exec(u))) return o.repoStatus ? res(o.repoStatus, { message: "Bad credentials" }) : res(200, { permissions: { push: true } }, o.hdr || {});
+    if (m === "GET" && (r = /\/contents\/config\/features\.json\?ref=(.+)$/.exec(u))) {
+      const d = files[decodeURIComponent(r[1])];
+      return d ? res(200, { sha: "sha-" + r[1], content: Buffer.from(JSON.stringify(d)).toString("base64").replace(/(.{60})/g, "$1\n") }) : res(404, { message: "Not Found" });
+    }
+    if (m === "GET" && (r = /\/git\/ref\/heads\/(.+)$/.exec(u))) return res(200, { object: { sha: "base-" + r[1] } });
+    if (m === "POST" && /\/git\/refs$/.test(u)) return res(201, { ref: body.ref });
+    if (m === "PUT" && /\/contents\/config\/features\.json$/.test(u)) { files[body.branch] = JSON.parse(Buffer.from(body.content, "base64").toString("utf8")); return res(o.putStatus || 200, {}); }
+    if (m === "POST" && /\/pulls$/.test(u)) return res(201, { number: 7, html_url: "https://github.com/o/r/pull/7" });
+    return res(404, { message: "unexpected " + m + " " + u });
+  };
+  return { calls, files, handler };
 }
 {
-  // first publish (file doesn't exist yet): PUT without sha
-  let putBody = null;
-  const { QBR } = freshEnv({
-    fetch: async (url, init) => {
-      if ((init.method || "GET") === "GET") return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
-      putBody = JSON.parse(init.body);
-      return { ok: true, status: 201, json: async () => ({}), text: async () => "" };
-    },
-    localStorage: { "qbr-gh-pat": "tok", "qbr-gh-repo": JSON.stringify({ owner: "o", repo: "r", branch: "main" }) },
-  });
+  // classic / malformed tokens refused; fine-grained accepted, tab-only by default
+  const { QBR, store, sstore } = freshEnv({ fetch: async () => { throw new Error("offline"); } });
   await settled(QBR);
-  await QBR.remoteFlagsPublish({ "x": true });
-  ok(!("sha" in putBody), "first publish omits sha (file creation)");
-  ok(JSON.parse(Buffer.from(putBody.content, "base64").toString("utf8")).version === 1, "first publish starts at version 1");
+  let e1 = null; try { await QBR.remoteFlagsToken.set("ghp_" + "x".repeat(36)); } catch (e) { e1 = e; }
+  ok(e1 && /classic token/.test(e1.message), "classic ghp_ token is refused");
+  let e2 = null; try { await QBR.remoteFlagsToken.set("hello"); } catch (e) { e2 = e; }
+  ok(e2 && /fine-grained/.test(e2.message), "non-GitHub text is refused");
+  await QBR.remoteFlagsToken.set(TOK);
+  ok(QBR.remoteFlagsToken.present() && !("qbr-gh-pat" in store) && !("qbr-gh-pat-enc" in store), "fine-grained token kept for this tab only (nothing in localStorage)");
+  ok(JSON.parse(sstore["qbr-gh-pat"]).t === TOK, "tab copy stores the token with a last-used time");
+  QBR.remoteFlagsToken.clear();
+  ok(!QBR.remoteFlagsToken.present() && !("qbr-gh-pat" in sstore), "Forget clears the tab copy");
 }
 {
-  // no token on this machine → publish refuses
+  // idle timeout
+  const { QBR } = freshEnv({ fetch: async () => { throw new Error("offline"); },
+    sessionStorage: { "qbr-gh-pat": JSON.stringify({ t: TOK, at: Date.now() - 31 * 60000 }) } });
+  await settled(QBR);
+  ok(!QBR.remoteFlagsToken.present(), "a tab token unused for 30+ min is dropped (idle lock)");
+}
+{
+  // plain-text token from an earlier build is purged on load
+  const { QBR, store } = freshEnv({ fetch: async () => { throw new Error("offline"); }, localStorage: { "qbr-gh-pat": TOK } });
+  await settled(QBR);
+  ok(!("qbr-gh-pat" in store) && QBR.remoteFlagsToken.purgedPlain() && !QBR.remoteFlagsToken.present(), "plain-text token left in localStorage is deleted on load");
+}
+{
+  // remember = encrypted at rest; locked after reload; unlock needs the passphrase
+  const env1 = freshEnv({ fetch: async () => { throw new Error("offline"); } });
+  await settled(env1.QBR);
+  let e0 = null; try { await env1.QBR.remoteFlagsToken.set(TOK, { remember: true, passphrase: "short" }); } catch (e) { e0 = e; }
+  ok(e0 && /8 characters/.test(e0.message), "remember needs a passphrase of 8+ characters");
+  await env1.QBR.remoteFlagsToken.set(TOK, { remember: true, passphrase: "correct horse" });
+  const enc = env1.store["qbr-gh-pat-enc"];
+  ok(enc && enc.indexOf(TOK) < 0 && enc.indexOf("github_pat_") < 0, "remembered token is stored encrypted (no plain text at rest)");
+  const env2 = freshEnv({ fetch: async () => { throw new Error("offline"); }, localStorage: { "qbr-gh-pat-enc": enc } });
+  await settled(env2.QBR);
+  ok(env2.QBR.remoteFlagsToken.locked() && !env2.QBR.remoteFlagsToken.present(), "after a reload the saved token is locked");
+  let e3 = null; try { await env2.QBR.remoteFlagsToken.unlock("wrong pass!"); } catch (e) { e3 = e; }
+  ok(e3 && /Wrong passphrase/.test(e3.message) && !env2.QBR.remoteFlagsToken.present(), "wrong passphrase doesn't unlock");
+  await env2.QBR.remoteFlagsToken.unlock("correct horse");
+  ok(env2.QBR.remoteFlagsToken.present() && JSON.parse(env2.sstore["qbr-gh-pat"]).t === TOK, "right passphrase unlocks it for this tab");
+  env2.QBR.remoteFlagsToken.lock();
+  ok(env2.QBR.remoteFlagsToken.locked(), "Lock now drops the tab copy, keeps the encrypted one");
+}
+{
+  // publish refuses without a token / when locked
   const { QBR } = freshEnv({ fetch: async () => { throw new Error("should not be called"); } });
   await settled(QBR);
   let err = null;
@@ -219,64 +247,79 @@ async function settled(QBR) {
   ok(err && /No GitHub token/.test(err.message), "publish without a token throws");
 }
 {
-  // token helpers: present/set/clear
+  // main → pull request flow; nothing written to main
+  const gm = ghMock({ files: { main: { version: 9, updated: "2026-10-10", flags: { inventory: true, "future.flag": false, "inventory.scan": true } } } });
+  const { QBR, fetchCalls } = freshEnv({ fetch: gm.handler, sessionStorage: sess(),
+    localStorage: { "qbr-gh-repo": JSON.stringify({ owner: "Hayleyllujah12", repo: "QBR-Dashboard", branch: "main" }),
+      "qbr-remote-flags": JSON.stringify({ savedAt: 1, data: { version: 3, flags: {} } }) } });
+  await settled(QBR);
+  gm.calls.length = 0;
+  const r = await QBR.remoteFlagsPublish({ "inventory.scan": false });
+  const seq = gm.calls.map(c => c.m + " " + c.u.replace(/^\/repos\/[^/]+\/[^/]+/, "").replace(/\?.*$/, "")).join(" | ");
+  ok(/GET \/contents\/config\/features\.json \| GET \/git\/ref\/heads\/main \| POST \/git\/refs \| PUT \/contents\/config\/features\.json \| POST \/pulls/.test(seq), "main: read → branch → commit on branch → open PR  (" + seq + ")");
+  const put = gm.calls.find(c => c.m === "PUT");
+  ok(put && /^flags\/\d{8}-\d{6}-v10$/.test(put.body.branch) && put.body.sha === "sha-main", "commit goes to a new flags/<stamp> branch, not main");
+  ok(gm.files.main.version === 9, "main itself is untouched until the PR is merged");
+  const pr = gm.calls.find(c => c.u.endsWith("/pulls"));
+  ok(pr.body.base === "main" && /inventory\.scan`: on → \*\*off\*\*/.test(pr.body.body), "PR targets main and lists the change");
+  ok(r.pr && r.pr.number === 7 && r.pr.url === "https://github.com/o/r/pull/7" && !r.direct, "publish resolves with the PR link");
+  const d = gm.files[put.body.branch];
+  ok(d.version === 10 && d.flags.inventory === true && d.flags["future.flag"] === false && d.flags["inventory.scan"] === false, "merged onto the file on GitHub: version 9→10, unknown keys kept");
+  ok(QBR.remoteFlagsStatus().remote.version === 3, "local flags don't change before the PR is merged");
+  ok(gm.calls.every(c => c.auth === "Bearer " + TOK), "token sent as Bearer, only to api.github.com");
+  ok(fetchCalls.every(c => !/github/.test(c.url) || /^https:\/\/api\.github\.com\//.test(c.url)), "no other GitHub host is contacted");
+}
+{
+  // develop → PR too; preview branch → direct commit
+  const gm = ghMock({});
+  const { QBR } = freshEnv({ fetch: gm.handler, sessionStorage: sess(), localStorage: { "qbr-gh-repo": JSON.stringify({ owner: "o", repo: "r", branch: "develop" }) } });
+  await settled(QBR);
+  const r1 = await QBR.remoteFlagsPublish({ x: true });
+  ok(r1.pr && !gm.files.develop, "develop: pull request, not a direct commit");
+  QBR.remoteFlagsRepo.set({ owner: "o", repo: "r", branch: "rmt" });
+  gm.calls.length = 0;
+  const r2 = await QBR.remoteFlagsPublish({ x: false });
+  const put = gm.calls.find(c => c.m === "PUT");
+  ok(r2.direct && put.body.branch === "rmt" && !("sha" in put.body) && gm.files.rmt.version === 1 && !gm.calls.some(c => /pulls|git\/refs/.test(c.u)), "preview branch: direct commit (first publish creates the file, v1)");
+  ok(QBR.remoteFlagsStatus().source === "live" && QBR.remoteFlagsStatus().remote.flags.x === false, "direct publish refreshes the local flags");
+}
+{
+  // repo / branch names can't inject paths
+  const gm = ghMock({});
+  const { QBR } = freshEnv({ fetch: gm.handler, sessionStorage: sess(), localStorage: { "qbr-gh-repo": JSON.stringify({ owner: "o/../evil", repo: "r", branch: "main" }) } });
+  await settled(QBR);
+  let err = null; try { await QBR.remoteFlagsPublish({}); } catch (e) { err = e; }
+  ok(err && /not configured/.test(err.message) && gm.calls.filter(c => /api\.github/.test("https://api.github.com" + c.u) && c.u.startsWith("/repos")).length === 0, "owner/repo with path characters is refused before any call");
+}
+{
+  // token check: expiry + bad token
+  const gm = ghMock({ hdr: { "github-authentication-token-expiration": new Date(Date.now() + 20 * 86400000).toISOString().replace("T", " ").replace(/\..*/, " UTC") } });
+  const { QBR } = freshEnv({ fetch: gm.handler, sessionStorage: sess() });
+  await settled(QBR);
+  const c = await QBR.remoteFlagsCheckToken();
+  ok(c.ok && c.daysLeft >= 19 && c.daysLeft <= 20, "token check reads the expiry (" + c.daysLeft + " days)");
+  const gm2 = ghMock({ repoStatus: 401 });
+  const env = freshEnv({ fetch: gm2.handler, sessionStorage: sess() });
+  await settled(env.QBR);
+  let err = null; try { await env.QBR.remoteFlagsCheckToken(); } catch (e) { err = e; }
+  ok(err && /invalid or expired/.test(err.message), "token check explains a 401");
+}
+{
+  // repo defaults + default branch follows the host
   const { QBR } = freshEnv({ fetch: async () => { throw new Error("offline"); } });
   await settled(QBR);
-  ok(QBR.remoteFlagsToken.present() === false, "no token initially");
-  QBR.remoteFlagsToken.set("abc");
-  ok(QBR.remoteFlagsToken.present() === true, "token present after set");
-  QBR.remoteFlagsToken.clear();
-  ok(QBR.remoteFlagsToken.present() === false, "token gone after clear");
   const repo = QBR.remoteFlagsRepo.get();
-  ok(repo.owner === "Hayleyllujah12" && repo.repo === "QBR-Dashboard" && repo.branch === "main", "repo defaults to Pedro's repo/main");
-}
-
-// ============ 4b. review fixes (v1.36.0) ======================================
-{
-  // token: tab-only by default, persisted only with "remember"
-  const { QBR, store, sstore } = freshEnv({ fetch: async () => { throw new Error("offline"); } });
-  await settled(QBR);
-  QBR.remoteFlagsToken.set("tabtok");
-  ok(sstore["qbr-gh-pat"] === "tabtok" && !("qbr-gh-pat" in store), "token is kept for this tab only by default (sessionStorage)");
-  ok(QBR.remoteFlagsToken.present() && !QBR.remoteFlagsToken.remembered(), "tab token counts as present, not remembered");
-  QBR.remoteFlagsToken.set("keep", true);
-  ok(store["qbr-gh-pat"] === "keep" && !("qbr-gh-pat" in sstore), "'Remember on this machine' moves it to localStorage");
-  QBR.remoteFlagsToken.clear();
-  ok(!("qbr-gh-pat" in store) && !("qbr-gh-pat" in sstore), "Forget clears both stores");
-}
-{
-  // default branch follows the host
+  ok(repo.owner === "Hayleyllujah12" && repo.repo === "QBR-Dashboard" && repo.branch === "main", "repo defaults to Pedro's repo/main on the live host");
   const cases = [["rmt--qbr-dashboard-development.netlify.app", "rmt"], ["develop--qbr-dashboard-development.netlify.app", "develop"],
     ["qbr-dashboard-development.netlify.app", "develop"], ["hayleyllujah12.github.io", "main"], ["x.azurestaticapps.net", "main"]];
   let good = true, bad = "";
   for (const [h, b] of cases) {
-    const { QBR } = freshEnv({ hostname: h, fetch: async () => { throw new Error("offline"); } });
-    await settled(QBR);
-    if (QBR.remoteFlagsRepo.get().branch !== b) { good = false; bad += h + "→" + QBR.remoteFlagsRepo.get().branch + " "; }
+    const e = freshEnv({ hostname: h, fetch: async () => { throw new Error("offline"); } });
+    await settled(e.QBR);
+    if (e.QBR.remoteFlagsRepo.get().branch !== b) { good = false; bad += h + "→" + e.QBR.remoteFlagsRepo.get().branch + " "; }
   }
   ok(good, "publish branch defaults to the host's branch (preview → its branch, Netlify main → develop, Pages/Azure → main)", bad);
-}
-{
-  // publish merges onto the file on GitHub: unregistered keys kept, version from the file (stale cache)
-  let putBody = null;
-  const onGh = { version: 9, updated: "2026-10-10", flags: { inventory: true, "future.flag": false, "inventory.scan": true } };
-  const { QBR } = freshEnv({
-    fetch: async (url, init) => {
-      if ((init.method || "GET") === "GET" && /api\.github\.com/.test(url))
-        return jsonRes({ sha: "s9", content: Buffer.from(JSON.stringify(onGh)).toString("base64").replace(/(.{60})/g, "$1\n") });
-      if ((init.method || "GET") === "GET") throw new Error("offline");
-      putBody = JSON.parse(init.body);
-      return { ok: true, status: 200, json: async () => ({}), text: async () => "" };
-    },
-    localStorage: { "qbr-gh-pat": "t",
-      "qbr-remote-flags": JSON.stringify({ savedAt: 1, data: { version: 3, flags: {} } }) },
-  });
-  await settled(QBR);
-  await QBR.remoteFlagsPublish({ "inventory.scan": false });
-  const d = JSON.parse(Buffer.from(putBody.content, "base64").toString("utf8"));
-  ok(d.version === 10, "version bumps from the file on GitHub, not a stale cached copy (" + d.version + ")");
-  ok(d.flags.inventory === true && d.flags["future.flag"] === false && d.flags["inventory.scan"] === false,
-    "keys this build doesn't register survive a publish " + JSON.stringify(d.flags));
+  ok(QBR.remoteFlagsIsProtected("main") && QBR.remoteFlagsIsProtected("develop") && !QBR.remoteFlagsIsProtected("rmt"), "main + develop are PR-only");
 }
 
 // ============ 5. nav enforcement ==============================================
