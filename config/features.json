@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "updated": "2026-10-14",
+  "flags": {
+    "inventory.assets": true,
+    "inventory.tickets": true,
+    "inventory.supplies": true,
+    "inventory.scan": false
+  }
+}
