@@ -11,7 +11,14 @@ const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail
   const p = await (await b.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
   const errs = []; p.on("pageerror", e => errs.push(e.message));
   await p.goto("file://" + path.join(APPDIR, "index.html")); await p.waitForTimeout(300);
-  await p.evaluate(() => { localStorage.setItem("qbr-remember", "0"); window.print = () => { window.__printed = 1; }; });
+  await p.evaluate(() => { localStorage.setItem("qbr-remember", "0"); window.print = () => { window.__printed = 1;
+    // what the browser would freeze into the print job right now
+    const imgs = [...document.querySelectorAll("img.print-chart")];
+    let colored = 0;
+    imgs.slice(0, 8).forEach(im => { try { const c = document.createElement("canvas"); c.width = 120; c.height = 60; const x = c.getContext("2d");
+      x.drawImage(im, 0, 0, 120, 60); const d = x.getImageData(0, 0, 120, 60).data; for (let i = 0; i < d.length; i += 4) if (d[i] < 200 || d[i + 1] < 200 || d[i + 2] < 200) { colored++; break; } } catch (e) {} });
+    window.__snap = { n: imgs.length, decoded: imgs.filter(i => i.complete && i.naturalWidth > 0).length, colored };
+  }; });
   await p.setInputFiles("#file-input", [path.join(__dirname, "fixture.xlsx"), path.join(__dirname, "SAMPLE_Lenovo_Inventory_SYNTH.xlsx")]); await p.waitForTimeout(2500);
   await p.evaluate(() => exportDeck()); await p.waitForFunction(() => window.__printed, null, { timeout: 30000 });
   await p.emulateMedia({ media: "print" });
@@ -19,6 +26,9 @@ const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail
     const shown = [...document.querySelectorAll("#app-body > .dash-panel")].filter(x => getComputedStyle(x).display !== "none").map(x => x.id);
     return { shown };
   });
+  const sn = await p.evaluate(() => window.__snap);
+  ok(sn.n > 20 && sn.decoded === sn.n, `every chart snapshot is decoded when print() runs (${sn.decoded}/${sn.n}) — was 0/47 → empty boxes`);
+  ok(sn.colored >= 6, "snapshots contain the drawn charts (not blank)  " + sn.colored + "/8");
   ok(v.shown[0] === "dash-overview", "Overview is the first page after the cover (was printed last)  " + v.shown.slice(0, 3));
   ok(!v.shown.some(id => /inventory|scan|todo|gtickets|ticket360|asset360|audit|admin|soc|school|fulldata/.test(id)), "tools / raw data pages are not in the deck  " + JSON.stringify(v.shown));
   const out = path.join(os.tmpdir(), "qbr-deck-test.pdf");
