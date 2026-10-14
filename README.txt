@@ -6,6 +6,12 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-14 — v1.35.0 patch: "Main" label on the live site
+  - The live build (GitHub Pages, the Azure production site, the live OneDrive folder) now shows a green
+    "Main" label next to the title and "[MAIN]" in the browser tab — the same place Beta and Preview show
+    theirs, so you can always tell which version you are using. Azure pull-request test sites show
+    "Staging · PR <n>". Add ?main to the address to preview the label anywhere.
+
 UPDATE — 2026-10-14 — v1.35.0 [BETA] patch: Export Deck cleaned up
   - The deck now starts with the Executive Overview (it used to print last) and contains only the
     QBR pages: Overview, Executive report, Risky, Tenant status, Security, GDAP, Postmaster, Usage,

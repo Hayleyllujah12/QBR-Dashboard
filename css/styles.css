@@ -120,6 +120,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-ui);f
 .dev-badge{display:inline-block;margin-right:6px;padding:0 6px;border-radius:8px;font-size:11px;font-weight:700;line-height:16px;background:var(--warn-fill,#F7630C);color:#fff;vertical-align:1px}
 .dev-badge.env-beta{background:var(--brand,#0F6CBD)}
 .dev-badge.env-preview{background:var(--warn-fill,#F7630C)}
+.dev-badge.env-main{background:#107C10}
 @media print{.dev-badge{display:none!important}}
 .icon-btn{width:32px;height:32px;display:inline-grid;place-items:center;border:1px solid transparent;border-radius:var(--radius-sm);
   background:transparent;color:var(--ink);cursor:pointer;padding:0;flex:none}
