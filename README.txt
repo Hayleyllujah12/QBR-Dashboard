@@ -6,6 +6,17 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-14 — v1.36.0 [PREVIEW: rmt] NEW: Remote feature flags (Admin › Remote flags)
+  - Inventory features (Assets, Support tickets, Supplies, Scan) can now be switched on/off for EVERY
+    machine from the hosted site, not just this browser. The hosted setting always wins.
+  - Admin panel › Remote flags: one switch per feature, the current remote version, and Publish.
+    Publishing needs a GitHub token on that computer; without one the section is read-only.
+  - The token is kept for the open tab only unless you tick "Remember on this machine". Never enter
+    it on a shared computer; "Forget token" removes it.
+  - The publish target follows the site you are on (a preview publishes to its own branch, beta to
+    develop). Publishing to main shows a red warning and asks for confirmation — it changes the live site.
+  - Offline copy (double-clicked index.html): uses the last flags this browser saw, or all on.
+
 UPDATE — 2026-10-14 — v1.35.0 [BETA] patch: Export Deck cleaned up
   - The deck now starts with the Executive Overview (it used to print last) and contains only the
     QBR pages: Overview, Executive report, Risky, Tenant status, Security, GDAP, Postmaster, Usage,

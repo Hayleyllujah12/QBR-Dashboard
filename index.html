@@ -145,7 +145,7 @@
       <div class="sb-group" role="group" aria-labelledby="sbg-inv" data-module="inventory">
         <div class="sb-gh" id="sbg-inv">Inventory</div>
         <button class="tab-btn sb-item" type="button" data-tab="dash-inventory" data-group="Inventory"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-storage"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-storage-f"/></svg><span class="sb-label">Inventory</span></button>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-scan" data-group="Inventory"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-scan"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-scan-f"/></svg><span class="sb-label">Scan</span></button>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-scan" data-group="Inventory" data-feature="inventory.scan"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-scan"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-scan-f"/></svg><span class="sb-label">Scan</span></button>
       </div>
       <div class="sb-group" role="group" aria-labelledby="sbg-todo" data-module="todo">
         <div class="sb-gh" id="sbg-todo">My work</div>
@@ -1118,6 +1118,7 @@
   <script src="js/chart-generator.js"></script>
   <script src="js/report-generator.js"></script>
   <script src="js/data-quality.js"></script>
+  <script src="js/remote-flags.js"></script>  <!-- v1.36.0: remote feature flags (registry + loader; before inventory.js) -->
   <script src="js/inventory.js"></script>
   <script src="js/supplies.js"></script>
   <script src="js/audit.js"></script>  <!-- v1.26.0: audit workbook editor -->

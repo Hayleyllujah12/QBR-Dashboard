@@ -248,7 +248,10 @@
       if (!head) return;
       const group = head.closest(".sb-group");
       if (!group) return;
-      group.style.display = flags[key] ? "" : "none";
+      // v1.36.0: remote flags always win over this browser's toggle (QBR.adminIsOn = remote > local > on).
+      let on = !!flags[key];
+      try { if (typeof QBR.adminIsOn === "function") on = !!QBR.adminIsOn(key); } catch (e) {}
+      group.style.display = on ? "" : "none";
     });
     // If the active tab's module was just disabled, fall back to the first visible tab.
     try {
@@ -258,11 +261,21 @@
         if (first) first.click();
       }
     } catch (e) {}
+    // v1.36.0: also enforce remote sub-feature flags (data-feature nav markers).
+    try { if (QBR.remoteFlagsApplyNav) QBR.remoteFlagsApplyNav(); } catch (e) {}
   };
 
   QBR.adminIsModuleOn = function (key) {
+    try { if (typeof QBR.adminIsOn === "function") return !!QBR.adminIsOn(key); } catch (e) {}
     return !!loadFlags()[key];
   };
+  // v1.36.0: true when the hosted flags file decides this key (the local toggle then has no effect).
+  function remoteOwns(key) {
+    try {
+      const st = QBR.remoteFlagsStatus ? QBR.remoteFlagsStatus() : null;
+      return !!(st && st.remote && st.remote.flags && Object.prototype.hasOwnProperty.call(st.remote.flags, key));
+    } catch (e) { return false; }
+  }
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -278,12 +291,16 @@
     if (keepScripts && keepScripts.parentNode) keepScripts.parentNode.removeChild(keepScripts);
     const rows = Object.keys(MODULES).map(key => {
       const m = MODULES[key];
-      const on = !!flags[key];
+      const rem = remoteOwns(key);
+      const on = rem ? QBR.adminIsOn(key) : !!flags[key];
       return `<div class="admin-row">` +
-        `<span class="admin-row-txt"><span class="admin-row-label">${esc(m.label)}</span><br>` +
-        `<span class="admin-row-desc">${esc(m.desc)}</span></span>` +
+        `<span class="admin-row-txt"><span class="admin-row-label">${esc(m.label)}</span>` +
+        (rem ? ` <span class="badge bg-secondary" title="Set by the hosted flags file — this browser's toggle has no effect">REMOTE</span>` : "") +
+        `<br><span class="admin-row-desc">${esc(m.desc)}</span></span>` +
         `<button type="button" class="btn btn-sm ${on ? "btn-success" : "btn-outline-secondary"}" ` +
-        `data-admin-toggle="${esc(key)}" aria-pressed="${on}">${on ? "ON" : "OFF"}</button></div>`;
+        `data-admin-toggle="${esc(key)}" aria-pressed="${on}"` +
+        (rem ? ` disabled title="Controlled remotely (Remote flags below)"` : "") +
+        `>${on ? "ON" : "OFF"}</button></div>`;
     }).join("");
     host.innerHTML =
       `<div class="admin-head"><div><h4 class="mb-1">Admin &middot; Feature flags</h4>` +
@@ -308,6 +325,7 @@
       if (p1 == null) return;
       await QBR.adminSetPassword(p1);
     });
+    renderRemoteSection(host); // v1.36.0
     renderThemeSection(host);
     if (keepScripts) host.appendChild(keepScripts); else renderScriptsSection(host);
   }
@@ -385,6 +403,171 @@
     });
     const tr = sec.querySelector("#admin-theme-reset");
     if (tr) tr.addEventListener("click", () => { QBR.adminThemeReset(); renderAdminPanel(); });
+  }
+
+  /* ---------- Remote flags section (v1.36.0) --------------------------------
+   * UI control for the hosted app's feature flags. Toggles edit a working
+   * copy; Publish commits config/features.json to the repo via the GitHub
+   * Contents API. The personal access token lives ONLY in this browser's
+   * localStorage ("qbr-gh-pat") — Pedro's machine. No token here → the
+   * toggles are read-only and Publish is unavailable.
+   * ------------------------------------------------------------------------ */
+  QBR._rfUI = QBR._rfUI || {};
+  try {
+    document.addEventListener("qbr:flags-ready", function () {
+      if (!QBR._rfUI.dirty) QBR._rfUI.working = null;
+      try { if (document.body.classList.contains("show-admin")) renderAdminPanel(); } catch (e) {}
+    });
+  } catch (e) {}
+
+  function rfWorkingFlags() {
+    var ui = QBR._rfUI;
+    if (!ui.working) {
+      var base = {};
+      try {
+        var st = QBR.remoteFlagsStatus ? QBR.remoteFlagsStatus() : null;
+        if (st && st.remote && st.remote.flags) base = st.remote.flags;
+      } catch (e) {}
+      var w = {};
+      var feats = (QBR.features ? QBR.features.list() : []);
+      feats.forEach(function (f) {
+        w[f.key] = Object.prototype.hasOwnProperty.call(base, f.key) ? !!base[f.key] : true;
+      });
+      ui.working = w;
+    }
+    return ui.working;
+  }
+
+  function rfRepoCfg() {
+    var ui = QBR._rfUI;
+    if (!ui.repo) {
+      try { ui.repo = QBR.remoteFlagsRepo ? QBR.remoteFlagsRepo.get() : { owner: "", repo: "", branch: "main" }; }
+      catch (e) { ui.repo = { owner: "", repo: "", branch: "main" }; }
+    }
+    return ui.repo;
+  }
+
+  function renderRemoteSection(host) {
+    var sec = document.createElement("div");
+    sec.className = "admin-remote";
+    var hasApi = !!(QBR.remoteFlagsStatus && QBR.remoteFlagsPublish && QBR.features);
+    var st = { ready: false, source: "none", remote: null };
+    try { if (QBR.remoteFlagsStatus) st = QBR.remoteFlagsStatus(); } catch (e) {}
+    var canPublish = false;
+    try { canPublish = hasApi && QBR.remoteFlagsToken.present(); } catch (e) {}
+    var working = rfWorkingFlags();
+    var repo = rfRepoCfg();
+    var ui = QBR._rfUI;
+
+    var statusTxt;
+    if (!hasApi) statusTxt = "Remote flags module not loaded.";
+    else if (st.source === "live" && st.remote) statusTxt = "Remote flags v" + st.remote.version + " · updated " + (st.remote.updated || "?") + " · loaded from the live site.";
+    else if (st.source === "cache") statusTxt = "Showing the last-known remote flags (offline — cached copy).";
+    else statusTxt = "Remote flags not loaded yet — showing defaults (all on).";
+
+    var feats = QBR.features ? QBR.features.list() : [];
+    var groups = {};
+    feats.forEach(function (f) {
+      var g = QBR.features.moduleLabel(f.module);
+      (groups[g] = groups[g] || []).push(f);
+    });
+    var rows = Object.keys(groups).sort().map(function (g) {
+      return '<div class="admin-row-group"><div class="small fw-bold mt-2 mb-1">' + esc(g) + "</div>" +
+        groups[g].map(function (f) {
+          var on = !!working[f.key];
+          return '<div class="admin-row">' +
+            '<span class="admin-row-txt"><span class="admin-row-label">' + esc(f.label) + "</span> " +
+            '<span class="badge bg-secondary" title="Managed by the remote flags file">REMOTE</span><br>' +
+            '<span class="admin-row-desc">' + esc(f.desc) + "</span></span>" +
+            '<button type="button" class="btn btn-sm ' + (on ? "btn-success" : "btn-outline-secondary") + '" ' +
+            'data-rf-toggle="' + esc(f.key) + '" aria-pressed="' + on + '"' +
+            (canPublish ? "" : ' disabled title="Add your GitHub token on this machine to change remote flags"') +
+            ">" + (on ? "ON" : "OFF") + "</button></div>";
+        }).join("") + "</div>";
+    }).join("");
+
+    sec.innerHTML =
+      '<h4 class="mb-1 mt-4">Admin &middot; Remote flags</h4>' +
+      '<div class="small text-muted mb-2">Turn features on/off on the <b>hosted</b> app for every machine. ' +
+      "Publishing commits <code>config/features.json</code> to the repo; the site rebuilds in a minute or two and machines pick it up on next load.</div>" +
+      '<div class="small mb-2">' + esc(statusTxt) + "</div>" +
+      (feats.length ? '<div class="admin-list">' + rows + "</div>" : '<div class="small text-muted">No remotely-managed features registered.</div>') +
+      '<div class="card-box mt-3"><h6 class="mb-2">Publish to GitHub</h6>' +
+      '<div class="small mb-2">This machine can publish: <b>' + (canPublish ? "Yes" : "No") + "</b></div>" +
+      '<div class="d-flex flex-wrap gap-2 align-items-end mb-2">' +
+      '<label class="small mb-0">Owner<br><input class="form-control form-control-sm" style="max-width:180px" data-rf-repo="owner" value="' + esc(repo.owner || "") + '"></label>' +
+      '<label class="small mb-0">Repo<br><input class="form-control form-control-sm" style="max-width:200px" data-rf-repo="repo" value="' + esc(repo.repo || "") + '"></label>' +
+      '<label class="small mb-0">Branch<br><input class="form-control form-control-sm" style="max-width:110px" data-rf-repo="branch" value="' + esc(repo.branch || "main") + '"></label>' +
+      "</div>" +
+      '<div class="d-flex flex-wrap gap-2 align-items-end mb-2">' +
+      '<label class="small mb-0">GitHub token (personal access token)<br><input type="password" id="rf-pat" class="form-control form-control-sm" style="max-width:280px" autocomplete="off" placeholder="Paste token on your own machine only"></label>' +
+      '<label class="small mb-0"><input type="checkbox" id="rf-pat-remember"> Remember on this machine</label>' +
+      '<button type="button" class="btn btn-sm btn-outline-primary" id="rf-pat-save">Save token</button>' +
+      (canPublish ? ' <button type="button" class="btn btn-sm btn-outline-secondary" id="rf-pat-forget">Forget token</button>' : "") +
+      "</div>" +
+      '<div class="small text-muted mb-2">Enter the token <b>only on your own machine</b> — never on a shared computer. ' +
+      "It is stored in this browser only and is never written to the repo. Use a fine-grained token with contents write access to this repo; you can revoke it anytime in GitHub settings.</div>" +
+      ((repo.branch || "main") === "main"
+        ? '<div class="small text-danger mb-2" id="rf-live-warn"><b>Target branch is main</b> — publishing changes the <b>live</b> site for every user.</div>'
+        : '<div class="small text-muted mb-2">Target branch <b>' + esc(repo.branch) + '</b> — only that branch\'s site is affected.</div>') +
+      '<div class="d-flex gap-2 align-items-center">' +
+      '<button type="button" class="btn btn-sm btn-primary" id="rf-publish"' + (canPublish ? "" : " disabled") + ">Publish flags</button>" +
+      '<span class="small" id="rf-msg" role="status">' + (ui.msg ? esc(ui.msg) : "") + "</span>" +
+      "</div></div>";
+
+    host.appendChild(sec);
+
+    // Toggles edit the working copy only — nothing leaves the browser until Publish.
+    sec.querySelectorAll("[data-rf-toggle]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var key = b.getAttribute("data-rf-toggle");
+        working[key] = !working[key];
+        ui.dirty = true;
+        renderAdminPanel();
+      });
+    });
+    // Repo fields survive re-renders via QBR._rfUI.repo.
+    sec.querySelectorAll("[data-rf-repo]").forEach(function (inp) {
+      inp.addEventListener("input", function () {
+        repo[inp.getAttribute("data-rf-repo")] = inp.value.trim();
+        try { if (QBR.remoteFlagsRepo) QBR.remoteFlagsRepo.set(repo); } catch (e) {}
+      });
+    });
+    var patInp = sec.querySelector("#rf-pat");
+    var saveBtn = sec.querySelector("#rf-pat-save");
+    if (saveBtn) saveBtn.addEventListener("click", function () {
+      var v = patInp ? patInp.value.trim() : "";
+      if (!v) { ui.msg = "Paste a token first."; renderAdminPanel(); return; }
+      var okSet = false;
+      var remember = !!(sec.querySelector("#rf-pat-remember") || {}).checked;
+      try { okSet = QBR.remoteFlagsToken.set(v, remember); } catch (e) {}
+      ui.msg = !okSet ? "Could not save the token in this browser." :
+        remember ? "Token saved on this machine." : "Token saved for this tab only (gone when the tab closes).";
+      if (patInp) patInp.value = "";
+      renderAdminPanel();
+    });
+    var forgetBtn = sec.querySelector("#rf-pat-forget");
+    if (forgetBtn) forgetBtn.addEventListener("click", function () {
+      try { QBR.remoteFlagsToken.clear(); } catch (e) {}
+      ui.msg = "Token forgotten on this machine.";
+      renderAdminPanel();
+    });
+    var pubBtn = sec.querySelector("#rf-publish");
+    if (pubBtn) pubBtn.addEventListener("click", async function () {
+      var msg = sec.querySelector("#rf-msg");
+      if ((repo.branch || "main") === "main" && !window.confirm("Publish to main? This changes the LIVE site for every user.")) return;
+      pubBtn.disabled = true;
+      if (msg) msg.textContent = "Publishing…";
+      try {
+        var doc = await QBR.remoteFlagsPublish(Object.assign({}, working));
+        ui.working = Object.assign({}, doc.flags);
+        ui.dirty = false;
+        ui.msg = "Published — the site rebuilds in ~2 min, then machines pick it up on next load.";
+      } catch (err) {
+        ui.msg = "Publish failed: " + (err && err.message ? err.message : err);
+      }
+      renderAdminPanel();
+    });
   }
 
   QBR.renderAdmin = renderAdminPanel;
