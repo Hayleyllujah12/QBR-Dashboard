@@ -428,6 +428,9 @@
         var st = QBR.remoteFlagsStatus ? QBR.remoteFlagsStatus() : null;
         if (st && st.remote && st.remote.flags) base = st.remote.flags;
       } catch (e) {}
+      // Publishing to another branch (e.g. main from a preview): start from THAT branch's current values.
+      var tgt = rfTarget();
+      if (tgt && tgt.loaded) base = tgt.doc ? tgt.doc.flags : {};
       var w = {};
       var feats = (QBR.features ? QBR.features.list() : []);
       feats.forEach(function (f) {
@@ -436,6 +439,40 @@
       ui.working = w;
     }
     return ui.working;
+  }
+
+  // Target branch differs from the site this tab runs on → its current flags are fetched (needs the token).
+  function rfNeedsTarget() {
+    var b = (rfRepoCfg().branch || "main");
+    var host = QBR.remoteFlagsHostBranch ? QBR.remoteFlagsHostBranch() : b;
+    var can = false;
+    try { can = QBR.remoteFlagsToken && QBR.remoteFlagsToken.present(); } catch (e) {}
+    return can && !!QBR.remoteFlagsReadTarget && b !== host ? b : null;
+  }
+  function rfTarget() {
+    var b = rfNeedsTarget(), t = QBR._rfUI.target;
+    return b && t && t.branch === b ? t : null;
+  }
+  function rfLoadTarget() {
+    var b = rfNeedsTarget(), ui = QBR._rfUI;
+    if (!b || (ui.target && ui.target.branch === b)) return;
+    ui.target = { branch: b, loaded: false, loading: true, doc: null, err: "" };
+    QBR.remoteFlagsReadTarget(b).then(function (r) {
+      if (!ui.target || ui.target.branch !== b) return;
+      ui.target = { branch: b, loaded: true, loading: false, doc: r.doc, err: "" };
+      if (!ui.dirty) ui.working = null;
+      renderAdminPanel();
+    }, function (err) {
+      if (!ui.target || ui.target.branch !== b) return;
+      ui.target = { branch: b, loaded: false, loading: false, doc: null, err: String((err && err.message) || err) };
+      renderAdminPanel();
+    });
+  }
+  function rfBaseFlags() {
+    var t = rfTarget();
+    if (t && t.loaded) return t.doc ? t.doc.flags : {};
+    try { var st = QBR.remoteFlagsStatus(); if (st && st.remote && st.remote.flags) return st.remote.flags; } catch (e) {}
+    return {};
   }
 
   function rfRepoCfg() {
@@ -464,6 +501,15 @@
     var ui = QBR._rfUI;
     var base = repo.branch || "main";
     var prot = !!(QBR.remoteFlagsIsProtected && QBR.remoteFlagsIsProtected(base));
+    rfLoadTarget();
+    var tgtNeed = rfNeedsTarget(), tgt = ui.target && ui.target.branch === tgtNeed ? ui.target : null;
+    var tgtNote = "";
+    if (tgtNeed && tgt) {
+      if (tgt.loading) tgtNote = "Loading the current settings on " + tgtNeed + "…";
+      else if (tgt.err) tgtNote = "Couldn't read the settings on " + tgtNeed + " (" + tgt.err + ") — the switches show this site's values.";
+      else if (tgt.doc) tgtNote = "The switches show the CURRENT settings on " + tgtNeed + " (v" + tgt.doc.version + ", updated " + (tgt.doc.updated || "?") + "), not this site's.";
+      else tgtNote = tgtNeed + " has no flags file yet — everything is on there.";
+    }
 
     var statusTxt;
     if (!hasApi) statusTxt = "Remote flags module not loaded.";
@@ -497,6 +543,7 @@
       '<div class="small text-muted mb-2">Turn features on/off on the <b>hosted</b> app for every machine. ' +
       "Publishing updates <code>config/features.json</code> in the repo (through a pull request for main and develop); the site rebuilds in a minute or two and machines pick it up on next load.</div>" +
       '<div class="small mb-2">' + esc(statusTxt) + "</div>" +
+      (tgtNote ? '<div class="small mb-2 fw-semibold" id="rf-target-note">' + esc(tgtNote) + "</div>" : "") +
       (feats.length ? '<div class="admin-list">' + rows + "</div>" : '<div class="small text-muted">No remotely-managed features registered.</div>') +
       '<div class="card-box mt-3"><h6 class="mb-2">Publish to GitHub</h6>' +
       '<div class="small mb-2">This tab can publish: <b>' + (canPublish ? "Yes" : "No") + "</b>" +
@@ -547,7 +594,7 @@
         repo[inp.getAttribute("data-rf-repo")] = inp.value.trim();
         try { if (QBR.remoteFlagsRepo) QBR.remoteFlagsRepo.set(repo); } catch (e) {}
       });
-      inp.addEventListener("change", function () { renderAdminPanel(); });
+      inp.addEventListener("change", function () { ui.target = null; if (!ui.dirty) ui.working = null; renderAdminPanel(); });
     });
     var say = function (m) { ui.msg = m; ui.prUrl = ""; renderAdminPanel(); };
     var patInp = sec.querySelector("#rf-pat");
@@ -596,11 +643,17 @@
     var pubBtn = sec.querySelector("#rf-publish");
     if (pubBtn) pubBtn.addEventListener("click", async function () {
       var msg = sec.querySelector("#rf-msg");
+      // Show exactly what changes on the target before anything is sent.
+      var changes = QBR.remoteFlagsDiff ? QBR.remoteFlagsDiff(rfBaseFlags(), Object.assign({}, rfBaseFlags(), working)) : [];
+      var q = (prot ? "Open a pull request into " : "Publish directly to ") + base + "?\n\n" +
+        (changes.length ? "Changes:\n" + changes.join("\n") : "No switch changes (the version number only).");
+      if (!window.confirm(q)) return;
       pubBtn.disabled = true;
       if (msg) msg.textContent = prot ? "Opening a pull request…" : "Publishing…";
       try {
         var res = await QBR.remoteFlagsPublish(Object.assign({}, working));
         ui.dirty = false;
+        ui.target = null;
         if (res.pr) {
           ui.working = null;   // the live flags haven't changed yet — show them again
           ui.msg = "Pull request #" + res.pr.number + " opened for v" + res.doc.version + ". Merge it on GitHub to apply; the site rebuilds after the merge.";

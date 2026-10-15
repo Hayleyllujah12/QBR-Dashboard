@@ -9,7 +9,9 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
 UPDATE — 2026-10-14 — v1.36.0 [PREVIEW: rmt] NEW: Remote feature flags (Admin › Remote flags)
   - Inventory features (Assets, Support tickets, Supplies, Scan) can now be switched on/off for EVERY
     machine from the hosted site, not just this browser. The hosted setting always wins.
-  - Admin panel › Remote flags: one switch per feature, the current remote version, and Publish.
+  - Admin panel › Remote flags: one switch per feature, the current remote version, and Publish. When the
+    target branch is not the site you are on (e.g. main from the beta), the switches show that branch's
+    current settings, and Publish first lists exactly what will change.
   - Publishing to main or develop opens a PULL REQUEST on GitHub ("Open pull request"); nothing changes
     until someone reviews and merges it. Preview branches (e.g. rmt) are updated directly.
   - GitHub token safety: only fine-grained tokens (github_pat_…) are accepted — classic tokens are refused.

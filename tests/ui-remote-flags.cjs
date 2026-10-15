@@ -79,6 +79,27 @@ function serve() {
   ok(/This tab can publish: Yes/.test(await p.textContent("#admin-body .admin-remote")), "publish indicator says Yes with token");
   ok(await p.evaluate(() => { const b = document.querySelector("#rf-publish"); return b && !b.disabled; }), "Publish button enabled with token");
   ok(await p.$$eval("#admin-body [data-rf-toggle]:disabled", x => x.length) === 0, "toggles enabled with token");
+  // Target another branch: the switches load THAT branch's current values (mocked GitHub), and Publish asks with a diff.
+  const tdoc = { version: 2, updated: "2026-10-15", flags: { "inventory.assets": true, "inventory.tickets": true, "inventory.supplies": true, "inventory.scan": false } };
+  await p.route(/api\.github\.com/, route => {
+    const u = route.request().url();
+    const body = /contents\/config\/features\.json\?ref=develop/.test(u) ? { sha: "s2", content: Buffer.from(JSON.stringify(tdoc)).toString("base64") } : { message: "nope" };
+    route.fulfill({ status: body.sha ? 200 : 404, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(body) });
+  });
+  await p.evaluate(() => { QBR._rfUI.dirty = false; QBR._rfUI.working = null; });
+  await p.fill('[data-rf-repo="branch"]', "develop"); await p.dispatchEvent('[data-rf-repo="branch"]', "change"); await p.waitForTimeout(800);
+  ok(/CURRENT settings on develop \(v2/.test(await p.textContent("#rf-target-note")), "other target branch → note says the switches show that branch's current settings");
+  ok(/OFF/.test(await p.textContent('[data-rf-toggle="inventory.scan"]')) && /ON/.test(await p.textContent('[data-rf-toggle="inventory.assets"]')),
+    "…and Scan shows OFF as on develop (this site's file says ON)");
+  await p.click('[data-rf-toggle="inventory.scan"]'); await p.waitForTimeout(150);
+  let dlg = "";
+  p.once("dialog", d => { dlg = d.message(); d.dismiss(); });
+  await p.click("#rf-publish"); await p.waitForTimeout(300);
+  ok(/pull request into develop/.test(dlg) && /inventory\.scan: off → on/.test(dlg) && !/inventory\.assets/.test(dlg), "Publish asks first and lists only the real change  [" + dlg.replace(/\n/g, " | ") + "]");
+  ok(!/Pull request #/.test(await p.textContent("#rf-msg")), "cancelling the question sends nothing");
+  await p.unroute(/api\.github\.com/);
+  await p.fill('[data-rf-repo="branch"]', "main"); await p.dispatchEvent('[data-rf-repo="branch"]', "change"); await p.waitForTimeout(200);
+  ok(!(await p.$("#rf-target-note")), "back on this site's branch → no target note");
   await p.evaluate(() => { QBR.remoteFlagsToken.clear(); QBR.renderAdmin(); });
   await p.waitForTimeout(200);
   ok(/This tab can publish: No/.test(await p.textContent("#admin-body .admin-remote")), "forgetting the token returns to read-only");

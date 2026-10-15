@@ -410,6 +410,19 @@
     return out;
   }
 
+  // The flags file as it is NOW on another branch (e.g. main while you are on a preview), so the admin
+  // panel can show — and diff against — that branch's real values. Resolves { branch, doc|null }.
+  QBR.remoteFlagsReadTarget = async function (branch) {
+    var token = readToken();
+    if (!token) throw new Error("No GitHub token in this tab.");
+    if (!BRANCH_RE.test(String(branch || ""))) throw new Error("Invalid branch.");
+    var r = await readFlagsFile(gh(token), repoPath(QBR.remoteFlagsRepo.get()), branch);
+    return { branch: branch, doc: r.doc };
+  };
+  QBR.remoteFlagsDiff = function (oldFlags, newFlags) {
+    return diffLines(oldFlags || {}, newFlags || {}).map(function (l) { return l.replace(/`/g, "").replace(/\*\*/g, "").replace(/^- /, ""); });
+  };
+
   // flags: { key: bool }. main / develop → opens a PULL REQUEST (branch flags/<stamp>) that someone merges on
   // GitHub; any other (preview) branch → direct commit. Resolves { doc, pr|null, direct }.
   QBR.remoteFlagsPublish = async function (flags) {
