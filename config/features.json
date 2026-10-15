@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "updated": "2026-10-14",
+  "version": 2,
+  "updated": "2026-10-15",
   "flags": {
     "inventory.assets": true,
     "inventory.tickets": true,
