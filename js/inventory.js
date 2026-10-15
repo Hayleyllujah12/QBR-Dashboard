@@ -1195,7 +1195,7 @@ function renderInventory() {
   const host = $("inv-body");
   if (!host) return;
   const inv = invModel();
-  const sup = (typeof supModel === "function") ? supModel() : null;
+  const sup = (typeof supModel === "function" && invFeatureOn("inventory.supplies")) ? supModel() : null; // v1.36.0: remote flag
   const hasAssets = inv && (inv.assets.length || inv.tickets.length || inv.deployments.length);
   const hasSup = sup && (sup.items.length || sup.transactions.length);
   /* Delivery version badge (semver — see VERSIONING.md), visible even with no data. */
@@ -1215,8 +1215,19 @@ function renderInventory() {
   if (!hasAssets && hasSup) ui.view = "supplies"; // only supplies present
   if (ui.view === "supplies" && !hasSup) ui.view = "assets";
   if (ui.view === "tickets" && !hasAssets) ui.view = "assets";
+  /* v1.36.0 remote flags pilot: drop disabled sub-views, fall back to the first enabled one. */
+  const _rfViews = invEnabledViews();
+  if (!_rfViews.length) {
+    host.innerHTML = verBadge + `<div class="card-box"><h6>Inventory</h6>` +
+      `<p class="text-muted mb-0">Inventory features are currently disabled by the administrator.</p></div>`;
+    return;
+  }
+  if (!_rfViews.includes(ui.view)) ui.view = _rfViews[0];
   /* Assets | Support tickets | Supplies sub-nav. */
-  const vBtn = (v, label) => `<button type="button" class="btn ${ui.view === v ? "btn-primary" : "btn-outline-primary"}" data-sup-view="${v}">${label}</button>`;
+  const vBtn = (v, label) => { // v1.36.0: hide sub-views whose flag is off
+    if (!invFeatureOn("inventory." + v)) return "";
+    return `<button type="button" class="btn ${ui.view === v ? "btn-primary" : "btn-outline-primary"}" data-sup-view="${v}" data-feature="inventory.${v}">${label}</button>`;
+  };
   const viewToggle = (hasAssets || hasSup) ? `<div class="btn-group btn-group-sm mb-3" role="group" aria-label="Inventory view">` +
       (hasAssets ? vBtn("assets", "Assets") : "") +
       (hasAssets ? vBtn("tickets", `Support tickets (${fmt(inv.tickets.length)})`) : "") +
@@ -2069,6 +2080,10 @@ function invLookupSerial() {
 function renderAsset360Panel() {
   const host = $("a360-body");
   if (!host) return;
+  if (!invFeatureOn("inventory.assets")) { // v1.36.0: remote flag
+    host.innerHTML = `<div class="card-box"><p class="text-muted mb-0">The Assets feature is currently disabled by the administrator.</p></div>`;
+    return;
+  }
   const inv = invModel(), key = QBR._invA360;
   if (!inv || !inv.assets.length) {
     host.innerHTML = `<div class="card-box"><p class="text-muted">Load an inventory workbook to browse assets.</p></div>`;
@@ -2371,11 +2386,33 @@ if (typeof window !== "undefined" && window.addEventListener) {
   else setTimeout(invApplyHash, 0);
 }
 
+/* ---------- Remote feature flags pilot: inventory sub-features (v1.36.0) -- */
+function invFeatureOn(key) {
+  try { if (typeof QBR !== "undefined" && QBR && typeof QBR.adminIsOn === "function") return !!QBR.adminIsOn(key); } catch (e) {}
+  return true;
+}
+function invEnabledViews() {
+  return ["assets", "tickets", "supplies"].filter(function (v) { return invFeatureOn("inventory." + v); });
+}
+try {
+  if (typeof QBR !== "undefined" && QBR && QBR.features) {
+    QBR.features.register({ module: "inventory", key: "inventory.assets", label: "Assets", desc: "Asset registry, deployments and stock overview" });
+    QBR.features.register({ module: "inventory", key: "inventory.tickets", label: "Support tickets", desc: "Support ticket queue, statuses and follow-ups" });
+    QBR.features.register({ module: "inventory", key: "inventory.supplies", label: "Supplies", desc: "Printer supplies: items, transactions and tiles" });
+  }
+  // Review fix: flags usually arrive after the first render — redraw so a disabled view disappears.
+  if (typeof document !== "undefined" && document.addEventListener)
+    document.addEventListener("qbr:flags-ready", function () {
+      try { renderInventory(); } catch (e) {}
+      try { renderAsset360Panel(); } catch (e) {}
+    });
+} catch (e) {}
+
 /* ---------- Node export guard (test harness only; inert in browser) ------ */
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { QBR, invParseDeviceRows, invParseSupportRows, invParseRaksoRows,
     invParsePipelineRows, invParsePORows, invDate, invFmtDate, invDaysBetween,
     invTicketNo, invBackfillTicketNos, invParseTicketNotes, invFmtTicketNotes,
     invTixOpen, invTixStatus, TIX_STATUSES, TIX_PRIORITIES,
-    invStockOverview, invCollapsible, invTicketsCard };
+    invStockOverview, invCollapsible, invTicketsCard, invFeatureOn, invEnabledViews };
 }

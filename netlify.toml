@@ -10,10 +10,10 @@
   # docs/ and tests/ (school names, fixtures) are never published - any published file is
   # downloadable by direct link, whatever login the app shows.
   publish = "dist"
-  command = "rm -rf dist && mkdir dist && cp -r index.html css js libs assets dist/"
+  command = "rm -rf dist && mkdir dist && cp -r index.html css js libs assets config dist/"
   # Skip the deploy when only docs/tests changed (exit 0 = nothing relevant changed).
   # On the first build CACHED_COMMIT_REF is empty, git diff errors, and the build runs.
-  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- index.html css js libs assets netlify.toml"
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- index.html css js libs assets config netlify.toml"
 
 # Headers are global (all contexts). Beta/preview sites stay out of search engines.
 [[headers]]
