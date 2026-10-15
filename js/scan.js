@@ -493,6 +493,10 @@ function scanUpdateEngineNote() { const n = $("scan-engine-note"); if (n) n.inne
 function renderScan() {
   const host = $("scan-body");
   if (!host) return;
+  if (!scanFeatureOn()) { // v1.36.0: remote flag
+    host.innerHTML = `<div class="card-box"><h6>Scan labels</h6><p class="text-muted mb-0">The Scan feature is currently disabled by the administrator.</p></div>`;
+    return;
+  }
   const ui = QBR._scanUI;
   const ocrDead = QBR._scanOCR.failed || typeof Tesseract === "undefined";
 
@@ -1378,7 +1382,19 @@ function scanOpenTagDialog(row) {
   setTimeout(() => { const c = $("tg-client"); if (c) c.focus(); }, 60);
 }
 
+/* ---------- Remote feature flags pilot: scan sub-feature (v1.36.0) -------- */
+function scanFeatureOn() {
+  try { if (typeof QBR !== "undefined" && QBR && typeof QBR.adminIsOn === "function") return !!QBR.adminIsOn("inventory.scan"); } catch (e) {}
+  return true;
+}
+try {
+  if (typeof QBR !== "undefined" && QBR && QBR.features)
+    QBR.features.register({ module: "inventory", key: "inventory.scan", label: "Scan", desc: "Barcode / label scanning" });
+  if (typeof document !== "undefined" && document.addEventListener)
+    document.addEventListener("qbr:flags-ready", function () { try { renderScan(); } catch (e) {} });
+} catch (e) {}
+
 /* ---------- Node export guard (test harness only; inert in browser) ------ */
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { QBR, scanParseOCRText, scanClassifyBarcode, scanMergeFindings, scanPickSerial, scanSplitMtmSn, scanLooksLikeSerial, scanSplitMtm, scanLooksLikeMtm, scanPickMtm, scanStripDi };
+  module.exports = { QBR, scanParseOCRText, scanClassifyBarcode, scanMergeFindings, scanPickSerial, scanSplitMtmSn, scanLooksLikeSerial, scanSplitMtm, scanLooksLikeMtm, scanPickMtm, scanStripDi, scanFeatureOn };
 }

@@ -6,6 +6,27 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-14 — v1.36.0 [BETA] patch: "Main" label on the live site
+  - The live build (GitHub Pages, the Azure production site, the live OneDrive folder) now shows a green
+    "Main" label next to the title and "[MAIN]" in the browser tab — the same place Beta and Preview show
+    theirs, so you can always tell which version you are using. Azure pull-request test sites show
+    "Staging · PR <n>". Add ?main to the address to preview the label anywhere.
+
+UPDATE — 2026-10-14 — v1.36.0 [BETA] NEW: Remote feature flags (Admin › Remote flags)
+  - Inventory features (Assets, Support tickets, Supplies, Scan) can now be switched on/off for EVERY
+    machine from the hosted site, not just this browser. The hosted setting always wins.
+  - Admin panel › Remote flags: one switch per feature, the current remote version, and Publish. When the
+    target branch is not the site you are on (e.g. main from the beta), the switches show that branch's
+    current settings, and Publish first lists exactly what will change.
+  - Publishing to main or develop opens a PULL REQUEST on GitHub ("Open pull request"); nothing changes
+    until someone reviews and merges it. Preview branches (e.g. rmt) are updated directly.
+  - GitHub token safety: only fine-grained tokens (github_pat_…) are accepted — classic tokens are refused.
+    Give it access to this repository only, Contents + Pull requests (read & write), 90 days or less.
+    By default it is kept for the open tab only and locks after 30 minutes without use. "Remember on this
+    machine" saves it encrypted with a passphrase you choose; after a reload click "Unlock saved token".
+    A token saved in plain text by the first preview build is deleted automatically — add it again.
+  - Offline copy (double-clicked index.html): uses the last flags this browser saw, or all on.
+
 UPDATE — 2026-10-14 — v1.35.0 [BETA] patch: Export Deck cleaned up
   - The deck now starts with the Executive Overview (it used to print last) and contains only the
     QBR pages: Overview, Executive report, Risky, Tenant status, Security, GDAP, Postmaster, Usage,

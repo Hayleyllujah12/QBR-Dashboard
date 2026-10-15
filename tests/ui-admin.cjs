@@ -133,7 +133,19 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
     r = await badge("https://qbr-dashboard-development.netlify.app/");
     ok(r.t === "Beta version", "Netlify main address (beta host; live is GitHub Pages) → 'Beta version'");
     r = await badge("https://hayleyllujah12.github.io/QBR-Dashboard/");
-    ok(r.t === null, "GitHub Pages (live) → no badge");
+    ok(r.t === "Main" && /env-main/.test(r.c) && /^\[MAIN\]/.test(r.title), "GitHub Pages (live) → 'Main' badge + [MAIN] title");
+    r = await badge("file://" + path.join(APPDIR, "index.html") + "?main");
+    ok(r.t === "Main", "?main → 'Main' (testing override)");
+    const LIVE = path.join(TMP, "QBR-Dashboard_1.21.0", "qbr-app");
+    fs.mkdirSync(LIVE, { recursive: true }); fs.copyFileSync(path.join(APPDIR, "index.html"), path.join(LIVE, "index.html"));
+    for (const d of ["js", "css", "libs", "assets"]) if (fs.existsSync(path.join(APPDIR, d))) fs.symlinkSync(path.join(APPDIR, d), path.join(LIVE, d));
+    r = await badge("file://" + path.join(LIVE, "index.html"));
+    ok(r.t === "Main", "live OneDrive folder QBR-Dashboard_<x.y.z> → 'Main'");
+    await ctx.route(/azurestaticapps\.net\//, route => { const u = new URL(route.request().url()); const f = path.join(APPDIR, u.pathname === "/" ? "index.html" : decodeURIComponent(u.pathname)); route.fulfill(fs.existsSync(f) ? { path: f } : { status: 404, body: "" }); });
+    r = await badge("https://lively-sea-0f1e2d3c4.5.azurestaticapps.net/");
+    ok(r.t === "Main", "Azure production site → 'Main'");
+    r = await badge("https://lively-sea-0f1e2d3c4-12.eastasia.5.azurestaticapps.net/");
+    ok(r.t === "Staging · PR 12" && /env-preview/.test(r.c), "Azure PR staging site → 'Staging · PR 12' (not Main)");
     try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) {}
     await ctx.close();
   }
