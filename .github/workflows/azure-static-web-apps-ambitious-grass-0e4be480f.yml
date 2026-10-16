@@ -1,0 +1,84 @@
+name: Azure Static Web Apps CI/CD
+
+# Internal live site (Azure SWA) — deploys from main.
+# 2026-10-11: no build step (the dashboard is plain HTML/CSS/JS); publish ONLY the app files
+# from a dist/ folder. Without this, the "npm install @actions/core" step below left a
+# package.json in the repo root, Oryx tried to run "npm run build" and the deploy failed —
+# and app_location "/" would also have published tests/, docs/ and node_modules/.
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - 'tests/**'
+      - '**/*.md'
+      - 'README.txt'
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches:
+      - main
+
+jobs:
+  build_and_deploy_job:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    runs-on: ubuntu-latest
+    name: Build and Deploy Job
+    permissions:
+       id-token: write
+       contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          lfs: false
+      - name: Install OIDC Client from Core Package
+        run: npm install @actions/core@1.6.0 @actions/http-client
+      - name: Get Id Token
+        uses: actions/github-script@v7
+        id: idtoken
+        with:
+           script: |
+               const coredemo = require('@actions/core')
+               return await coredemo.getIDToken()
+           result-encoding: string
+      - name: Collect app files into dist/
+        run: |
+          set -e
+          mkdir -p dist
+          cp index.html dist/
+          for d in css js libs assets; do
+            if [ -d "$d" ]; then cp -R "$d" dist/; fi
+          done
+          # optional SWA config / extra pages (added by the M365-login branch)
+          for f in staticwebapp.config.json 403.html auth-redirect.html; do
+            if [ -f "$f" ]; then cp "$f" dist/; fi
+          done
+          # never publish workbooks
+          find dist -type f \( -iname '*.xlsx' -o -iname '*.xlsm' -o -iname '*.xls' \) -print -delete
+          echo "dist size: $(du -sh dist | cut -f1), files: $(find dist -type f | wc -l)"
+      - name: Build And Deploy
+        id: builddeploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AMBITIOUS_GRASS_0E4BE480F }}
+          action: "upload"
+          ###### Repository/Build Configurations ######
+          app_location: "dist"     # pre-collected app files (see step above)
+          skip_app_build: true     # plain static site — no Oryx/npm build
+          api_location: ""         # no API
+          output_location: ""
+          github_id_token: ${{ steps.idtoken.outputs.result }}
+          ###### End of Repository/Build Configurations ######
+
+  close_pull_request_job:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    name: Close Pull Request Job
+    steps:
+      - name: Close Pull Request
+        id: closepullrequest
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          action: "close"
