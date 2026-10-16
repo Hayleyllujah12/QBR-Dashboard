@@ -54,6 +54,22 @@ function invDate(v) {
   if (!isNaN(t)) { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
   return null;
 }
+/* Warranty end = start + N years (fractions in whole months), same day of month or the
+ * month's last day (31 Jan + 1 y -> 31 Jan; 29 Feb + 1 y -> 28 Feb). Was capped at day 28
+ * (ended up to 3 days early) and dropped fractional years. */
+QBR.invAddYears = function (start, years) {
+  if (!(start instanceof Date) || isNaN(start) || years == null || !isFinite(years)) return null;
+  const months = Math.round(Number(years) * 12);
+  const y = start.getFullYear(), m = start.getMonth() + months;
+  const last = new Date(y, m + 1, 0).getDate();
+  return new Date(y, m, Math.min(start.getDate(), last));
+};
+/* Local YYYY-MM-DD for <input type=date> (toISOString is UTC: one day early east of UTC). */
+function invYmd(d) {
+  const dd = (d instanceof Date && !isNaN(d)) ? d : invDate(d);
+  if (!dd || isNaN(dd)) return "";
+  return dd.getFullYear() + "-" + String(dd.getMonth() + 1).padStart(2, "0") + "-" + String(dd.getDate()).padStart(2, "0");
+}
 function invFmtDate(d) {
   if (!d) return "—";
   // Defensive: coerce strings/serials (e.g. a journal-replayed ISO date that
@@ -99,7 +115,7 @@ function invParseDeviceRows(rows, meta) {
   const idx = makeResolver(rows[0]);
   const c = {
     sn: idx(["serial number", "serial"]), client: idx(["client / organization", "client", "organization"]),
-    model: idx(["model"]), desc: idx(["description", "specification"]), cat: idx(["category"]),
+    model: idx(["model"]), mtm: idx(["mtm", "machine type model"]), desc: idx(["description", "specification"]), cat: idx(["category"]),
     brand: idx(["brand"]), supplier: idx(["supplier"]), dr: idx(["dr #", "dr"]),
     delivered: idx(["date delivered"]), wstart: idx(["warranty start"]), wend: idx(["warranty end"]),
     wyears: idx(["warranty years"]), cond: idx(["condition"]), contact: idx(["contact person"]),
@@ -114,7 +130,7 @@ function invParseDeviceRows(rows, meta) {
     const get = i => (i >= 0 && row[i] != null ? String(row[i]).trim() : null);
     out.push({
       key: QBR.invSerialKey(sn), sn: String(sn).trim(),
-      client: get(c.client), model: get(c.model), desc: get(c.desc), cat: get(c.cat) || "Laptop",
+      client: get(c.client), model: get(c.model), mtm: get(c.mtm), desc: get(c.desc), cat: get(c.cat) || "Laptop",
       brand: get(c.brand) || "Lenovo", supplier: get(c.supplier), dr: get(c.dr),
       delivered: invDate(row[c.delivered]), wstart: invDate(row[c.wstart]), wend: invDate(row[c.wend]),
       wyears: row[c.wyears] != null && row[c.wyears] !== "" ? Number(row[c.wyears]) : null,
@@ -498,14 +514,14 @@ QBR.invIntake = function (list) {
     const key = QBR.invSerialKey(sn);
     if (inv.assets.some(a => a.key === key)) return; // no duplicates
     inv.assets.push({
-      key, sn, client: r.client || null, model: r.model || null, desc: r.desc || null,
+      key, sn, client: r.client || null, model: r.model || null, mtm: r.mtm || null, desc: r.desc || null,
       cat: r.cat || "Laptop", brand: r.brand || "Lenovo", supplier: r.supplier || null,
       dr: r.dr || null, delivered: null, wstart: invDate(r.wstart) || invToday(),
       wend: null, wyears: r.wyears != null ? Number(r.wyears) : 3,
       cond: "No Issue", contact: null, addr: null, phone: null, batch: r.batch || null, statusOverride: null,
     });
     const a = inv.assets[inv.assets.length - 1];
-    if (a.wstart && a.wyears) a.wend = new Date(a.wstart.getFullYear() + a.wyears, a.wstart.getMonth(), Math.min(a.wstart.getDate(), 28));
+    if (a.wstart && a.wyears) a.wend = QBR.invAddYears(a.wstart, a.wyears);
     QBR.invLog("intake", sn + (r.client ? " → " + r.client : " (in stock)"));
     n++;
   });
@@ -515,7 +531,8 @@ QBR.invIntake = function (list) {
 
 QBR.invDeploy = function (keys, client, dateDelivered, sq) {
   const inv = invModel(); if (!inv) return 0;
-  const byKey = new Map(inv.assets.map(a => [a.key, a]));
+  const byKey = new Map();   // first row wins, like invUpdateAsset / Asset 360 / patchInvDeploy (.find)
+  inv.assets.forEach(a => { if (!byKey.has(a.key)) byKey.set(a.key, a); });
   let n = 0;
   (keys || []).forEach(k => {
     const a = byKey.get(QBR.invSerialKey(k));
@@ -945,7 +962,7 @@ QBR.invBulkPlan = function (keys, f) {
       const y = yrs != null ? yrs : (a.wyears || 3);
       if (st instanceof Date && !isNaN(st)) {
         const months = Math.round(y * 12);
-        set("wend", "Warranty end", new Date(st.getFullYear(), st.getMonth() + months, Math.min(st.getDate(), 28)));
+        set("wend", "Warranty end", QBR.invAddYears(st, months / 12));
       }
     }
     let wend = null;
@@ -979,10 +996,10 @@ QBR.invBuildWorkbook = function () {
   const inv = invModel();
   if (!inv || typeof XLSX === "undefined") return null;
   const openByKey = QBR.invOpenByKey(inv.tickets);
-  const dev = [["Serial Number","Client / Organization","Model","Description / Specifications","Category",
+  const dev = [["Serial Number","Client / Organization","Model","MTM","Description / Specifications","Category",
     "Brand","Supplier","DR #","Date Delivered","Warranty Start","Warranty End","Warranty Years",
     "Condition","Contact Person","Address","Contact Details","Batch Code","Status (derived)"]];
-  inv.assets.forEach(a => dev.push([a.sn, a.client || "", a.model || "", a.desc || "", a.cat, a.brand || "",
+  inv.assets.forEach(a => dev.push([a.sn, a.client || "", a.model || "", a.mtm || "", a.desc || "", a.cat, a.brand || "",
     a.supplier || "", a.dr || "", invFmtDate(a.delivered) === "—" ? "" : invFmtDate(a.delivered),
     invFmtDate(a.wstart) === "—" ? "" : invFmtDate(a.wstart), invFmtDate(a.wend) === "—" ? "" : invFmtDate(a.wend),
     a.wyears == null ? "" : a.wyears, a.cond || "", a.contact || "", a.addr || "", a.phone || "", a.batch || "",
@@ -1178,7 +1195,7 @@ function renderInventory() {
   const host = $("inv-body");
   if (!host) return;
   const inv = invModel();
-  const sup = (typeof supModel === "function") ? supModel() : null;
+  const sup = (typeof supModel === "function" && invFeatureOn("inventory.supplies")) ? supModel() : null; // v1.36.0: remote flag
   const hasAssets = inv && (inv.assets.length || inv.tickets.length || inv.deployments.length);
   const hasSup = sup && (sup.items.length || sup.transactions.length);
   /* Delivery version badge (semver — see VERSIONING.md), visible even with no data. */
@@ -1198,8 +1215,19 @@ function renderInventory() {
   if (!hasAssets && hasSup) ui.view = "supplies"; // only supplies present
   if (ui.view === "supplies" && !hasSup) ui.view = "assets";
   if (ui.view === "tickets" && !hasAssets) ui.view = "assets";
+  /* v1.36.0 remote flags pilot: drop disabled sub-views, fall back to the first enabled one. */
+  const _rfViews = invEnabledViews();
+  if (!_rfViews.length) {
+    host.innerHTML = verBadge + `<div class="card-box"><h6>Inventory</h6>` +
+      `<p class="text-muted mb-0">Inventory features are currently disabled by the administrator.</p></div>`;
+    return;
+  }
+  if (!_rfViews.includes(ui.view)) ui.view = _rfViews[0];
   /* Assets | Support tickets | Supplies sub-nav. */
-  const vBtn = (v, label) => `<button type="button" class="btn ${ui.view === v ? "btn-primary" : "btn-outline-primary"}" data-sup-view="${v}">${label}</button>`;
+  const vBtn = (v, label) => { // v1.36.0: hide sub-views whose flag is off
+    if (!invFeatureOn("inventory." + v)) return "";
+    return `<button type="button" class="btn ${ui.view === v ? "btn-primary" : "btn-outline-primary"}" data-sup-view="${v}" data-feature="inventory.${v}">${label}</button>`;
+  };
   const viewToggle = (hasAssets || hasSup) ? `<div class="btn-group btn-group-sm mb-3" role="group" aria-label="Inventory view">` +
       (hasAssets ? vBtn("assets", "Assets") : "") +
       (hasAssets ? vBtn("tickets", `Support tickets (${fmt(inv.tickets.length)})`) : "") +
@@ -1667,6 +1695,8 @@ function invShowForm(which) {
           <div class="col-md-6"><label class="form-label small">Model</label>
             <select id="in-model" class="form-select form-select-sm">
               <option>ThinkPad E14 Gen 5</option><option>ThinkCentre M75t Gen 2</option><option>C22-20 21.5"</option><option>Other</option></select></div>
+          <div class="col-md-6"><label class="form-label small">MTM (Machine Type Model)</label>
+            <input id="in-mtm" class="form-control form-control-sm" style="font-family:monospace" placeholder="e.g. 21M4S5VD00"></div>
           <div class="col-md-6"><label class="form-label small">Category</label>
             <select id="in-cat" class="form-select form-select-sm"><option>Laptop</option><option>Desktop</option><option>Monitor</option></select></div>
           <div class="col-md-6"><label class="form-label small">Supplier</label><input id="in-supplier" class="form-control form-control-sm" value="Twireless"></div>
@@ -1687,7 +1717,7 @@ function invShowForm(which) {
       const serials = $("in-serials").value.split(/\n+/).map(s => s.trim()).filter(Boolean);
       if (!serials.length) { $("in-msg").textContent = "Enter at least one serial number."; return; }
       const had = new Set((invModel() || { assets: [] }).assets.map(a => a.key));
-      const n = QBR.invIntake(serials.map(sn => ({ sn, model: $("in-model").value, cat: $("in-cat").value,
+      const n = QBR.invIntake(serials.map(sn => ({ sn, model: $("in-model").value, mtm: $("in-mtm").value.trim().toUpperCase() || null, cat: $("in-cat").value,
         supplier: $("in-supplier").value.trim() || null, wyears: Number($("in-wy").value),
         dr: $("in-dr").value.trim() || null, client: $("in-client").value.trim() || null, wstart: $("in-ws").value || null })));
       const we = $("in-we") ? $("in-we").value : "";
@@ -2050,6 +2080,10 @@ function invLookupSerial() {
 function renderAsset360Panel() {
   const host = $("a360-body");
   if (!host) return;
+  if (!invFeatureOn("inventory.assets")) { // v1.36.0: remote flag
+    host.innerHTML = `<div class="card-box"><p class="text-muted mb-0">The Assets feature is currently disabled by the administrator.</p></div>`;
+    return;
+  }
   const inv = invModel(), key = QBR._invA360;
   if (!inv || !inv.assets.length) {
     host.innerHTML = `<div class="card-box"><p class="text-muted">Load an inventory workbook to browse assets.</p></div>`;
@@ -2115,6 +2149,7 @@ function renderAsset360Panel() {
     kpi("Deployments", fmt(deps.length), "blue") + `</div>`;
 
   const facts = [["Serial", `<code>${esc(a.sn)}</code>`], ["Client", esc(a.client || "—")], ["Model", esc(a.model || "—")],
+    ["MTM", a.mtm ? `<code>${esc(a.mtm)}</code>` : "—"],
     ["Description", esc(a.desc || "—")], ["Category", esc(a.cat)], ["Brand", esc(a.brand || "—")],
     ["Supplier", esc(a.supplier || "—")], ["DR #", esc(a.dr || "—")],
     ["Date delivered", invFmtDate(a.delivered)],
@@ -2284,8 +2319,8 @@ function renderTicket360Panel() {
         <select id="t360e-cat" class="form-select form-select-sm">${["Hardware", "Software", "Network"].map(c => `<option${c === t.cat ? " selected" : ""}>${c}</option>`).join("")}</select></div>
       <div class="col-md-4"><label class="form-label small">Priority</label>
         <select id="t360e-prio" class="form-select form-select-sm"><option value="">—</option>${TIX_PRIORITIES.map(p => `<option${p === t.priority ? " selected" : ""}>${p}</option>`).join("")}</select></div>
-      <div class="col-md-4"><label class="form-label small">Reported to EdTech</label><input id="t360e-edtech" type="date" class="form-control form-control-sm" value="${t.repEdtech ? t.repEdtech.toISOString().slice(0, 10) : ""}"></div>
-      <div class="col-md-4"><label class="form-label small">Reported to Lenovo</label><input id="t360e-lenovo" type="date" class="form-control form-control-sm" value="${t.repLenovo ? t.repLenovo.toISOString().slice(0, 10) : ""}"></div>
+      <div class="col-md-4"><label class="form-label small">Reported to EdTech</label><input id="t360e-edtech" type="date" class="form-control form-control-sm" value="${t.repEdtech ? invYmd(t.repEdtech) : ""}"></div>
+      <div class="col-md-4"><label class="form-label small">Reported to Lenovo</label><input id="t360e-lenovo" type="date" class="form-control form-control-sm" value="${t.repLenovo ? invYmd(t.repLenovo) : ""}"></div>
       <div class="col-12"><label class="form-label small">Initial findings</label><input id="t360e-act" class="form-control form-control-sm" value="${esc(t.act || "")}"></div>
     </div>
     <div class="mt-2"><button type="button" class="btn btn-sm btn-primary" id="t360e-save">Save changes</button></div></div>` : "";
@@ -2351,11 +2386,33 @@ if (typeof window !== "undefined" && window.addEventListener) {
   else setTimeout(invApplyHash, 0);
 }
 
+/* ---------- Remote feature flags pilot: inventory sub-features (v1.36.0) -- */
+function invFeatureOn(key) {
+  try { if (typeof QBR !== "undefined" && QBR && typeof QBR.adminIsOn === "function") return !!QBR.adminIsOn(key); } catch (e) {}
+  return true;
+}
+function invEnabledViews() {
+  return ["assets", "tickets", "supplies"].filter(function (v) { return invFeatureOn("inventory." + v); });
+}
+try {
+  if (typeof QBR !== "undefined" && QBR && QBR.features) {
+    QBR.features.register({ module: "inventory", key: "inventory.assets", label: "Assets", desc: "Asset registry, deployments and stock overview" });
+    QBR.features.register({ module: "inventory", key: "inventory.tickets", label: "Support tickets", desc: "Support ticket queue, statuses and follow-ups" });
+    QBR.features.register({ module: "inventory", key: "inventory.supplies", label: "Supplies", desc: "Printer supplies: items, transactions and tiles" });
+  }
+  // Review fix: flags usually arrive after the first render — redraw so a disabled view disappears.
+  if (typeof document !== "undefined" && document.addEventListener)
+    document.addEventListener("qbr:flags-ready", function () {
+      try { renderInventory(); } catch (e) {}
+      try { renderAsset360Panel(); } catch (e) {}
+    });
+} catch (e) {}
+
 /* ---------- Node export guard (test harness only; inert in browser) ------ */
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { QBR, invParseDeviceRows, invParseSupportRows, invParseRaksoRows,
     invParsePipelineRows, invParsePORows, invDate, invFmtDate, invDaysBetween,
     invTicketNo, invBackfillTicketNos, invParseTicketNotes, invFmtTicketNotes,
     invTixOpen, invTixStatus, TIX_STATUSES, TIX_PRIORITIES,
-    invStockOverview, invCollapsible, invTicketsCard };
+    invStockOverview, invCollapsible, invTicketsCard, invFeatureOn, invEnabledViews };
 }

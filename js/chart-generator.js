@@ -33,6 +33,23 @@ QBR.applyChartTheme = function () {
   }
 };
 
+// Admin › Appearance "Chart & graph text size": on-screen multiplier from --fs-c (1 = default).
+// Exports (renderChartPng, print) always use the standard sizes.
+QBR.chartFontScale = function () {
+  try {
+    const v = parseFloat(getComputedStyle(document.body).getPropertyValue("--fs-c"));
+    return isFinite(v) && v > 0 ? Math.min(2, Math.max(0.9, v)) : 1;
+  } catch (e) { return 1; }
+};
+function _qbrScaleFonts(o, k, depth) {   // multiply every font.size in a live chart's options
+  if (!o || typeof o !== "object" || depth > 6) return;
+  Object.keys(o).forEach(key => {
+    const v = o[key];
+    if (key === "font" && v && typeof v === "object" && typeof v.size === "number") v.size = Math.round(v.size * k);
+    else if (v && typeof v === "object" && !Array.isArray(v)) _qbrScaleFonts(v, k, depth + 1);
+  });
+}
+
 // N distinct colors cycled from the categorical palette (for single-series bars).
 QBR.paletteColors = function (n) {
   const out = [];
@@ -64,6 +81,9 @@ QBR.draw = function (canvasId, config) {
   // data (no callbacks), so a JSON round-trip is a safe deep clone.
   try { QBR._configs[canvasId] = JSON.parse(JSON.stringify(config)); }
   catch (e) { QBR._configs[canvasId] = null; }
+  const k = QBR.chartFontScale();
+  if (typeof Chart !== "undefined") Chart.defaults.font.size = Math.round(12 * k);
+  if (k !== 1) _qbrScaleFonts(config.options, k, 0);   // after the snapshot → exports keep standard sizes
   const c = new Chart(el.getContext("2d"), config);
   QBR._charts[canvasId] = c;
   return c;
@@ -94,11 +114,17 @@ QBR.renderChartPng = function (canvasId, opts) {
   document.body.appendChild(holder);
 
   let url = null, tmp = null;
+  // Options come from the pristine JSON clone: deep-copy so the export polish below never leaks into it.
+  let expOpts;
+  try { expOpts = JSON.parse(JSON.stringify(cfg.options || {})); } catch (e) { expOpts = Object.assign({}, cfg.options); }
+  try { _qbrExportPolish(cfg, expOpts); } catch (e) {}
+  const liveFont = (typeof Chart !== "undefined") ? Chart.defaults.font.size : 12;
+  if (typeof Chart !== "undefined") Chart.defaults.font.size = 12;   // exports: standard sizes
   try {
     tmp = new Chart(cv.getContext("2d"), {
       type: cfg.type,
       data: cfg.data,
-      options: Object.assign({}, cfg.options, {
+      options: Object.assign(expOpts, {
         responsive: false, maintainAspectRatio: false,
         animation: false, devicePixelRatio: dpr,
       }),
@@ -116,9 +142,47 @@ QBR.renderChartPng = function (canvasId, opts) {
     url = out.toDataURL("image/png");
   } catch (e) { url = null; }
   if (tmp) { try { tmp.destroy(); } catch (e) {} }
+  if (typeof Chart !== "undefined") Chart.defaults.font.size = liveFont;
   holder.remove();
   return url;
 };
+
+/* Export polish (2026-10-14, Export Deck / Images / print snapshots).
+ * 1. The JSON clone loses the on-screen category-label callback, so long org names were
+ *    printed in full, rotated, and collided (and squeezed the plot). Re-add a trimming
+ *    callback on the category axis (full text stays in the data).
+ * 2. Most charts only had value labels on screen-opted-in Overview charts, so printed charts
+ *    were "lines without numbers". When a chart has no qbrLabels spec, add one: values on
+ *    single-series bars, every segment of stacked bars, slices of pies/donuts, and points of
+ *    line charts with few points/series. Busy charts are left alone (labels would collide). */
+function _qbrExportPolish(cfg, o) {
+  const type = cfg.type, data = cfg.data || {}, dss = data.datasets || [], n = (data.labels || []).length;
+  const horiz = o.indexAxis === "y";
+  o.plugins = o.plugins || {};
+  if ((type === "bar" || type === "line") && n) {
+    const ax = horiz ? "y" : "x";
+    o.scales = o.scales || {}; o.scales[ax] = o.scales[ax] || {};
+    const max = n > 16 ? 14 : 22;
+    o.scales[ax].ticks = Object.assign({}, o.scales[ax].ticks, {
+      autoSkip: n > 40, maxRotation: horiz ? 0 : 60, minRotation: 0,
+      callback: function (v) { const s = String(this.getLabelForValue(v)); return s.length > max ? s.slice(0, max - 1) + "…" : s; },
+    });
+  }
+  if (o.plugins.qbrLabels) return;
+  const fmt = v => (v == null || v === "" || isNaN(v)) ? null : _qbrNum(v);
+  const stacked = !!((o.scales && ((o.scales.x && o.scales.x.stacked) || (o.scales.y && o.scales.y.stacked))));
+  if (type === "bar") {
+    if (stacked && n <= 40) o.plugins.qbrLabels = { mode: "stack" };
+    else if (dss.length === 1 && n <= 30) o.plugins.qbrLabels = { mode: horiz ? "hbar" : "vbar", labels: (dss[0].data || []).map(fmt) };
+  } else if (type === "line") {
+    const pts = dss.reduce((m, d) => Math.max(m, (d.data || []).length), 0);
+    if (dss.length && dss.length <= 3 && pts <= 14) o.plugins.qbrLabels = { mode: "line", colored: dss.length > 1, labels: dss.map(d => (d.data || []).map(v => (+v === 0 ? null : fmt(v)))) };   // zeros (empty future months) would crowd the axis
+  } else if ((type === "pie" || type === "doughnut") && dss.length === 1) {
+    const tot = (dss[0].data || []).reduce((s, v) => s + (+v || 0), 0);
+    o.plugins.qbrLabels = { mode: "donut", labels: (dss[0].data || []).map(v => (+v && tot) ? _qbrNum(v) + " · " + Math.round(v / tot * 100) + "%" : null) };
+    o.layout = Object.assign({ padding: { left: 52, right: 52, top: 6, bottom: 6 } }, o.layout);
+  }
+}
 
 /* =============================================================================
  * Offline data-label + leader-line plugin (no external dependency).
@@ -305,7 +369,7 @@ const QBRLabelsPlugin = {
     // Export renders offscreen with responsive:false — scale the font up there so
     // labels aren't tiny in the 1920x1080 PNG. On-screen (responsive:true) → 11px.
     th.isExport = chart.options && chart.options.responsive === false;
-    th.fpx = th.isExport ? Math.max(14, Math.round(chart.height / 28)) : 11;
+    th.fpx = th.isExport ? Math.max(14, Math.round(chart.height / 28)) : Math.round(11 * QBR.chartFontScale());
     th.halo = th.isExport ? 4 : 3;
     ctx.save();
     ctx.font = '700 ' + th.fpx + 'px "Segoe UI",system-ui,sans-serif';
@@ -352,8 +416,9 @@ const QBRCenterPlugin = {
       g.addColorStop(0, o.color || "#107C10"); g.addColorStop(1, o.color2 || "#13a10e");
       ctx.fillStyle = g;
       const isExport = chart.options && chart.options.responsive === false;
-      const vpx = isExport ? Math.max(30, Math.round(chart.height / 12)) : 30;
-      const spx = isExport ? Math.max(11, Math.round(vpx * 0.36)) : 11;
+      const ck = isExport ? 1 : QBR.chartFontScale();
+      const vpx = isExport ? Math.max(30, Math.round(chart.height / 12)) : Math.round(30 * ck);
+      const spx = isExport ? Math.max(11, Math.round(vpx * 0.36)) : Math.round(11 * ck);
       ctx.font = '800 ' + vpx + 'px "Segoe UI",system-ui,sans-serif';
       ctx.fillText(String(o.value), cx, cy - (o.label ? vpx * 0.24 : 0));
       if (o.label) {
@@ -392,7 +457,7 @@ const QBRXCatsPlugin = {
     if (!Array.isArray(cats) || !chart.scales.x) return;
     const ctx = chart.ctx, xs = chart.scales.x, ca = chart.chartArea, th = _qbrTheme();
     const isExport = chart.options && chart.options.responsive === false;
-    const fpx = isExport ? Math.max(13, Math.round(chart.height / 34)) : 11;
+    const fpx = isExport ? Math.max(13, Math.round(chart.height / 34)) : Math.round(11 * QBR.chartFontScale());
     ctx.save();
     ctx.fillStyle = th.axis || th.ink; ctx.textAlign = "center"; ctx.textBaseline = "top";
     ctx.font = "600 " + fpx + 'px "Segoe UI",system-ui,sans-serif';
