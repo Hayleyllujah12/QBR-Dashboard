@@ -1,1 +1,11 @@
-{"flags":{"inventory":true,"inventory.assets":true,"inventory.scan":true,"inventory.supplies":true,"inventory.tickets":true},"updated":"2026-10-14","version":1}
+{
+  "version": 3,
+  "updated": "2026-10-16",
+  "flags": {
+    "inventory": true,
+    "inventory.assets": true,
+    "inventory.tickets": true,
+    "inventory.supplies": true,
+    "inventory.scan": true
+  }
+}
