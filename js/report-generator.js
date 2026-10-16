@@ -11,6 +11,9 @@ QBR.THRESH = { HIGH_RISK: 50, CRITICAL: 100, USAGE_LOW: 40 };
 // Shared 5-band risk classification for risky-user counts — used app-wide so
 // the Risky tab, Overview and Executive Report all read consistently.
 //   0 → No Risk · 1-15 Low · 16-50 Medium · 51-100 High · >100 Critical
+/* 2026-10-13: workbook text is untrusted — section bodies go into innerHTML, so names are escaped. */
+function _rgEsc(v) { return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+
 QBR.riskBand = function (v) {
   v = v || 0;
   if (v > 100) return { key: "critical", label: "Critical Risk", dot: "🔴", action: "Escalate + email POC immediately" };
@@ -40,7 +43,7 @@ QBR.generateReport = function (model, agg) {
     `Security posture shows ${agg.secDefault["ENABLED"] || 0} tenants with Security Defaults enabled and ${disabled} with them not enabled. ` +
     `Microsoft 365 adoption averages ${agg.usageAvg == null ? "—" : agg.usageAvg.toFixed(1) + "%"}, ` +
     `total storage under management is ${tb(agg.storageTotalGB)}, and Canva Education reaches ${(agg.canvaUsers || 0).toLocaleString()} users across ${agg.canvaActiveSchools} schools. ` +
-    `${agg.topRisk ? `Identity risk is concentrated at ${agg.topRisk.schoolRaw} (${agg.topRisk.risky} risky users).` : ""}`
+    `${agg.topRisk ? `Identity risk is concentrated at ${_rgEsc(agg.topRisk.schoolRaw)} (${agg.topRisk.risky} risky users).` : ""}`
   });
 
   /* ---- Security ---- */
@@ -55,29 +58,29 @@ QBR.generateReport = function (model, agg) {
   const high = agg.riskySchools.filter(r => r.risky > t.HIGH_RISK && r.risky <= t.CRITICAL);
   s.push({ title: "Risky Sign-in Analysis", body:
     `${crit.length} school(s) exceed the CRITICAL threshold (>${t.CRITICAL} risky users)` +
-    `${crit.length ? ": " + crit.slice(0,3).map(r => `${r.schoolRaw} (${r.risky})`).join(", ") : ""}. ` +
+    `${crit.length ? ": " + crit.slice(0,3).map(r => `${_rgEsc(r.schoolRaw)} (${r.risky})`).join(", ") : ""}. ` +
     `${high.length} school(s) fall in the HIGH RISK band (>${t.HIGH_RISK}). ` +
-    `${agg.topRisk ? `${agg.topRisk.schoolRaw} represents the highest concentration of identity risk in the selected period.` : ""}`
+    `${agg.topRisk ? `${_rgEsc(agg.topRisk.schoolRaw)} represents the highest concentration of identity risk in the selected period.` : ""}`
   });
 
   /* ---- Usage ---- */
   s.push({ title: "Microsoft 365 Adoption", body:
     `Average utilization is ${agg.usageAvg == null ? "—" : agg.usageAvg.toFixed(1) + "%"}` +
     `${agg.usageAvg != null && agg.usageAvg < t.USAGE_LOW ? ", below the 40% value-realization benchmark, indicating licensing optimization opportunities" : ""}. ` +
-    `${agg.topUsage ? `${agg.topUsage.schoolRaw} leads adoption at ${agg.topUsage.usagePct.toFixed(1)}%` : ""}` +
-    `${agg.lowUsage ? ` while ${agg.lowUsage.schoolRaw} trails at ${agg.lowUsage.usagePct.toFixed(1)}%` : ""}.`
+    `${agg.topUsage ? `${_rgEsc(agg.topUsage.schoolRaw)} leads adoption at ${agg.topUsage.usagePct.toFixed(1)}%` : ""}` +
+    `${agg.lowUsage ? ` while ${_rgEsc(agg.lowUsage.schoolRaw)} trails at ${agg.lowUsage.usagePct.toFixed(1)}%` : ""}.`
   });
 
   /* ---- Storage ---- */
   s.push({ title: "Storage Analysis", body:
     `Total storage consumed is ${tb(agg.storageTotalGB)} at an average utilization of ${agg.storageAvgPct == null ? "—" : agg.storageAvgPct.toFixed(1) + "%"}. ` +
-    `${agg.topStorage ? `${agg.topStorage.schoolRaw} is the largest consumer at ${tb(agg.topStorage.usedGB)}.` : ""}`
+    `${agg.topStorage ? `${_rgEsc(agg.topStorage.schoolRaw)} is the largest consumer at ${tb(agg.topStorage.usedGB)}.` : ""}`
   });
 
   /* ---- Canva ---- */
   s.push({ title: "Canva Adoption Analysis", body:
     `${(agg.canvaUsers || 0).toLocaleString()} Canva users are active across ${agg.canvaActiveSchools} partner schools. ` +
-    `${agg.topCanva ? `${agg.topCanva.schoolRaw} hosts the largest community (${(agg.topCanva.users || 0).toLocaleString()} users).` : ""}`
+    `${agg.topCanva ? `${_rgEsc(agg.topCanva.schoolRaw)} hosts the largest community (${(agg.topCanva.users || 0).toLocaleString()} users).` : ""}`
   });
 
   /* ---- User Management readiness ---- */

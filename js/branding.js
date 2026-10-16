@@ -36,6 +36,7 @@
   //                  address "<site>.netlify.app" and "develop--<site>" are beta; also the
   //                  QBR-Dashboard_dev test folder, or ?beta (?dev kept as an alias)
   //   Preview      — any other Netlify branch / deploy-preview URL ("<branch>--<site>.netlify.app")
+  //   Main         — live: GitHub Pages, Azure production, the live OneDrive folder, or ?main
   function envInfo() {
     var path = "", host = "", q = "";
     try { path = decodeURIComponent(location.pathname); } catch (e) { path = location.pathname || ""; }
@@ -45,6 +46,14 @@
     if (netlifyMain || (m && m[1] === "develop") || /QBR-Dashboard_dev/i.test(path) || /[?&](beta|dev)\b/i.test(q))
       return { kind: "beta", text: "Beta version", tag: "[BETA]", tip: "Beta (develop branch) — for testing before release. Changes here are not live." };
     if (m) return { kind: "preview", text: "Preview · " + m[1], tag: "[PREVIEW]", tip: "Feature preview (" + m[1] + ") — not live, not beta." };
+    // 2026-10-14: "Main" = the live build (main branch): GitHub Pages, the Azure production site, the live
+    // OneDrive folder (QBR-Dashboard_<x.y.z>), or ?main for testing. Azure PR staging sites
+    // ("<name>-<PR>.<region>.azurestaticapps.net") are labelled Staging, not Main.
+    var az = /^([a-z0-9-]+)\.(?:[a-z0-9-]+\.)*azurestaticapps\.net$/.exec(host);
+    var azPr = az && /^[a-z]+-[a-z]+-[0-9a-f]+-(\d+)$/.exec(az[1]);
+    if (azPr) return { kind: "preview", text: "Staging · PR " + azPr[1], tag: "[STAGING]", tip: "Azure staging site for pull request #" + azPr[1] + " — not live." };
+    if (/\.github\.io$/.test(host) || az || /QBR-Dashboard_\d+\.\d+\.\d+[\\\/]/i.test(path) || /[?&]main\b/i.test(q))
+      return { kind: "main", text: "Main", tag: "[MAIN]", tip: "Main (live) — the production build everyone uses." };
     return null;
   }
   function devBadge() {

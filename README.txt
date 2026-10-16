@@ -6,6 +6,87 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-14 — v1.36.0 [BETA] patch: "Main" label on the live site
+  - The live build (GitHub Pages, the Azure production site, the live OneDrive folder) now shows a green
+    "Main" label next to the title and "[MAIN]" in the browser tab — the same place Beta and Preview show
+    theirs, so you can always tell which version you are using. Azure pull-request test sites show
+    "Staging · PR <n>". Add ?main to the address to preview the label anywhere.
+
+UPDATE — 2026-10-14 — v1.36.0 [BETA] NEW: Remote feature flags (Admin › Remote flags)
+  - Inventory features (Assets, Support tickets, Supplies, Scan) can now be switched on/off for EVERY
+    machine from the hosted site, not just this browser. The hosted setting always wins.
+  - Admin panel › Remote flags: one switch per feature, the current remote version, and Publish. When the
+    target branch is not the site you are on (e.g. main from the beta), the switches show that branch's
+    current settings, and Publish first lists exactly what will change.
+  - Publishing to main or develop opens a PULL REQUEST on GitHub ("Open pull request"); nothing changes
+    until someone reviews and merges it. Preview branches (e.g. rmt) are updated directly.
+  - GitHub token safety: only fine-grained tokens (github_pat_…) are accepted — classic tokens are refused.
+    Give it access to this repository only, Contents + Pull requests (read & write), 90 days or less.
+    By default it is kept for the open tab only and locks after 30 minutes without use. "Remember on this
+    machine" saves it encrypted with a passphrase you choose; after a reload click "Unlock saved token".
+    A token saved in plain text by the first preview build is deleted automatically — add it again.
+  - Offline copy (double-clicked index.html): uses the last flags this browser saw, or all on.
+
+UPDATE — 2026-10-14 — v1.35.0 [BETA] patch: Export Deck cleaned up
+  - The deck now starts with the Executive Overview (it used to print last) and contains only the
+    QBR pages: Overview, Executive report, Risky, Tenant status, Security, GDAP, Postmaster, Usage,
+    Canva, Storage, User management, Domain registration, Data quality. Inventory, Scan, My To-Do,
+    General tickets, Ticket/Asset 360, the audit editor and the raw Data explorer are left out
+    (Export Images follows the same list).
+  - Printed / exported charts show their numbers: values on bars, slices and line points (empty
+    months are skipped), and long organization or school names are shortened instead of colliding.
+  - "Health by Organization" is now a horizontal stacked bar, largest organizations first: the top 15
+    plus "Other (n orgs)", with the total at the end of each bar. "Risky Users by Organization" and
+    "O365 Active by Organization" are horizontal too, so long names stay readable on screen and paper.
+  - Fix: Export Deck / Export Tab could print every chart as an empty box. The chart pictures were
+    still loading when the print dialog opened; printing now waits until they are ready.
+
+UPDATE — 2026-10-13 — v1.35.0 [BETA] NEW: My To-Do + General tickets (sidebar › My work)
+  - Pick or register your name once ("Switch user" changes it). Each person sees only their own
+    list, kept in this browser; "Export my file" saves it as an Excel workbook.
+  - My To-Do gathers your own tasks (General / Microsoft / Lenovo) plus open Lenovo tickets and
+    schools whose risky sign-in audit for this month is still blank.
+  - General tickets: your own REQ-numbered request queue, with import from a file (duplicates skipped).
+
+UPDATE — 2026-10-13 — v1.35.0 [BETA] My To-Do: colour-coded urgency you can trust
+  - Every row now shows its urgency four ways: a coloured bar on the left, a light tint for
+    Overdue and High rows, a coloured time chip ("3 days overdue", "in 2 days", "Oct 25",
+    "open 45 days") and a legend at the top: red Overdue · orange High · yellow Due soon · blue Planned.
+  - Lenovo tickets are ranked by how long they've been open (the date in the ticket number): High
+    after 30 days, Due soon after 14, or High straight away when the sheet's Priority says High.
+    Oldest and most urgent first in every tile.
+  - Unaudited schools: the month's audit is due on the 25th — Planned before the last week, Due soon in
+    it, Overdue after. A school written two ways in the audit sheet is listed once, and it counts as
+    audited if either row has a value.
+  - Cleaner rows: plain titles (click anywhere on the row to open), a checkbox to mark your own tasks
+    done, the urgency dropdown appears on hover. Ticket / serial / school still open their pages.
+  - Layout: your own tiles (General, Microsoft, Lenovo) on top, Pending tickets and Unaudited schools
+    side by side below, each with an "N urgent" count. The shared filter bar is hidden on this page.
+
+UPDATE — 2026-10-11 — v1.34.0 [BETA] patch: bigger chart text (Admin › Appearance)
+  - NEW "Chart & graph text size" slider (90–200%): axis labels, legends and the numbers printed on
+    bars, slices and lines. Charts redraw when you let go of the slider. Exports and printing keep
+    the standard size.
+  - The two existing sliders are renamed so it's clear what they change: "Paragraph & body text
+    size" (paragraphs, tables, menus, tile labels) and "Heading & tile number size".
+  - The PowerShell script library's text (descriptions, tags, notes) now follows the paragraph size.
+
+UPDATE — 2026-10-11 — v1.34.0 [BETA] patch: MTM from Lenovo labels + tenant ID in any script
+  - Scan: the MTM (Machine Type Model, e.g. 21M4S5VD00) is read from the label's (31P) barcode, or
+    from the front of the (1S) barcode, and shown in a new MTM column next to the serial. You can
+    type or correct it in the table or in the photo view. It is carried into "Tag batch" (new MTM
+    column in the review) and into the Register assets form.
+    If the thin barcodes can't be read, the MTM is taken from the printed "(31P)MTM:" text instead.
+    Large phone photos are re-checked at full detail when the first pass finds no MTM barcode
+    (a few seconds longer for those photos). Tip: fill the frame with the label.
+  - Inventory: Register assets has an MTM box; Asset 360 shows the MTM; Export adds an MTM column
+    after Model; Save to Excel adds an "MTM" column at the end of 02 DEVICES the first time a unit
+    with an MTM is saved (no existing column moves). MTM is kept separate from Model.
+  - Scripts: any script (built-in or your own) that contains "QBR_TENANT_ID" gets the school's
+    tenant ID swapped in when copied with a GDAP match. With no match, the built-in Storage script
+    asks for the ID and the Usage script keeps its previous default, as before. Only a valid tenant
+    ID (GUID) is ever pasted into a script.
+
 UPDATE — 2026-10-09 — v1.34.0 [BETA] patch: PowerShell scripts moved to the Admin panel
   - The script library (search, copy, add / edit / delete your own scripts, export / import, and
     the GDAP mapping file) now lives in Admin › PowerShell scripts, below Feature flags and

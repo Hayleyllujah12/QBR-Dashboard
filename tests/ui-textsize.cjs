@@ -1,0 +1,46 @@
+// 2026-10-11 Admin › Appearance: chart & graph text size + script-library text follows Paragraph & body size. Headless, file://.
+// Usage: PW=<dir with node_modules/playwright> node tests/ui-textsize.cjs
+const { chromium } = require(process.env.PW + "/playwright");
+const path = require("path"), fs = require("fs");
+const ROOT = path.resolve(__dirname, "..");
+const APPDIR = fs.existsSync(path.join(ROOT, "qbr-app/index.html")) ? path.join(ROOT, "qbr-app") : ROOT;
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail++; console.log("  ✗ " + m); } };
+(async () => {
+  const b = await chromium.launch();
+  const p = await (await b.newContext({ viewport: { width: 1500, height: 900 } })).newPage();
+  const errs = []; p.on("pageerror", e => errs.push(e.message));
+  const open = async () => { await p.goto("file://" + path.join(APPDIR, "index.html")); await p.waitForTimeout(300);
+    await p.evaluate(() => localStorage.setItem("qbr-remember", "0"));
+    await p.setInputFiles("#file-input", path.join(__dirname, "fixture.xlsx")); await p.waitForTimeout(2200); };
+  await open();
+  const m = () => p.evaluate(() => { goToTab("dash-risky"); const c = Object.values(QBR._charts).find(x => x.scales && x.scales.x);
+    return { tick: c.scales.x._resolveTickFontOptions(0).size, legend: c.options.plugins.legend.labels.font.size, def: Chart.defaults.font.size }; });
+  const d = await m();
+  ok(d.tick === 12 && d.legend === 11, "default chart text unchanged (ticks 12, legend 11)  " + JSON.stringify(d));
+  await p.evaluate(() => QBR.adminThemeSave({ chartScale: 160 })); await p.waitForTimeout(800);
+  const s = await m();
+  ok(s.tick === 19 && s.legend === 18, "Chart & graph text 160% → ticks 19, legend 18 (charts redrawn)  " + JSON.stringify(s));
+  ok(await p.evaluate(() => { const u = QBR.renderChartPng(Object.keys(QBR._charts)[0]); return !!u && Chart.defaults.font.size === 19; }), "exports render at standard size and restore the live size");
+  await open();
+  ok((await m()).tick === 19, "setting survives a reload");
+  await p.evaluate(() => QBR.adminThemeSave({ chartScale: 999 })); await p.waitForTimeout(800);
+  ok(await p.evaluate(() => QBR.adminThemeLoad().chartScale === 200), "chart size clamped to 200%");
+  await p.evaluate(() => QBR.adminThemeReset()); await p.waitForTimeout(800);
+  ok((await m()).tick === 12, "Reset appearance → default chart text");
+  console.log("== Admin panel");
+  await p.dblclick("#app-version"); await p.waitForTimeout(200);
+  await p.fill("#admin-pw-1", "s3cret"); await p.fill("#admin-pw-2", "s3cret"); await p.click("#admin-pw-ok"); await p.waitForTimeout(400);
+  const lab = await p.evaluate(() => [...document.querySelectorAll("[data-theme-size]")].map(i => i.getAttribute("aria-label") + "|" + i.max));
+  ok(lab.length === 3 && /^Paragraph/.test(lab[0]) && /^Chart/.test(lab[2]) && /\|200$/.test(lab[2]), "3 size sliders: paragraph & body, heading & tile number, chart (to 200%)  " + JSON.stringify(lab));
+  const fsz = () => p.evaluate(() => parseFloat(getComputedStyle(document.querySelector("#admin-scripts-host .qbr-scripts-desc")).fontSize));
+  const a = await fsz();
+  await p.evaluate(() => QBR.adminThemeSave({ textScale: 150 })); await p.waitForTimeout(200);
+  const c = await fsz();
+  ok(a === 13 && c === 19.5, `script descriptions follow Paragraph & body size (${a} → ${c}px)`);
+  await p.evaluate(() => QBR.adminThemeReset());
+  ok(errs.length === 0, "no page errors  " + JSON.stringify(errs.slice(0, 3)));
+  await b.close();
+  console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+})().catch(e => { console.error(e); process.exit(1); });
