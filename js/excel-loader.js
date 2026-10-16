@@ -978,7 +978,7 @@ QBR.buildCleanRows = function (model) {
   const rows = [];
   model.master.forEach((ms, key) => {
     const sec = secByKey[key] || {};
-    const managed = sec.gdap ? "Yes" : "No";
+    const managed = sec.hasGdap ? "Yes" : "No";
     QS.forEach(q => {
       const kq = key + "|" + q;
       const rk = riskyIdx[kq], st = storIdx[kq], us = usageIdx[kq], cv = canvaIdx[kq], pm = pmIdx[kq];
@@ -994,7 +994,7 @@ QBR.buildCleanRows = function (model) {
         "Domain Status": (rk && rk.health) || "",
         "Risky Detections": rk && rk.hasRisky ? rk.risky : null,
         "Security Default": sec.securityDefault || "",
-        MFA: sec.mfa || "", SSPR: sec.sspr || "", GDAP: sec.gdap ? "Granted" : "",
+        MFA: sec.mfa || "", SSPR: sec.sspr || "", GDAP: sec.hasGdap ? "Granted" : "",
         "O365 Usage %": us ? round(us.usagePct, 1) : null,
         "O365 Active Users": us ? us.office365Active : null,
         "Storage Used (TB)": st && st.usedGB != null ? round(st.usedGB / 1024, 2) : null,
