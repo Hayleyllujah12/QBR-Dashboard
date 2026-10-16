@@ -191,10 +191,14 @@ try {
 }
 
 # --- Tenant ID ---------------------------------------------------------------
-# Prompted at runtime and never stored in this file, so the script is safe to
-# commit and safe to hand to another admin or another tenant.
+# The QBR dashboard swaps the placeholder below for the school's tenant ID when
+# it copies this script (GDAP linked). Otherwise you are prompted at runtime,
+# so the ID is never stored in this file.
 Write-Host ""
-$InputTenantId = Read-Host "Enter Tenant ID (GUID)"
+$InputTenantId = "QBR_TENANT_ID"
+if ($InputTenantId -notmatch '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
+    $InputTenantId = Read-Host "Enter Tenant ID (GUID)"
+}
 $TenantId = (Remove-InvisibleChars $InputTenantId).Trim().Trim('"').Trim("'").Trim()
 if ([string]::IsNullOrWhiteSpace($TenantId)) {
     Write-Host "ERROR: Tenant ID is required." -ForegroundColor Red
@@ -959,7 +963,11 @@ $sub = 1
 while (-not $phaseDone -and -not $cancelled) {
     if ($sub -eq 1) {
         $existing = Get-MgContext -ErrorAction SilentlyContinue
-        $defTenant = if ($Global:RunState.Contains('Phase2')) { $Global:RunState['Phase2'].TenantId } elseif ($existing) { [string]$existing.TenantId } else { '' }
+        $defTenant = "QBR_TENANT_ID"   # swapped for the school's tenant ID by the QBR dashboard (GDAP linked)
+        $g0 = [guid]::Empty
+        if (-not [guid]::TryParse($defTenant, [ref]$g0)) {
+            $defTenant = if ($Global:RunState.Contains('Phase2')) { $Global:RunState['Phase2'].TenantId } elseif ($existing) { [string]$existing.TenantId } else { '' }
+        }
         $t = Read-Value -Prompt 'Tenant ID (GUID)' -Default $defTenant -Required -AllowBack  -Validator { param($v) $g = [guid]::Empty; [guid]::TryParse((Sanitize-Path $v), [ref]$g) }  -ValidationMessage 'Not a valid GUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).'
         if (Test-Nav $t) { Show-NavResult $t 'Phase 2'; $cancelled = $true; continue }
         $tenantId = (Sanitize-Path $t).ToLowerInvariant()
@@ -1304,17 +1312,16 @@ Write-Host '>>> Phase 5 complete. To pull again with the same settings, paste Ph
     }
   ];
 
-  /* Tenant pre-fill: verbatim anchor line -> replacement carrying the tenant ID. */
-  var PREFILL = {
-    storage: {
-      from: '$InputTenantId = Read-Host "Enter Tenant ID (GUID)"',
-      to: function (id) { return '$InputTenantId = "' + id + '"  # pre-filled by QBR dashboard'; }
-    },
-    usage: {
-      from: "$t = Read-Value -Prompt 'Tenant ID (GUID)' -Default $defTenant -Required -AllowBack",
-      to: function (id) { return "$t = Read-Value -Prompt 'Tenant ID (GUID)' -Default \"" + id + "\" -Required -AllowBack  # pre-filled by QBR dashboard"; }
-    }
-  };
+  /* Tenant pre-fill convention (future-proof, no per-script code):
+     Any script containing the placeholder "QBR_TENANT_ID" (usually as
+     $Something = "QBR_TENANT_ID") gets it replaced with the school's
+     tenant ID when copied and a GDAP match exists. No dashboard changes
+     needed for new scripts -- just include the placeholder.
+     When no tenant ID is known the placeholder is left as-is; scripts must
+     then fall back to asking (built-ins: "not a GUID" -> Read-Host / previous
+     default). Never compare against the literal placeholder inside a script:
+     every occurrence is replaced, so test for a GUID shape instead. */
+  var TENANT_PLACEHOLDER = "QBR_TENANT_ID";
 
   function loadCustom() {
     try {
@@ -1376,9 +1383,12 @@ Write-Host '>>> Phase 5 complete. To pull again with the same settings, paste Ph
     var s = scriptGet(id);
     if (!s) return null;
     var text = s.body, prefilled = false;
-    var p = PREFILL[id];
-    if (tenantId && p && text.indexOf(p.from) >= 0) {
-      text = text.replace(p.from, p.to(tenantId));
+    /* GUID only: the ID is pasted into PowerShell source, so anything else
+       (a stray CSV cell, quotes, a domain) is never substituted. */
+    tenantId = String(tenantId == null ? "" : tenantId).trim();
+    if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(tenantId)) tenantId = "";
+    if (tenantId && text.indexOf(TENANT_PLACEHOLDER) >= 0) {
+      text = text.split(TENANT_PLACEHOLDER).join(tenantId);
       prefilled = true;
     }
     return { text: text, prefilled: prefilled, title: s.title };
@@ -1541,6 +1551,9 @@ Write-Host '>>> Phase 5 complete. To pull again with the same settings, paste Ph
       "<label>Tags (comma-separated)<input data-sfield=\"tags\" placeholder=\"extract, storage\"></label>" +
       "<label>Description<input data-sfield=\"desc\"></label>" +
       "<label>PowerShell content<textarea data-sfield=\"body\" spellcheck=\"false\" rows=\"10\"></textarea></label>" +
+      '<p class="qbr-scripts-note">Tip: include <code>"QBR_TENANT_ID"</code> as a placeholder (e.g. ' +
+      '<code>$TenantId = "QBR_TENANT_ID"</code>) and the dashboard will swap in the school\u2019s tenant ID on copy when GDAP is linked. ' +
+      'With no match the placeholder stays, so have the script prompt when the value is not a GUID.</p>' +
       '<div style="margin-top:8px"><button type="button" class="btn btn-sm btn-primary" data-sact="save">Save</button> ' +
       '<button type="button" class="btn btn-sm btn-outline-secondary" data-sact="cancel">Cancel</button></div>' +
       "</div>" +
