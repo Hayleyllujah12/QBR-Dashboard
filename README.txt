@@ -6,6 +6,31 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-18 — v1.37.0 [PREVIEW feature/mos] NEW: Certification › MOS results
+  - New sidebar section "Certification" with "MOS results": Microsoft Office Specialist score reports
+    exported from Certiport, summarised School › Section › Student.
+  - Add score reports (PDF, one page per candidate) one by one, or "Add folder…" to read a whole school
+    folder (or the whole MOS folder): folders named like "01 - School name" become the school. For files
+    picked one by one, type the school first. "Exam 1119 Results.pdf" gives the Exam No. (batch);
+    "Exam 1119.1" or "Retake" in the name marks a retake session. Certificates / summary PDFs are skipped.
+  - Add the school roster (.xlsx, one sheet per section: 11A, 11B… with NAME and Email) to put every
+    student in a section. Students are matched by email first, then by name ("SURNAME, First, Middle"
+    against "First Middle Surname"). Anything that does not match is listed under "Check & fix", where
+    you pick the student or type the section.
+  - Filters: school, section, student (name / student no. / Certiport ID), score range 0–1000 with
+    highest-first / lowest-first sort, pass / fail, Exam No., exam, and period (all time / school year /
+    year / month). KPIs: attempts, students, passed, failed, pass rate, first-attempt pass rate (retakes
+    excluded), average, highest / lowest.
+  - Charts: pass rate over time (Monthly / Yearly / School year), pass rate by section (or by school),
+    score distribution, weakest skill areas. Click a student to see every attempt with its skill areas.
+  - Export (.xlsx): the filtered results + summary + by-month and by-year pass rates (no emails or
+    addresses).
+  - PRIVACY: student data stays in the open tab only — nothing is saved, uploaded or put in the deck.
+    Reloading the page clears it. Addresses on the score report are never read.
+  - Works offline: the PDF reader (Mozilla pdf.js 3.11.174) ships in libs/pdfjs and loads only when the
+    first PDF is added. Remote flag "mos" (Certification) can hide the section; set "mos": false in
+    config/features.json on main until the feature is approved for the live site.
+
 UPDATE — 2026-10-14 — v1.36.0 [BETA] patch: "Main" label on the live site
   - The live build (GitHub Pages, the Azure production site, the live OneDrive folder) now shows a green
     "Main" label next to the title and "[MAIN]" in the browser tab — the same place Beta and Preview show
