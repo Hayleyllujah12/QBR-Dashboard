@@ -49,6 +49,7 @@ const F = [
   ["GDAP .xlsx (v1.39.0)", "js/app.js", ["detectGdap(items, buffers)", "save it as .xlsx"]],
   ["GDAP .xlsx picker (v1.39.0)", "js/scripts.js", ["accept=\".xlsx,.xlsm,.csv\"", "gdapParseWorkbook"]],
   ["Folder API for tabs (v1.39.0)", "js/fsfolder.js", ["QBR.fsFolderList", "QBR.fsFolderBooks", "QBR.fsFolderPickOnly", "qbr:folder-linked"]],
+  ["Trainers response counts (v1.39.0)", "js/trainers.js", ["pendingFills", "scoreTwin", "fillCount", "addRespCol"]],
   ["Trainers from folder (v1.39.0)", "js/trainers.js", ["readFolder", "autoFolder", "data-traction=\"folder\"", "qbr:folder-linked"]],
   ["Scan save all images", "js/scan.js", ["scanDownloadAll", "dupOf"]],
   ["New sections wired", "index.html", ["dash-soc", "um-generator", "js/soc.js", "js/usergen.js", "js/scripts.js", "js/gdap.js"]],
