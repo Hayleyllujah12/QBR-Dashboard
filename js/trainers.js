@@ -31,6 +31,7 @@
       desc: "Trainer evaluations: NPS + trainer score from MS Forms exports" });
 
   var MAP_KEY = "qbr-trainers-maps";
+  var ALIAS_KEY = "qbr-trainers-aliases"; // filename school (e.g. "sga") -> tracker client, learned from your picks
   var LOW_N = 10;
 
   var S = {
@@ -60,8 +61,16 @@
   function cssVar(n, fb) { try { var v = getComputedStyle(document.body).getPropertyValue(n).trim(); return v || fb; } catch (e) { return fb; } }
 
   function loadMaps() {
+    try { S.aliases = JSON.parse(localStorage.getItem(ALIAS_KEY) || "{}") || {}; } catch (e) { S.aliases = {}; }
     try { S.maps = JSON.parse(localStorage.getItem(MAP_KEY) || "{}") || {}; }
     catch (e) { S.maps = {}; }
+  }
+  function learnAlias(q, idx) {
+    var s = S.tracker && S.tracker.sessions[idx], k = q && q.hint && q.hint.school ? P().normKey(q.hint.school).replace(/[^a-z]/g, "") : "";
+    if (!s || !k || k.length < 2 || !s.client) return;
+    S.aliases = S.aliases || {};
+    S.aliases[k] = P().normKey(s.client);
+    try { localStorage.setItem(ALIAS_KEY, JSON.stringify(S.aliases)); } catch (e) {}
   }
   function saveMaps() {
     try { localStorage.setItem(MAP_KEY, JSON.stringify(S.maps)); } catch (e) {}
@@ -145,7 +154,8 @@
       id: "ev" + (++evalSeq), name: file.name, rows: rows, header: rows[0].map(P().norm),
       roles: roles, sig: det.sig, auto: det.roles,
       attachedTo: -1, suggested: hint && S.tracker ? P().suggestSessions(S.tracker.sessions, hint) : [],
-      hint: hint, responseDate: P().detectResponseDate(rows),
+      hint: hint, responseDate: P().detectResponseDate(rows), respSession: P().detectResponseSession(rows),
+      fp: P().evalFingerprint(rows), replace: false,
       needsMap: !S.maps[det.sig], solo: null, target: -1, cands: [], note: ""
     };
   }
@@ -163,12 +173,22 @@
   function matchItem(q) {
     q.cands = []; q.auto = false;
     if (!S.tracker) return;
-    var m = P().matchEval(S.tracker.sessions, q.hint, q.responseDate);
+    var m = P().matchEval(S.tracker.sessions, q.hint, q.responseDate, { session: q.respSession, aliases: S.aliases });
     q.cands = m.candidates.slice(0, 8).map(function (x) { return S.tracker.sessions.indexOf(x.s); });
+    // Already encoded: the tracker's Eval Source carries this file's fingerprint -> that row, nothing to do.
+    q.encodedAt = encodedRow(q);
+    if (q.encodedAt >= 0) { q.target = q.encodedAt; q.auto = true; return; }
     if (q.target >= 0 && S.tracker.sessions[q.target]) return; // keep a choice the user made
     q.target = m.auto ? S.tracker.sessions.indexOf(m.auto) : -1;
     q.auto = !!m.auto;
   }
+  function encodedRow(q) {
+    if (!S.tracker || !q.fp) return -1;
+    for (var i = 0; i < S.tracker.sessions.length; i++) if (S.tracker.sessions[i].evalFp === q.fp) return i;
+    return -1;
+  }
+  // Scores already in the tracker for this session (not ones generated here).
+  function existingScore(s) { return s && (s.nps != null || s.trainerScore != null) ? { nps: s.nps, ts: s.trainerScore, src: s.evalSource || "" } : null; }
   // Two files on one session: neither is pre-selected (the user picks).
   function dedupeTargets() {
     var seen = {};
@@ -191,7 +211,8 @@
       try {
         var wb = await readWorkbook(files[i]);
         var q = makeEval(files[i], wb);
-        if (S.queue.some(function (x) { return x.name === q.name && x.rows.length === q.rows.length; })) { dup++; continue; }
+        // Same file again (also renamed copies: same answers = same fingerprint).
+        if (S.queue.some(function (x) { return (x.name === q.name && x.rows.length === q.rows.length) || (q.fp && x.fp === q.fp); })) { dup++; continue; }
         matchItem(q);
         S.queue.push(q);
       } catch (e) { bad.push(files[i].name + " (" + (e && e.message || e) + ")"); }
@@ -206,6 +227,7 @@
     var s = S.tracker && q.target >= 0 ? S.tracker.sessions[q.target] : null;
     if (s && s.computed && s.computed.evalId === q.id) return "generated";
     if (s && s.written && s.written.evalId === q.id && !s.computed) return "written";
+    if (s && q.fp && s.evalFp === q.fp && !s.computed) return "encoded";
     return "";
   }
   /* Generate every matched, mapped file. Each result is checked before Write to tracker. */
@@ -218,6 +240,9 @@
       if (q.target < 0 || itemState(q)) return;
       if (count[q.target] > 1) { q.note = "Another file is set to the same session."; skipped.push(q.name); return; }
       if (q.needsMap) { q.note = "Confirm the columns first."; skipped.push(q.name); return; }
+      var at = encodedRow(q);
+      if (at >= 0 && at !== q.target) { q.note = "This file is already encoded on row " + excelRow(t.sessions[at]) + " — not used for a second session."; skipped.push(q.name); return; }
+      if (existingScore(t.sessions[q.target]) && !q.replace) { q.note = "Already scored — tick “Replace existing score” to overwrite it."; skipped.push(q.name); return; }
       var c = computeFrom(q);
       if (c.error) { q.note = c.error; skipped.push(q.name); return; }
       q.note = "";
@@ -248,7 +273,7 @@
     return {
       n: rep.nps.n, promoters: rep.nps.promoters, passives: rep.nps.passives, detractors: rep.nps.detractors,
       nps: rep.nps.nps, trainerScore: rep.trainer.score, itemAvgs: rep.trainer.itemAvgs,
-      report: rep, evalName: ev.name, evalId: ev.id
+      report: rep, evalName: ev.name, evalId: ev.id, evalFp: ev.fp || "", evalSource: P().evalSourceText(ev.name, ev.fp)
     };
   }
   function generateFor(idx) {
@@ -260,6 +285,10 @@
       return solo;
     }
     if (ev.attachedTo !== idx) return null;
+    var at = encodedRow(ev), ses = t.sessions[idx];
+    if (at >= 0 && at !== idx && !window.confirm("This eval file is already encoded on row " + excelRow(t.sessions[at]) + " (" + sessionLabel(t.sessions[at]) + ").\n\nUse it for this session too?")) return null;
+    var ex = existingScore(ses);
+    if (ex && !(at === idx) && !window.confirm("This session already has scores in the tracker (NPS " + num(ex.nps, 1) + ", Trainer Score " + num(ex.ts, 2) + (ex.src ? ", from " + ex.src : "") + ").\n\nGenerate new results from " + ev.name + "? They replace the old scores only when you write to the tracker.")) return null;
     var computed = computeFrom(ev);
     if (computed.error) return computed;
     return applyComputed(idx, computed);
@@ -299,12 +328,15 @@
     });
     if (plan.addNpsCol) { npsCol = next++; put(0, npsCol, "Net Promoter Score"); }
     if (plan.addTrainerCol) { tsCol = next++; put(0, tsCol, "Trainer Score"); }
+    var srcCol = plan.sourceCol;
+    if (plan.addSourceCol) { srcCol = next++; put(0, srcCol, "Eval Source"); }
     (t.addedRows || []).forEach(function (a) {
       a.cells.forEach(function (v, c) { if (v !== "" && v != null) put(a.rowIdx, c, v); });
     });
     plan.edits.forEach(function (e) {
       if (npsCol >= 0 && e.nps != null) put(e.row, npsCol, e.nps);
       if (tsCol >= 0 && e.trainerScore != null) put(e.row, tsCol, e.trainerScore);
+      if (srcCol >= 0 && e.evalSource) put(e.row, srcCol, e.evalSource);
     });
     ws["!ref"] = XLSX.utils.encode_range(rng);
   }
@@ -370,6 +402,7 @@
         if (s.computed && s.status === "ready") {
           if (s.computed.nps != null) s.nps = s.computed.nps;
           if (s.computed.trainerScore != null) s.trainerScore = s.computed.trainerScore;
+          if (s.computed.evalSource) { s.evalSource = s.computed.evalSource; s.evalFp = s.computed.evalFp; }
           s.status = "scored";
           s.written = s.computed; // keep the report viewable after writing
           delete s.computed;
@@ -421,8 +454,10 @@
       lines.push("New row " + excelRow(s) + ": " + s.dateISO + " · " + s.trainer + " · " + s.code + " · " + s.client + " (" + s.id + ")");
     });
     pend.forEach(function (x) {
-      lines.push("Row " + excelRow(x) + " (" + (x.dateISO || "—") + " · " + x.trainer + " · " + x.client + "): NPS = " +
-                 num(x.computed.nps, 1) + ", Trainer Score = " + num(x.computed.trainerScore, 2));
+      var ex = existingScore(x);
+      lines.push("Row " + excelRow(x) + " (" + (x.dateISO || "—") + " · " + x.trainer + " · " + x.client + "): " +
+        (ex ? "REPLACES NPS " + num(ex.nps, 1) + " → " + num(x.computed.nps, 1) + ", Trainer Score " + num(ex.ts, 2) + " → " + num(x.computed.trainerScore, 2)
+            : "NPS = " + num(x.computed.nps, 1) + ", Trainer Score = " + num(x.computed.trainerScore, 2)));
     });
     var shown = lines.slice(0, 14);
     if (lines.length > 14) shown.push("…and " + (lines.length - 14) + " more");
@@ -761,13 +796,20 @@
   }
 
   /* ---------------- bulk eval list ---------------- */
-  function sessionLabel(s) { return (s.dateISO || "—") + " · " + s.client + " · " + s.trainer + " (" + s.code + ")" + (s.isNew ? " · new" : ""); }
+  function hhmm(f) { if (f == null) return ""; var m = Math.round(f * 1440), h = Math.floor(m / 60) % 24, mm = m % 60; return (h % 12 || 12) + ":" + (mm < 10 ? "0" : "") + mm + (h < 12 ? " AM" : " PM"); }
+  // Date · time · school · trainer (code) · row / Session ID — two same-day sessions never look alike.
+  function sessionLabel(s) {
+    var tm = s.timeStart != null ? hhmm(s.timeStart) + (s.timeEnd != null ? "–" + hhmm(s.timeEnd) : "") : "";
+    return (s.dateISO || "—") + (tm ? " · " + tm : "") + " · " + s.client + " · " + s.trainer + " (" + s.code + ")" +
+           " · row " + excelRow(s) + (s.id ? " · " + s.id : "") + (s.isNew ? " · new" : "");
+  }
   function queueHTML() {
     if (!S.queue.length) return "";
     var t = S.tracker, ready = 0;
     var rows = S.queue.map(function (q) {
       var st = itemState(q), s = t && q.target >= 0 ? t.sessions[q.target] : null;
-      if (t && q.target >= 0 && !st && !q.needsMap) ready++;
+      var ex = s ? existingScore(s) : null;
+      if (t && q.target >= 0 && !st && !q.needsMap && (!ex || q.replace)) ready++;
       var sel = "";
       if (t) {
         var opts = q.cands.slice();
@@ -780,18 +822,24 @@
           (!q.cands.length && q.target < 0 ? '<div class="tr-hint">no session on ' + esc((q.hint && q.hint.dateISO) || q.responseDate || "that date") + ' — pick one or add it</div>' : "");
       }
       var res;
-      if (q.needsMap) res = '<button type="button" class="btn btn-outline-primary btn-sm" data-traction="q-map" data-q="' + q.id + '">Confirm columns…</button>';
+      var exBlock = t && ex && q.target >= 0 && !st ? '<div class="small"><span class="risk-badge risk-medium">Already scored</span> NPS <b>' + num(ex.nps, 1) + '</b> · ' + num(ex.ts, 2) + '</div>' +
+        '<div class="tr-hint">' + (ex.src ? "from " + esc(ex.src.replace(/ · fp:\w+$/, "")) : "eval file not recorded") + '</div>' +
+        '<label class="small"><input type="checkbox" data-trq-replace="' + q.id + '"' + (q.replace ? " checked" : "") + '> Replace existing score</label>' : "";
+      if (q.needsMap && st !== "encoded") res = '<button type="button" class="btn btn-outline-primary btn-sm" data-traction="q-map" data-q="' + q.id + '">Confirm columns…</button>' + exBlock;
       else if (st === "generated") res = '<span class="risk-badge risk-high">Generated</span> NPS <b>' + num(s.computed.nps, 1) + '</b> · ' + num(s.computed.trainerScore, 2) + ' <button type="button" class="btn btn-link btn-sm p-0" data-traction="q-open" data-q="' + q.id + '">View</button>';
       else if (st === "written") res = '<span class="risk-badge risk-none">Written</span> <button type="button" class="btn btn-link btn-sm p-0" data-traction="q-open" data-q="' + q.id + '">View</button>';
+      else if (st === "encoded") res = '<span class="risk-badge risk-none" title="The tracker’s Eval Source for this row has this file’s fingerprint">Already encoded</span> <span class="small text-muted">row ' + excelRow(s) + ' · NPS ' + num(s.nps, 1) + '</span>';
+      else if (exBlock) res = exBlock;
       else if (!t) res = '<button type="button" class="btn btn-outline-primary btn-sm" data-traction="q-report" data-q="' + q.id + '">Report</button>';
       else res = q.target >= 0 ? '<span class="small text-muted">ready</span>' + (s && (s.nps != null || s.trainerScore != null) ? ' <span class="risk-badge risk-medium" title="Generating replaces the score already in the tracker">replaces score</span>' : "") : '<span class="small text-muted">needs a session</span>';
       return '<tr data-q="' + q.id + '"><td><div class="tr-qname" title="' + esc(q.name) + '">' + esc(q.name) + '</div><div class="tr-hint">' + plural(q.rows.length - 1, "response") +
-        (q.responseDate ? " · answered " + esc(q.responseDate) : "") + (q.hint ? " · filename " + esc(q.hint.dateISO) + " " + esc(q.hint.session) + " " + esc(q.hint.school) : "") + '</div>' +
+        (q.responseDate ? " · answered " + esc(q.responseDate) + (q.respSession && !(q.hint && q.hint.session) ? " (" + q.respSession + ")" : "") : "") +
+        (q.hint ? " · filename " + esc(q.hint.dateISO) + (q.hint.session ? " " + esc(q.hint.session) : "") + (q.hint.school ? " " + esc(q.hint.school) : "") : " · filename not recognised") + '</div>' +
         (q.note ? '<div class="small text-danger">' + esc(q.note) + '</div>' : "") + '</td>' +
         (t ? '<td class="tr-qsel">' + sel + '</td>' : "") + '<td class="text-nowrap">' + res + '</td>' +
         '<td class="text-end"><button type="button" class="btn btn-link btn-sm p-0" data-traction="q-remove" data-q="' + q.id + '" aria-label="Remove ' + esc(q.name) + ' from the list">Remove</button></td></tr>';
     }).join("");
-    var unmapped = S.queue.filter(function (q) { return q.needsMap; });
+    var unmapped = S.queue.filter(function (q) { return q.needsMap && itemState(q) !== "encoded"; });
     var h = '<div class="card-box mt-3 tr-queue"><div class="tr-ch-head"><div><h6 class="mb-0">Eval files (' + S.queue.length + ')</h6>' +
       '<div class="small text-muted">' + (t ? "Each file is matched to a session from its filename (date · AM/PM · school) and answer dates — check the pick, then generate." : "Open the training tracker to match these files to sessions, or open a one-off report per file.") + '</div></div>' +
       '<div class="tr-toolbar">' + (t ? '<button type="button" class="btn btn-primary btn-sm" data-traction="q-generate"' + (ready ? "" : " disabled") + '>Generate ' + (ready ? plural(ready, "matched file") : "matched files") + '</button>' : "") +
@@ -1160,7 +1208,7 @@
   function selectRow(i) {
     S.selected = i; S.manualForm = false;
     var pq = S.pickFor && queueItem(S.pickFor);
-    if (pq) { pq.target = i; pq.auto = false; pq.note = ""; S.pickFor = null; }
+    if (pq) { pq.target = i; pq.auto = false; pq.note = ""; pq.replace = false; learnAlias(pq, i); S.pickFor = null; }
     else if (S.eval && S.eval.attachedTo < 0 && S.tracker) attachTo(i); // "click a session to attach this file"
     render(); var d = $("tr-detail"); if (d && d.scrollIntoView) try { d.scrollIntoView({ block: "nearest" }); } catch (e) {} }
   function wireRows(root) {
@@ -1226,8 +1274,11 @@
         var v = sel.value;
         if (v === "pick") { S.pickFor = q.id; S.view = "sessions"; render(); var l = $("tr-list"); if (l && l.scrollIntoView) try { l.scrollIntoView({ block: "start" }); } catch (e) {} return; }
         if (v === "new") { S.newFor = q.id; S.manualForm = false; S.showingNewForm = false; render(); return; }
-        q.target = +v; q.auto = false; q.note = ""; render();
+        q.target = +v; q.auto = false; q.note = ""; q.replace = false; if (q.target >= 0) learnAlias(q, q.target); render();
       });
+    });
+    host.querySelectorAll("[data-trq-replace]").forEach(function (cb) {
+      cb.addEventListener("change", function () { var q = queueItem(cb.getAttribute("data-trq-replace")); if (q) { q.replace = cb.checked; q.note = ""; render(); } });
     });
     var drop = host.querySelector(".tr-load");
     if (drop) {

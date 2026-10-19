@@ -6,6 +6,17 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: no more overwriting encoded evals
+  - New tracker column "Eval Source" (written with the scores): the eval file name + a fingerprint of its answers.
+    Uploading that eval again later — any browser, even renamed — shows "Already encoded" on its row and is
+    not generated again. The same answers can't be used for a second session.
+  - Sessions that already have a score are left out of "Generate" ("Already scored", with where the score came
+    from); tick "Replace existing score" to overwrite. The write confirm shows old → new for every replaced row.
+  - A renamed copy of a file in the list isn't added twice.
+  - Real filename formats are read: "05072026 - AM - HCCCI(1-44)", "Nov. 28, 2025 [SGA] - Microsoft 36";
+    the filename date wins over the answer date. Same-day sessions are told apart by the answers' times
+    (AM/PM) and labelled with time and row. School picks are remembered (e.g. SGA → Saint Garnet Academy).
+
 UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: trainer tiles, courses conducted, trainer profile
   - Summary report tiles: Trainers active · Trainings conducted · Training hours · Courses delivered (most conducted
     course) · Schools served · Respondents · Avg NPS (change vs previous period) · Avg trainer score · Eval coverage.

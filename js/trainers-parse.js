@@ -76,7 +76,8 @@
     timeEnd: ["time end", "end"],
     nps: ["net promoter score", "nps"],
     trainerScore: ["trainer score"],
-    id: ["session id", "sessionid"]
+    id: ["session id", "sessionid"],
+    evalSource: ["eval source"]
   };
   function findCol(header, names) {
     for (var i = 0; i < header.length; i++) {
@@ -106,8 +107,10 @@
       var dt = excelDate(row[col.date]);
       var nps = col.nps >= 0 ? numOrNull(row[col.nps]) : null;
       var tsc = col.trainerScore >= 0 ? numOrNull(row[col.trainerScore]) : null;
+      var src = col.evalSource >= 0 ? norm(row[col.evalSource]) : "";
       out.push({
         rowIdx: r, // 0-based sheet row (header = 0); write-back uses this
+        evalSource: src, evalFp: fpOf(src),
         date: dt.date, dateISO: dt.iso,
         id: col.id >= 0 ? norm(row[col.id]) : "",
         trainer: trainer, code: code,
@@ -126,14 +129,25 @@
    * e.g. "Training_Feedback_Form_-_05072026_-_AM_-_HCCCI_1-44.xlsx"
    * Date is MMDDYYYY (matches the form's "Event Date: May 07, 2026").
    * The trainer is NEVER in the filename. */
+  /* Also seen in real exports:
+   *   "Training Feedback Form - 05072026 - AM - HCCCI(1-44).xlsx"
+   *   "Training Feedback Form - Nov. 28, 2025 [SGA] - Microsoft 36.xlsx"  (date in words, school in [ ]) */
+  var MON3 = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
   function parseFilename(name) {
     var base = norm(name).replace(/\.[a-z0-9]+$/i, "");
-    var m = base.match(/(\d{2})(\d{2})(\d{4})[\s\-_]+(AM|PM)[\s\-_]+([A-Za-z0-9][A-Za-z0-9 _.&'\-]*?)(?=[\s\-_]+(?:\d|$)|$)/i);
-    if (!m) return null;
-    var da = +m[2], mo = +m[1], ye = +m[3];
-    if (mo < 1 || mo > 12 || da < 1 || da > 31) return null;
     var p = function (n) { return (n < 10 ? "0" : "") + n; };
-    return { dateISO: ye + "-" + p(mo) + "-" + p(da), session: m[4].toUpperCase(), school: norm(m[5].replace(/_/g, " ")) };
+    var ok = function (y, mo, da) { return mo >= 1 && mo <= 12 && da >= 1 && da <= 31 && y >= 2000 && y < 2100; };
+    var bracket = (base.match(/\[([^\]]+)\]/) || [])[1];
+    var m = base.match(/(\d{2})(\d{2})(\d{4})[\s\-_]+(AM|PM)[\s\-_]+([A-Za-z0-9][A-Za-z0-9 _.&'\-]*?)(?=[\s\-_]*[(\[]|[\s\-_]+(?:\d|$)|$)/i);
+    if (m && ok(+m[3], +m[1], +m[2]))
+      return { dateISO: m[3] + "-" + p(+m[1]) + "-" + p(+m[2]), session: m[4].toUpperCase(), school: norm((bracket || m[5]).replace(/_/g, " ")) };
+    var y, mo, da;
+    if ((m = base.match(/(?:^|\D)(\d{2})(\d{2})(\d{4})(?!\d)/)) && ok(+m[3], +m[1], +m[2])) { mo = +m[1]; da = +m[2]; y = +m[3]; }
+    else if ((m = base.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?[\s_]+(\d{1,2})(?:st|nd|rd|th)?,?[\s_]+(\d{4})\b/i)) &&
+             ok(+m[3], MON3.indexOf(m[1].toLowerCase()) + 1, +m[2])) { mo = MON3.indexOf(m[1].toLowerCase()) + 1; da = +m[2]; y = +m[3]; }
+    else return null;
+    var ses = (base.match(/(?:^|[\s\-_\[(])(AM|PM)(?=$|[\s\-_\])])/i) || [])[1];
+    return { dateISO: y + "-" + p(mo) + "-" + p(da), session: ses ? ses.toUpperCase() : "", school: norm((bracket || "").replace(/_/g, " ")) };
   }
 
   /* ---- filename hint -> ranked tracker sessions ---------------------------- */
@@ -150,7 +164,10 @@
       var c = normKey(s.client);
       var schoolScore = 0;
       if (hs && c) {
-        if (c === hs || (hsA.length >= 2 && acronymOf(s.client).toLowerCase() === hsA)) schoolScore = 2;
+        var acr = acronymOf(s.client).toLowerCase();
+        if (c === hs || (hsA.length >= 2 && acr === hsA) ||
+            (hsA.length >= 4 && acr.length === hsA.length - 1 && hsA.indexOf(acr) === 0) || // HCCCI = Hill Crest College of Carmel (Inc.)
+            (hint.aliases && hint.aliases[hsA] === c)) schoolScore = 2;                    // learned from an earlier pick
         else if (c.indexOf(hs) >= 0 || hs.indexOf(c) >= 0) schoolScore = 1;
       }
       // No school match: still offer same-day sessions, ranked below matches
@@ -168,11 +185,12 @@
   /* Bulk matching: candidates for one eval file, and the session to pre-select when it is
    * unambiguous (school matches and no other candidate ranks as high). The filename date is
    * tried first, then the answers' own date. Never auto-picks a school-less same-day match. */
-  function matchEval(sessions, hint, responseDate) {
-    var tries = [];
-    if (hint && hint.dateISO) tries.push(hint);
+  function matchEval(sessions, hint, responseDate, opts) {
+    opts = opts || {};
+    var tries = [], base = { session: (hint && hint.session) || opts.session || "", school: hint ? hint.school : "", aliases: opts.aliases || null };
+    if (hint && hint.dateISO) tries.push({ dateISO: hint.dateISO, session: base.session, school: base.school, aliases: base.aliases });
     if (responseDate && (!hint || responseDate !== hint.dateISO))
-      tries.push({ dateISO: responseDate, session: hint ? hint.session : "", school: hint ? hint.school : "" });
+      tries.push({ dateISO: responseDate, session: base.session, school: base.school, aliases: base.aliases });
     for (var i = 0; i < tries.length; i++) {
       var r = rankSessions(sessions, tries[i]);
       if (!r.length) continue;
@@ -301,15 +319,17 @@
     var header = (headerRow || []).map(norm);
     var npsCol = findCol(header, TRACKER_COLS.nps);
     var tsCol = findCol(header, TRACKER_COLS.trainerScore);
+    var srcCol = findCol(header, TRACKER_COLS.evalSource);
     var edits = [];
     sessions.forEach(function (s) {
       if (s.computed && (s.computed.nps != null || s.computed.trainerScore != null)) {
-        edits.push({ row: s.rowIdx, nps: s.computed.nps, trainerScore: s.computed.trainerScore });
+        edits.push({ row: s.rowIdx, nps: s.computed.nps, trainerScore: s.computed.trainerScore, evalSource: s.computed.evalSource || "" });
       }
     });
-    return { edits: edits, npsCol: npsCol, trainerCol: tsCol,
+    return { edits: edits, npsCol: npsCol, trainerCol: tsCol, sourceCol: srcCol,
              addNpsCol: npsCol < 0 && edits.some(function (e) { return e.nps != null; }),
-             addTrainerCol: tsCol < 0 && edits.some(function (e) { return e.trainerScore != null; }) };
+             addTrainerCol: tsCol < 0 && edits.some(function (e) { return e.trainerScore != null; }),
+             addSourceCol: srcCol < 0 && edits.some(function (e) { return e.evalSource; }) };
   }
 
   /* ---- response-date detection -------------------------------------------
@@ -347,6 +367,42 @@
       if (counts[k] > bestN) { bestN = counts[k]; best = k; }
     });
     return best;
+  }
+
+  /* ---- eval fingerprint: same answers = same file, whatever its name ---------
+   * FNV-1a over the response IDs + timestamps (or every cell when those are missing). */
+  function fnv(str) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return ("0000000" + h.toString(16)).slice(-8);
+  }
+  function evalFingerprint(rows) {
+    if (!rows || rows.length < 2) return "";
+    var header = rows[0].map(normKey), keep = [];
+    header.forEach(function (h, i) { if (h === "id" || /start time|completion time|email/.test(h)) keep.push(i); });
+    var data = rows.slice(1).filter(function (r) { return r && r.some(function (v) { return norm(v) !== ""; }); });
+    var parts = data.map(function (r) {
+      return (keep.length ? keep.map(function (i) { return norm(r[i]); }) : r.map(norm)).join("\u0001");
+    });
+    return fnv(data.length + "\u0002" + parts.join("\u0002"));
+  }
+  function evalSourceText(name, fp) { return norm(name) + (fp ? " · fp:" + fp : ""); }
+  function fpOf(src) { var m = /fp:([0-9a-f]{8})/.exec(src || ""); return m ? m[1] : ""; }
+  // AM/PM from the answers' own times (median): forms are answered at the end of the session.
+  function detectResponseSession(rows) {
+    if (!rows || rows.length < 2) return "";
+    var header = rows[0].map(normKey), ci = -1;
+    for (var i = 0; i < header.length && ci < 0; i++) if (/start time|completion time|timestamp|submitted/.test(header[i])) ci = i;
+    if (ci < 0) return "";
+    var fr = [];
+    rows.slice(1).forEach(function (r) {
+      var v = r && r[ci];
+      if (typeof v === "number" && isFinite(v)) { var f = v - Math.floor(v); if (f > 0) fr.push(f); }
+      else if (v) { var m = /(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]m)?/i.exec(String(v)); if (m) { var h = +m[1] % (m[3] ? 12 : 24); if (m[3] && /p/i.test(m[3])) h += 12; fr.push((h * 60 + +m[2]) / 1440); } }
+    });
+    if (!fr.length) return "";
+    fr.sort(function (a, b) { return a - b; });
+    return fr[Math.floor(fr.length / 2)] < 0.55 ? "AM" : "PM"; // before ~1:12 PM
   }
 
   var ACR_STOP = /^(of|de|del|la|the|and|for|inc\.?|corp\.?)$/i;
@@ -718,7 +774,8 @@
 
   var api = {
     norm: norm, normKey: normKey, excelDate: excelDate, timeOf: timeOf,
-    detectResponseDate: detectResponseDate,
+    detectResponseDate: detectResponseDate, detectResponseSession: detectResponseSession,
+    evalFingerprint: evalFingerprint, evalSourceText: evalSourceText, fpOf: fpOf,
     acronymOf: acronymOf, buildAcronymIndex: buildAcronymIndex, nextSessionId: nextSessionId,
     buildSummary: buildSummary, trainerTable: trainerTable, courseTable: courseTable, overview: overview, itemAverages: itemAverages,
     periodsOf: periodsOf, inPeriod: inPeriod, prevPeriod: prevPeriod, hoursOf: hoursOf,
