@@ -41,7 +41,7 @@
     filter: "all",   // all | needs | scored | unscored
     showingNewForm: false, // "add as new session" from an unmatched eval
     manualForm: false,     // standalone Add session (no eval)
-    repTrainer: "", repSchool: "",  // summary filters
+    repTrainer: "", repSchool: "", repPeriod: "",  // summary filters (period: "" | "2026" | "2026-Q2")
     q: "",
     view: "sessions",      // sessions | board | summary
     queue: [],             // bulk eval files: [{ ...eval, id, target: idx | -1, auto, cands[] }]
@@ -620,20 +620,21 @@
   }
 
   /* ---------------- summary data ---------------- */
-  function summaryData() {
-    var t = S.tracker;
-    var list = t.sessions.filter(function (s) {
-      if (S.repTrainer && s.trainer !== S.repTrainer) return false;
+  function summaryRows(period) {
+    var t = S.tracker, cm = (t.courseMap && t.courseMap.byCode) || {};
+    return t.sessions.filter(function (s) {
+      if (S.repTrainer && P().normKey(s.trainer) !== P().normKey(S.repTrainer)) return false;
       if (S.repSchool && s.client !== S.repSchool) return false;
-      return true;
+      return P().inPeriod(s.dateISO, period);
     }).map(function (s) {
-      // Scores generated here but not written yet count too (they are shown as such).
-      var v = sessionView(s);
-      return { client: s.client, code: s.code, dateISO: s.dateISO, timeStart: s.timeStart, timeEnd: s.timeEnd,
-               trainer: s.trainer, nps: v.nps, trainerScore: v.ts, n: v.n };
+      // Scores generated here but not written yet count too (the report says so).
+      var v = sessionView(s), c = s.computed || s.written || {};
+      return { client: s.client, code: s.code, title: s.title || (cm[s.code] && cm[s.code].title) || "", dateISO: s.dateISO,
+               timeStart: s.timeStart, timeEnd: s.timeEnd, trainer: s.trainer, nps: v.nps, trainerScore: v.ts, n: v.n,
+               itemAvgs: c.itemAvgs || null };
     });
-    return P().buildSummary(list);
   }
+  function summaryData() { return P().buildSummary(summaryRows(S.repPeriod)); }
 
   /* ---------------- charts ---------------- */
   function destroyCharts() {
@@ -983,66 +984,145 @@
       '<div class="col-lg-5"><div class="card-box"><h6>Average trainer score</h6><div class="chart-wrap" style="height:' + Math.max(220, 26 * Math.min(15, rows.length) + 60) + 'px"><canvas id="tr-ch-board"></canvas></div></div></div></div>';
   }
 
-  /* ---------------- summary view ---------------- */
+  /* ---------------- summary view ----------------
+   * All trainers: headline tiles, courses conducted, ranked trainer table, trends.
+   * One trainer selected: the same report becomes that trainer's profile. */
+  function changeChip(d) {
+    if (d == null) return "";
+    if (!d) return '<span class="kpi-delta">± 0 vs previous period</span>';
+    return '<span class="kpi-delta ' + (d > 0 ? "up" : "down") + '">' + (d > 0 ? "▲ +" : "▼ ") + d + ' vs previous period</span>';
+  }
+  function courseName(c) { return c.title ? c.title + (c.code ? " (" + c.code + ")" : "") : (c.code || "—"); }
   function summaryHTML() {
-    var t = S.tracker, sum = summaryData();
+    var t = S.tracker, P_ = P(), period = S.repPeriod || "";
+    var rows = summaryRows(period), prevKey = P_.prevPeriod(period), prevRows = prevKey ? summaryRows(prevKey) : [];
+    var sum = P_.buildSummary(rows), ov = P_.overview(rows), courses = P_.courseTable(rows);
+    var profile = !!S.repTrainer, trows = profile ? [] : P_.trainerTable(rows, prevRows);
+    var periods = P_.periodsOf(t.sessions);
     var schools = [];
     t.sessions.forEach(function (s) { if (s.client && schools.indexOf(s.client) < 0) schools.push(s.client); });
     schools.sort();
-    var filt = [];
+    var pLabel = period ? (periods.filter(function (x) { return x.key === period; })[0] || { label: period }).label : "All time";
+    var filt = [pLabel];
     if (S.repTrainer) filt.push("Trainer: " + S.repTrainer);
     if (S.repSchool) filt.push("School: " + S.repSchool);
     var stamp = new Date().toISOString().slice(0, 10);
+    var sel = function (id, label, all, opts, cur) {
+      return '<label class="small fw-semibold">' + label + ' <select class="form-select form-select-sm" id="' + id + '"><option value="">' + all + '</option>' +
+        opts.map(function (o) { return '<option value="' + esc(o.key) + '"' + (cur === o.key ? " selected" : "") + '>' + esc(o.label) + '</option>'; }).join("") + '</select></label>';
+    };
     var h = '<div class="card-box mt-3 tr-noprint"><div class="tr-filters-row">' +
-      '<label class="small fw-semibold">Trainer <select class="form-select form-select-sm" id="tr-rep-trainer"><option value="">All trainers</option>' +
-      t.roster.slice().sort().map(function (r) { return '<option value="' + esc(r) + '"' + (S.repTrainer === r ? " selected" : "") + '>' + esc(r) + '</option>'; }).join("") + '</select></label>' +
-      '<label class="small fw-semibold">School <select class="form-select form-select-sm" id="tr-rep-school"><option value="">All schools</option>' +
-      schools.map(function (s) { return '<option value="' + esc(s) + '"' + (S.repSchool === s ? " selected" : "") + '>' + esc(s) + '</option>'; }).join("") + '</select></label>' +
-      (filt.length ? '<button type="button" class="btn btn-outline-secondary btn-sm" data-traction="rep-clear">Clear filters</button>' : "") +
-      '<button type="button" class="btn btn-primary btn-sm ms-auto" data-traction="print-report" title="Opens the print dialog — choose “Save as PDF”">Summary report (PDF)</button></div></div>';
-    h += '<div class="tr-report" id="tr-report" data-title="' + esc("Training summary - " + stamp) + '">' +
-      '<div class="tr-print-only tr-print-head"><div class="tr-ph-title">Training summary report</div>' +
-      '<div class="tr-ph-sub">' + esc(t.name) + ' · ' + plural(sum.total, "session") + (filt.length ? ' · ' + esc(filt.join(" · ")) : "") + ' · generated ' + stamp + '</div></div>' +
-      '<div class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3 kpi-row mt-1">' +
-      kpi("Sessions", sum.total, "blue") +
-      kpi("Training hours", num(sum.hours, 1), "blue", "sessions with start and end times") +
+      sel("tr-rep-period", "Period", "All time", periods, period) +
+      sel("tr-rep-trainer", "Trainer", "All trainers", t.roster.slice().sort().map(function (r) { return { key: r, label: r }; }), S.repTrainer) +
+      sel("tr-rep-school", "School", "All schools", schools.map(function (r) { return { key: r, label: r }; }), S.repSchool) +
+      (S.repTrainer || S.repSchool || period ? '<button type="button" class="btn btn-outline-secondary btn-sm" data-traction="rep-clear">Clear filters</button>' : "") +
+      '<button type="button" class="btn btn-primary btn-sm ms-auto" data-traction="print-report" title="Opens the print dialog — choose “Save as PDF”">' +
+      (profile ? "Trainer profile (PDF)" : "Summary report (PDF)") + '</button></div></div>';
+    var title = profile ? "Trainer profile — " + S.repTrainer : "Training summary report";
+    h += '<div class="tr-report" id="tr-report" data-title="' + esc((profile ? "Trainer profile - " + S.repTrainer : "Training summary") + " - " + (period || "all") + " - " + stamp) + '">' +
+      '<div class="tr-print-only tr-print-head"><div class="tr-ph-title">' + esc(title) + '</div>' +
+      '<div class="tr-ph-sub">' + esc(filt.join(" · ")) + ' · ' + esc(t.name) + ' · generated ' + stamp + '</div></div>' +
+      (profile ? '<h5 class="tr-profile-h tr-noprint">' + esc(S.repTrainer) + ' <span class="small text-muted fw-normal">· ' + esc(pLabel) + '</span></h5>' : "");
+    // tiles
+    var cov = ov.coverage == null ? "—" : ov.coverage + "%";
+    var covTone = ov.coverage == null ? "blue" : ov.coverage >= 80 ? "green" : ov.coverage >= 50 ? "orange" : "red";
+    var prevNps = prevKey ? P_.buildSummary(prevRows).avgNps : null;
+    var npsChg = sum.avgNps != null && prevNps != null ? Math.round((sum.avgNps - prevNps) * 10) / 10 : null;
+    h += '<div class="row row-cols-2 row-cols-md-3 row-cols-xl-5 g-3 kpi-row mt-1">' +
+      (profile ? "" : kpi("Trainers active", ov.trainers, "blue")) +
+      kpi("Trainings conducted", ov.sessions, "blue", period ? esc(pLabel) : "all sessions in the tracker") +
+      kpi("Training hours", num(ov.hours, 1), "blue", "sessions with start and end times") +
+      kpi("Courses delivered", ov.courses, "teal", courses[0] ? "most: " + esc(courseName(courses[0])) + " ×" + courses[0].sessions : "") +
+      kpi("Schools served", ov.schools, "teal", sum.repeatRate + "% of trainings at repeat schools") +
       kpi("Respondents", sum.respondents || "—", "blue", sum.respSessions ? plural(sum.respSessions, "session") + " with eval results" : "add eval results to count") +
-      kpi("Avg NPS", sum.avgNps == null ? "—" : num(sum.avgNps, 1), npsTone(sum.avgNps), plural(sum.scoredNps, "scored session")) +
+      kpi("Avg NPS", sum.avgNps == null ? "—" : num(sum.avgNps, 1), npsTone(sum.avgNps), changeChip(npsChg) || plural(sum.scoredNps, "scored session")) +
       kpi("Avg trainer score", sum.avgScore == null ? "—" : num(sum.avgScore, 2), scoreTone(sum.avgScore), "out of 5 · " + plural(sum.scoredTs, "session")) +
-      kpi("Repeat schools", sum.repeatRate + "%", "teal", "sessions at schools trained more than once") +
+      kpi("Eval coverage", cov, covTone, ov.evaluated + " of " + plural(ov.sessions, "training") + " have scores") +
+      (profile ? kpi("Last session", esc(rows.reduce(function (x, s) { return s.dateISO && s.dateISO > x ? s.dateISO : x; }, "") || "—"), "blue") : "") +
       '</div>';
-    if (!sum.total) return h + '<div class="card-box mt-3 small text-muted">No sessions match these filters.</div></div>';
+    if (!rows.length) return h + '<div class="card-box mt-3 small text-muted">No trainings match these filters.</div></div>';
+    // profile: facilitator items
+    if (profile) {
+      var ia = P_.itemAverages(rows), L = { t1: "Knowledge & mastery", t2: "Communication & presentation", t3: "Engage & connect" };
+      var have = ["t1", "t2", "t3"].filter(function (k) { return ia[k] != null; }).sort(function (a, b) { return ia[b] - ia[a]; });
+      h += '<div class="card-box tr-inner mt-3"><h6>Facilitator items <span class="small text-muted fw-normal">· from ' + plural(ia.n, "eval") + ' scored in the dashboard</span></h6>' +
+        (have.length ? '<div class="row row-cols-1 row-cols-md-3 g-3">' + ["t1", "t2", "t3"].map(function (k) {
+          var v = ia[k], tag = have.length > 1 && k === have[0] ? chip("strongest", "none") : have.length > 1 && k === have[have.length - 1] ? chip("to develop", "high") : "";
+          return '<div class="col"><div class="tr-item"><div class="small fw-semibold">' + L[k] + ' ' + tag + '</div><div class="tr-item-v">' + num(v, 2) + ' <span class="small text-muted">/ 5</span></div>' +
+            '<div class="tr-meter"><span style="width:' + (v == null ? 0 : Math.max(0, Math.min(100, (v - 1) / 4 * 100))) + '%"></span></div></div></div>';
+        }).join("") + '</div>' : '<div class="small text-muted">No eval files for this trainer were scored in this browser yet — the tracker stores only NPS and the trainer score.</div>') + '</div>';
+    }
+    // courses conducted
+    var topC = courses.slice(0, 10);
+    h += '<div class="row g-3 mt-0"><div class="col-lg-7"><div class="card-box tr-inner"><h6>Courses conducted <span class="small text-muted fw-normal">· ' + plural(courses.length, "course") + '</span></h6>' +
+      '<div class="table-responsive"><table class="table table-sm mb-0 tr-courses" data-resizable="static"><thead><tr><th>Course</th><th class="num">Times conducted</th><th class="num">Hours</th><th class="num">Schools</th>' +
+      (profile ? "" : '<th class="num">Trainers</th>') + '<th class="num">Avg NPS</th></tr></thead><tbody>' +
+      courses.map(function (c) {
+        return '<tr><td>' + esc(c.title || c.code || "—") + (c.title && c.code ? ' <span class="text-muted small">' + esc(c.code) + '</span>' : "") + '</td><td class="num"><b>' + c.sessions + '</b></td>' +
+          '<td class="num">' + num(c.hours, 1) + '</td><td class="num">' + c.schools + '</td>' + (profile ? "" : '<td class="num">' + c.trainers + '</td>') +
+          '<td class="num">' + (c.avgNps == null ? "—" : num(c.avgNps, 1)) + '</td></tr>';
+      }).join("") + '</tbody></table></div></div></div>' +
+      '<div class="col-lg-5"><div class="card-box tr-inner"><h6>Most conducted courses</h6><div class="chart-wrap" style="height:' + Math.max(200, 28 * topC.length + 50) + 'px"><canvas id="tr-ch-course" aria-label="Times each course was conducted"></canvas></div></div></div></div>';
+    S.chartDefs["tr-ch-course"] = function (T) {
+      return { type: "bar", data: { labels: topC.map(function (c) { var n = c.title || c.code; return n.length > 30 ? n.slice(0, 28) + "…" : n; }),
+        datasets: [{ label: "Times conducted", data: topC.map(function (c) { return c.sessions; }), backgroundColor: T.teal }] },
+        options: { indexAxis: "y", scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }, plugins: { legend: { display: false } } } };
+    };
+    // trainer table (all trainers)
+    if (!profile) {
+      h += '<div class="card-box tr-inner mt-3' + (trows.length > 6 ? " tr-pb" : "") + '"><h6>Trainers <span class="small text-muted fw-normal">· ranked by trainings conducted<span class="tr-noprint"> · click a name for the trainer profile</span></span></h6>' +
+        '<div class="table-responsive"><table class="table table-sm mb-0 tr-trainers" data-resizable="static"><thead><tr><th>#</th><th>Trainer</th><th class="num">Trainings</th><th class="num">Hours</th>' +
+        '<th class="num">Courses</th><th class="num">Schools</th><th class="num">Respondents</th><th class="num">Avg NPS</th><th class="num">Avg score</th>' +
+        (prevKey ? '<th class="num">vs previous</th>' : "") + '<th class="num">No eval</th><th>Last session</th></tr></thead><tbody>' +
+        trows.map(function (r, i) {
+          var tone = function (v, f) { return v == null ? "" : ' class="num tr-t-' + f(v) + '"'; };
+          return '<tr><td class="text-muted">' + (i + 1) + '</td><td><button type="button" class="btn btn-link btn-sm p-0 tr-tname" data-trtrainer="' + esc(r.trainer) + '">' + esc(r.trainer) + '</button>' +
+            (r.topCourse ? '<div class="tr-hint">top: ' + esc(r.topCourse.title || r.topCourse.code) + ' ×' + r.topCourse.sessions + '</div>' : "") + '</td>' +
+            '<td class="num"><b>' + r.sessions + '</b></td><td class="num">' + num(r.hours, 1) + '</td><td class="num">' + r.courses + '</td><td class="num">' + r.schools + '</td>' +
+            '<td class="num">' + (r.respondents || "—") + '</td>' +
+            '<td' + (tone(r.avgNps, npsTone) || ' class="num"') + '>' + (r.avgNps == null ? "—" : num(r.avgNps, 1)) + '</td>' +
+            '<td' + (tone(r.avgScore, scoreTone) || ' class="num"') + '>' + (r.avgScore == null ? "—" : num(r.avgScore, 2)) + '</td>' +
+            (prevKey ? '<td class="num">' + (r.npsChange == null ? "—" : (r.npsChange > 0 ? "▲ +" : r.npsChange < 0 ? "▼ " : "") + r.npsChange) + '</td>' : "") +
+            '<td class="num">' + (r.noEval ? '<span class="tr-t-orange">' + r.noEval + '</span>' : "0") + '</td><td class="text-nowrap">' + esc(r.last || "—") + '</td></tr>';
+        }).join("") + '</tbody></table></div>' +
+        (prevKey ? '<div class="small text-muted mt-1">“vs previous” = change in average NPS against ' + esc(prevKey.replace("-", " ")) + '.</div>' : "") + '</div>';
+    }
+    // trends
     var months = sum.monthly.filter(function (m) { return m.key !== "(no date)"; });
-    h += '<div class="row g-3 mt-0"><div class="col-lg-7"><div class="card-box tr-inner"><h6>Sessions and NPS by month</h6><div class="chart-wrap"><canvas id="tr-ch-month" aria-label="Sessions and average NPS by month"></canvas></div></div></div>' +
-      '<div class="col-lg-5"><div class="card-box tr-inner"><h6>Top schools by sessions</h6><div class="chart-wrap"><canvas id="tr-ch-school" aria-label="Sessions per school"></canvas></div></div></div></div>';
+    h += '<div class="row g-3 mt-0' + (profile ? "" : " tr-pb") + '"><div class="col-lg-7"><div class="card-box tr-inner"><h6>Trainings and NPS by month</h6><div class="chart-wrap"><canvas id="tr-ch-month" aria-label="Trainings and average NPS by month"></canvas></div></div></div>' +
+      '<div class="col-lg-5"><div class="card-box tr-inner"><h6>Top schools by trainings</h6><div class="chart-wrap"><canvas id="tr-ch-school" aria-label="Trainings per school"></canvas></div></div></div></div>';
     S.chartDefs["tr-ch-month"] = function (T) {
       return { type: "bar", data: { labels: months.map(function (m) { var d = new Date(+m.key.slice(0, 4), +m.key.slice(5, 7) - 1, 1); return isNaN(d) ? m.key : d.toLocaleString("en-US", { month: "short", year: "2-digit" }); }),
         datasets: [
           { type: "line", label: "Avg NPS", data: months.map(function (m) { return m.avgNps; }), borderColor: T.ok, backgroundColor: T.ok, yAxisID: "y2", tension: 0.25, pointRadius: 3, spanGaps: true },
-          { type: "bar", label: "Sessions", data: months.map(function (m) { return m.sessions; }), backgroundColor: T.brand + "55", borderColor: T.brand, borderWidth: 1, yAxisID: "y" }] },
-        options: { scales: { y: { beginAtZero: true, title: { display: true, text: "Sessions" }, ticks: { precision: 0 } },
+          { type: "bar", label: "Trainings", data: months.map(function (m) { return m.sessions; }), backgroundColor: T.brand + "55", borderColor: T.brand, borderWidth: 1, yAxisID: "y" }] },
+        options: { scales: { y: { beginAtZero: true, title: { display: true, text: "Trainings" }, ticks: { precision: 0 } },
           y2: { position: "right", min: -100, max: 100, grid: { drawOnChartArea: false }, title: { display: true, text: "NPS" } } } } };
     };
     var topS = sum.bySchool.slice().sort(function (a, b) { return b.sessions - a.sessions; }).slice(0, 10);
     S.chartDefs["tr-ch-school"] = function (T) {
       return { type: "bar", data: { labels: topS.map(function (b) { return b.key.length > 32 ? b.key.slice(0, 30) + "…" : b.key; }),
-        datasets: [{ label: "Sessions", data: topS.map(function (b) { return b.sessions; }), backgroundColor: T.brand }] },
+        datasets: [{ label: "Trainings", data: topS.map(function (b) { return b.sessions; }), backgroundColor: T.brand }] },
         options: { indexAxis: "y", scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }, plugins: { legend: { display: false } } } };
     };
-    function breakTable(title, first, rows) {
-      var b = '<div class="col-lg-6"><div class="card-box tr-inner"><h6>' + title + '</h6><div class="table-responsive"><table class="table table-sm mb-0 tr-break" data-resizable="static"><thead><tr>' +
-              '<th>' + first + '</th><th class="num">Sessions</th><th class="num">Avg NPS</th><th class="num">Avg trainer score</th></tr></thead><tbody>';
-      rows.forEach(function (r) {
-        b += '<tr><td>' + esc(r.key) + '</td><td class="num">' + r.sessions + '</td>' +
-             '<td class="num">' + (r.avgNps == null ? "—" : num(r.avgNps, 1)) + '</td>' +
-             '<td class="num">' + (r.avgScore == null ? "—" : num(r.avgScore, 2)) + '</td></tr>';
-      });
-      return b + '</tbody></table></div></div></div>';
-    }
     var bySessions = function (a, b) { return b.sessions - a.sessions || (a.key < b.key ? -1 : 1); };
-    h += '<div class="row g-3 mt-0">' + breakTable("By school", "School", sum.bySchool.slice().sort(bySessions)) +
-         breakTable("By course", "Course code", sum.byCourse.slice().sort(bySessions)) + '</div>';
-    return h + '<div class="small text-muted mt-2">Averages include scores generated here that are not written to the tracker yet.</div></div>';
+    h += '<div class="row g-3 mt-0"><div class="col-lg-6"><div class="card-box tr-inner"><h6>By school</h6><div class="table-responsive"><table class="table table-sm mb-0 tr-break" data-resizable="static"><thead><tr>' +
+      '<th>School</th><th class="num">Trainings</th><th class="num">Avg NPS</th><th class="num">Avg trainer score</th></tr></thead><tbody>' +
+      sum.bySchool.slice().sort(bySessions).map(function (r) {
+        return '<tr><td>' + esc(r.key) + '</td><td class="num">' + r.sessions + '</td><td class="num">' + (r.avgNps == null ? "—" : num(r.avgNps, 1)) + '</td>' +
+               '<td class="num">' + (r.avgScore == null ? "—" : num(r.avgScore, 2)) + '</td></tr>';
+      }).join("") + '</tbody></table></div></div></div>';
+    // profile: trainings still without an eval (to chase)
+    if (profile) {
+      var miss = rows.filter(function (s) { return s.nps == null && s.trainerScore == null; }).sort(function (a, b) { return a.dateISO < b.dateISO ? 1 : -1; });
+      h += '<div class="col-lg-6"><div class="card-box tr-inner"><h6>Trainings without an eval <span class="small text-muted fw-normal">· ' + miss.length + '</span></h6>' +
+        (miss.length ? '<div class="table-responsive"><table class="table table-sm mb-0" data-resizable="static"><thead><tr><th>Date</th><th>Course</th><th>School</th></tr></thead><tbody>' +
+          miss.slice(0, 25).map(function (s) { return '<tr><td class="text-nowrap">' + esc(s.dateISO || "—") + '</td><td>' + esc(s.title || s.code) + '</td><td>' + esc(s.client) + '</td></tr>'; }).join("") +
+          (miss.length > 25 ? '<tr><td colspan="3" class="text-muted">…and ' + (miss.length - 25) + ' more</td></tr>' : "") + '</tbody></table></div>'
+          : '<div class="small text-muted">Every training has scores.</div>') + '</div></div>';
+    }
+    h += '</div>';
+    return h + '<div class="small text-muted mt-2">Averages include scores generated here that are not written to the tracker yet. Hours come from the tracker’s start and end times.</div></div>';
   }
 
   /* ---------------- assembly + events ---------------- */
@@ -1161,6 +1241,11 @@
     var repT = host.querySelector("#tr-rep-trainer"), repS = host.querySelector("#tr-rep-school");
     if (repT) repT.addEventListener("change", function () { S.repTrainer = repT.value; render(); });
     if (repS) repS.addEventListener("change", function () { S.repSchool = repS.value; render(); });
+    var repP = host.querySelector("#tr-rep-period");
+    if (repP) repP.addEventListener("change", function () { S.repPeriod = repP.value; render(); });
+    host.querySelectorAll("[data-trtrainer]").forEach(function (b) {
+      b.addEventListener("click", function () { S.repTrainer = b.getAttribute("data-trtrainer"); render(); var r = $("tr-report"); if (r && r.scrollIntoView) try { r.scrollIntoView({ block: "start" }); } catch (e) {} });
+    });
     host.querySelectorAll("[data-traction]").forEach(function (b) {
       b.addEventListener("click", function () { action(b.getAttribute("data-traction"), b); });
     });
@@ -1304,7 +1389,7 @@
   /* ---------------- actions ---------------- */
   function action(name, el) {
     if (name === "export") { exportResults(); return; }
-    if (name === "rep-clear") { S.repTrainer = ""; S.repSchool = ""; render(); return; }
+    if (name === "rep-clear") { S.repTrainer = ""; S.repSchool = ""; S.repPeriod = ""; render(); return; }
     if (name === "print-report") return printReport("tr-report");
     if (name === "print-session") return printReport("tr-report-session");
     if (name === "upload-eval") { pickFile("session-eval"); return; }

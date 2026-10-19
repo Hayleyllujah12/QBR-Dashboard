@@ -424,6 +424,88 @@
     };
   }
 
+  /* ---- trainer / course reporting (summary report + trainer profile) ----------
+   * Input sessions: { trainer, code, title, client, dateISO, timeStart, timeEnd,
+   *                   nps, trainerScore, n, itemAvgs? }  (nps/score may be unwritten) */
+  function hoursOf(s) {
+    return s.timeStart != null && s.timeEnd != null && s.timeEnd > s.timeStart ? (s.timeEnd - s.timeStart) * 24 : 0;
+  }
+  function quarterOf(iso) { return iso ? iso.slice(0, 4) + "-Q" + (Math.floor((+iso.slice(5, 7) - 1) / 3) + 1) : ""; }
+  // Periods present in the data, newest first: years then quarters.
+  function periodsOf(sessions) {
+    var ys = {}, qs = {};
+    (sessions || []).forEach(function (s) { if (s.dateISO) { ys[s.dateISO.slice(0, 4)] = 1; qs[quarterOf(s.dateISO)] = 1; } });
+    var lab = function (k) { return k.length === 4 ? k : k.slice(0, 4) + " " + k.slice(5); };
+    return Object.keys(ys).sort().reverse().concat(Object.keys(qs).sort().reverse()).map(function (k) { return { key: k, label: lab(k) }; });
+  }
+  function inPeriod(iso, key) {
+    if (!key) return true;
+    if (!iso) return false;
+    return key.length === 4 ? iso.slice(0, 4) === key : quarterOf(iso) === key;
+  }
+  function prevPeriod(key) {
+    if (!key) return "";
+    if (key.length === 4) return String(+key - 1);
+    var y = +key.slice(0, 4), q = +key.slice(6);
+    return q > 1 ? y + "-Q" + (q - 1) : (y - 1) + "-Q4";
+  }
+  function avg(list, f, d) {
+    var v = list.map(f).filter(function (x) { return x != null && isFinite(x); });
+    if (!v.length) return null;
+    var p = Math.pow(10, d);
+    return Math.round(v.reduce(function (a, b) { return a + b; }, 0) / v.length * p) / p;
+  }
+  function groupBy(list, keyFn) {
+    var m = {}, order = [];
+    list.forEach(function (s) { var k = keyFn(s); if (!m[k]) { m[k] = []; order.push(k); } m[k].push(s); });
+    return order.map(function (k) { return { key: k, items: m[k] }; });
+  }
+  function distinct(list, f) { var o = {}; list.forEach(function (s) { var v = normKey(f(s)); if (v) o[v] = 1; }); return Object.keys(o).length; }
+  // One row per trainer. prev: the same trainers' sessions in the previous period (for the NPS change).
+  function trainerTable(sessions, prev) {
+    var prevBy = {};
+    groupBy(prev || [], function (s) { return normKey(s.trainer); }).forEach(function (g) { prevBy[g.key] = avg(g.items, function (s) { return s.nps; }, 1); });
+    return groupBy((sessions || []).filter(function (s) { return norm(s.trainer); }), function (s) { return normKey(s.trainer); }).map(function (g) {
+      var it = g.items, courses = courseTable(it);
+      var a = avg(it, function (s) { return s.nps; }, 1), p = prevBy[g.key];
+      return {
+        trainer: it[0].trainer, sessions: it.length, hours: r1(it.reduce(function (x, s) { return x + hoursOf(s); }, 0)),
+        courses: courses.length, topCourse: courses[0] || null, schools: distinct(it, function (s) { return s.client; }),
+        respondents: it.reduce(function (x, s) { return x + (s.n || 0); }, 0),
+        avgNps: a, avgScore: avg(it, function (s) { return s.trainerScore; }, 2),
+        npsChange: a != null && p != null ? r1(a - p) : null,
+        noEval: it.filter(function (s) { return s.nps == null && s.trainerScore == null; }).length,
+        last: it.reduce(function (x, s) { return s.dateISO && s.dateISO > x ? s.dateISO : x; }, "")
+      };
+    }).sort(function (x, y) { return y.sessions - x.sessions || (x.trainer < y.trainer ? -1 : 1); });
+  }
+  // One row per course (code; title from the session or the course list), most conducted first.
+  function courseTable(sessions) {
+    return groupBy((sessions || []).filter(function (s) { return norm(s.code) || norm(s.title); }), function (s) { return normKey(s.code) || "t:" + normKey(s.title); }).map(function (g) {
+      var it = g.items, titled = it.filter(function (s) { return norm(s.title); })[0];
+      return { code: norm(it[0].code), title: titled ? norm(titled.title) : "", sessions: it.length,
+               hours: r1(it.reduce(function (x, s) { return x + hoursOf(s); }, 0)),
+               schools: distinct(it, function (s) { return s.client; }), trainers: distinct(it, function (s) { return s.trainer; }),
+               avgNps: avg(it, function (s) { return s.nps; }, 1), avgScore: avg(it, function (s) { return s.trainerScore; }, 2) };
+    }).sort(function (x, y) { return y.sessions - x.sessions || (x.code < y.code ? -1 : 1); });
+  }
+  // Headline counts for the top tiles.
+  function overview(sessions) {
+    var list = sessions || [];
+    var scored = list.filter(function (s) { return s.nps != null || s.trainerScore != null; }).length;
+    return { trainers: distinct(list, function (s) { return s.trainer; }), sessions: list.length,
+             hours: r1(list.reduce(function (x, s) { return x + hoursOf(s); }, 0)),
+             courses: courseTable(list).length, schools: distinct(list, function (s) { return s.client; }),
+             evaluated: scored, coverage: list.length ? Math.round(scored / list.length * 100) : null };
+  }
+  // Facilitator items averaged over sessions that have them (evals scored in the dashboard).
+  function itemAverages(sessions) {
+    var out = { n: 0 };
+    ["t1", "t2", "t3"].forEach(function (k) { out[k] = avg((sessions || []).filter(function (s) { return s.itemAvgs; }), function (s) { return s.itemAvgs[k]; }, 2); });
+    out.n = (sessions || []).filter(function (s) { return s.itemAvgs; }).length;
+    return out;
+  }
+
   function buildCourseMap(rows) {
     var byCode = {}, byTitle = {};
     (rows || []).slice(1).forEach(function (r) {
@@ -638,7 +720,8 @@
     norm: norm, normKey: normKey, excelDate: excelDate, timeOf: timeOf,
     detectResponseDate: detectResponseDate,
     acronymOf: acronymOf, buildAcronymIndex: buildAcronymIndex, nextSessionId: nextSessionId,
-    buildSummary: buildSummary,
+    buildSummary: buildSummary, trainerTable: trainerTable, courseTable: courseTable, overview: overview, itemAverages: itemAverages,
+    periodsOf: periodsOf, inPeriod: inPeriod, prevPeriod: prevPeriod, hoursOf: hoursOf,
     buildCourseMap: buildCourseMap,
     analyzeEval: analyzeEval, ratingColumns: ratingColumns, topKeywords: topKeywords, isTrivial: isTrivial,
     parseTrackerSheet: parseTrackerSheet, parseFilename: parseFilename,
