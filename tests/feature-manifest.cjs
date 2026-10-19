@@ -56,6 +56,9 @@ const F = [
   ["MOS score-report parser", "js/mos-parse.js", ["parseScorePage", "parseRosterRows", "buildModel", "filterAttempts", "parseExportRows", "acronym"]],
   ["MOS wired", "index.html", ["dash-mos", "mos-body", "sbg-cert", "js/mos-parse.js", "js/mos.js", "data-feature=\"mos\""]],
   ["pdf.js offline files", "libs/pdfjs/pdf.worker.min.js", [""]],
+  ["Trainers tab (v1.38.0)", "js/trainers.js", ["QBR.trainers", "key: \"trainers\"", "qbr-trainers-maps", "surgicalSave", "verifySurgical", "analyzeEval", "printReport", "saveInPlace", "addedRows", "openEvals", "generateQueue", "inp.multiple"]],
+  ["Trainers report logic", "js/trainers-parse.js", ["analyzeEval", "ratingColumns", "buildSummary", "nextSessionId", "detectResponseDate", "matchEval", "rankSessions", "trainerTable", "courseTable", "overview", "itemAverages", "prevPeriod", "evalFingerprint", "detectResponseSession", "evalSource"]],
+  ["Trainers wired", "index.html", ["dash-trainers", "trainers-body", "sbg-training", "js/trainers-parse.js", "js/trainers.js", "data-feature=\"trainers\""]],
 ];
 // Optional modules: checked only when present (so the manifest runs on builds from before they existed)
 const OPTIONAL = [

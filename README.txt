@@ -6,6 +6,66 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: PDFs use the page (summary, trainer profile, session)
+  - Printed reports lay themselves out from their content: 5 compact tiles per row; two cards stay side by side
+    only while both are short; long tables (schools, trainings without an eval, comments, recommendations)
+    run full width onto the next page with the header row repeated, instead of leaving half-empty pages.
+
+UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: no more overwriting encoded evals
+  - New tracker column "Eval Source" (written with the scores): the eval file name + a fingerprint of its answers.
+    Uploading that eval again later — any browser, even renamed — shows "Already encoded" on its row and is
+    not generated again. The same answers can't be used for a second session.
+  - Sessions that already have a score are left out of "Generate" ("Already scored", with where the score came
+    from); tick "Replace existing score" to overwrite. The write confirm shows old → new for every replaced row.
+  - A renamed copy of a file in the list isn't added twice.
+  - Real filename formats are read: "05072026 - AM - HCCCI(1-44)", "Nov. 28, 2025 [SGA] - Microsoft 36";
+    the filename date wins over the answer date. Same-day sessions are told apart by the answers' times
+    (AM/PM) and labelled with time and row. School picks are remembered (e.g. SGA → Saint Gregory Academy).
+
+UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: trainer tiles, courses conducted, trainer profile
+  - Summary report tiles: Trainers active · Trainings conducted · Training hours · Courses delivered (most conducted
+    course) · Schools served · Respondents · Avg NPS (change vs previous period) · Avg trainer score · Eval coverage.
+  - New "Courses conducted" table (times conducted, hours, schools, trainers, avg NPS) + "Most conducted courses" chart.
+  - New ranked "Trainers" table: trainings, hours, courses (top course ×count), schools, respondents, avg NPS,
+    avg score, change vs previous period, trainings without an eval, last session.
+  - Period filter (year or quarter). Click a trainer — or pick one in the Trainer filter — for their profile:
+    their tiles, facilitator items (strongest / to develop), courses conducted, monthly trend and trainings
+    still without an eval. "Trainer profile (PDF)" prints it.
+
+UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: add many eval files at once
+  - "Add eval exports (.xlsx)…" now takes one or many files (Ctrl/Shift-click), or drop them on the card.
+    They go to an "Eval files" list; each file is matched to its session from the filename (date · AM/PM ·
+    school, school acronyms like SPC → St. Paul College) or its answer dates. Unclear files are left for you:
+    pick from the list, "Pick in the session list…", or "Add as a new session…".
+  - "Generate N matched files" scores them all; two files on one session are held back. Then one
+    "Write to tracker" writes every session. Each file shows Generated / Written with a View link.
+  - Fixed: "Add another eval…" put the new file on whatever session was open, so it looked like nothing
+    happened. It no longer touches the open session ("Add eval for this session" still does that).
+
+UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: session feedback report, Add session, PDF, new look
+  - New look, same as the other tabs: KPI tiles, cards, Chart.js charts and the app's buttons (light and dark theme).
+  - Session feedback report (replaces the separate Feedback Generator page, now built into the tab and offline):
+    NPS chart, rating per item, satisfaction, participants by school, themes, recommendations and comments.
+    Works for a tracker session or for an eval file on its own. "Session report (PDF)" prints it.
+  - Summary view (by month, school and course) with "Summary report (PDF)" — the print button now works;
+    charts print as images in light colours.
+  - Add session (manual, or "add this eval as a new session"): the new row — real Excel date, trainer, course,
+    school, times, Session ID — is written to the tracker together with the scores. A not-yet-written session
+    can be removed. "Not written yet" bar shows what Write to tracker will save.
+  - Tracker opened with Chrome/Edge's file picker saves in place, but only if the file did not change in
+    Excel/OneDrive since it was opened (otherwise a -scored copy is downloaded so no edits are lost).
+
+UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Training › Trainers (trainer evaluations)
+  - New Training › Trainers tab: upload the training tracker (sessions from the "trial" sheet) and an
+    MS Forms eval export (one file = one session). The eval filename (MMDDYYYY · AM/PM · school) suggests
+    sessions — same-day sessions are offered too when the school name differs; you confirm the match.
+  - Results per session: NPS (blank answers skipped) and trainer score (mean of the 3 facilitator items,
+    "Neither agree nor disagree" = 3), change vs the trainer's previous session, comments, low-n flag.
+  - Write to tracker lists every session waiting to be written, then downloads <name>-scored.xlsx with only
+    the "Net Promoter Score" / "Trainer Score" cells changed (same format-safe engine as Save to Excel —
+    styles, tables and formatting kept; a plain copy is offered only if that isn't possible). A missing
+    NPS column is added; "Trainer Score" is added once. Leaderboard + results export. Remote flag: trainers.
+
 UPDATE — 2026-10-19 — v1.37.0 [BETA] MOS review fixes before the develop merge
   - An "In Progress" row (no score yet) no longer counts as the student's first take, so the real first
     take keeps its retake eligibility and the first-attempt pass rate.

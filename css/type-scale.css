@@ -282,3 +282,10 @@
 :root[data-qbr-fs] #dash-mos .mos-sk{font-size:calc(11px * var(--fs-t,1))}
 :root[data-qbr-fs] .mos-ov .mos-fl{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-mos .mos-colreset{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-trainers .tr-files{font-size:calc(13px * var(--fs-t,1));line-height:calc(20px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-trainers .tr-pending{font-size:calc(13px * var(--fs-t,1));line-height:calc(20px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-trainers .tr-kpi-sub{font-size:calc(12px * var(--fs-t,1));line-height:calc(16px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-trainers .tr-hint{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-trainers .tr-quote{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-trainers .tr-comment ul{font-size:calc(13px * var(--fs-t,1));line-height:calc(20px * var(--fs-t,1))}
+:root[data-qbr-fs] .tr-item-v{font-size:calc(22px * var(--fs-h,1));line-height:calc(28px * var(--fs-t,1))}
