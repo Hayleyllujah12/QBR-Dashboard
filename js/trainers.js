@@ -44,6 +44,10 @@
     repTrainer: "", repSchool: "",  // summary filters
     q: "",
     view: "sessions",      // sessions | board | summary
+    queue: [],             // bulk eval files: [{ ...eval, id, target: idx | -1, auto, cands[] }]
+    pickFor: null,         // queue item waiting for a click in the session list
+    mapFor: null,          // queue item whose column mapper is open
+    newFor: null,          // queue item being added as a new session
     maps: {},
     charts: {}, chartDefs: {}
   };
@@ -120,34 +124,108 @@
         courseMap: courseMap(wb)
       };
       S.selected = -1; S.manualForm = false; S.showingNewForm = false;
-      // Keep an eval that was opened on its own: offer matches from the new tracker.
-      if (S.eval) {
-        S.eval.solo = null; S.eval.attachedTo = -1;
-        S.eval.suggested = S.eval.hint ? P().suggestSessions(sessions, S.eval.hint) : [];
-      }
+      // Evals opened before the tracker (or with a previous tracker) are matched against this one.
+      if (S.eval) { S.eval.solo = null; S.queue.push(S.eval); S.eval = null; }
+      S.queue.forEach(function (q) { q.solo = null; matchItem(q); });
+      dedupeTargets();
+      S.pickFor = S.mapFor = S.newFor = null;
       render();
     });
   }
 
   /* ---------------- eval file ---------------- */
+  var evalSeq = 0;
+  function makeEval(file, wb) {
+    var rows = sheetRows(wb, wb.SheetNames[0]);
+    if (rows.length < 2) throw new Error("No responses in " + file.name);
+    var det = P().detectLayout(rows[0]);
+    var roles = (S.maps[det.sig] && S.maps[det.sig].roles) || det.roles;
+    var hint = P().parseFilename(file.name);
+    return {
+      id: "ev" + (++evalSeq), name: file.name, rows: rows, header: rows[0].map(P().norm),
+      roles: roles, sig: det.sig, auto: det.roles,
+      attachedTo: -1, suggested: hint && S.tracker ? P().suggestSessions(S.tracker.sessions, hint) : [],
+      hint: hint, responseDate: P().detectResponseDate(rows),
+      needsMap: !S.maps[det.sig], solo: null, target: -1, cands: [], note: ""
+    };
+  }
+  // "Add eval for this session" (session detail): one file, attached to the selected session.
   function openEval(file) {
     return readWorkbook(file).then(function (wb) {
-      var rows = sheetRows(wb, wb.SheetNames[0]);
-      if (rows.length < 2) throw new Error("No responses in " + file.name);
-      var det = P().detectLayout(rows[0]);
-      var roles = (S.maps[det.sig] && S.maps[det.sig].roles) || det.roles;
-      var hint = P().parseFilename(file.name);
-      var suggested = hint && S.tracker ? P().suggestSessions(S.tracker.sessions, hint) : [];
-      S.eval = {
-        name: file.name, rows: rows, header: rows[0].map(P().norm),
-        roles: roles, sig: det.sig, auto: det.roles,
-        attachedTo: -1, suggested: suggested, hint: hint, responseDate: P().detectResponseDate(rows),
-        needsMap: !S.maps[det.sig], solo: null
-      };
+      S.eval = makeEval(file, wb);
       S.showingNewForm = false;
       if (S.tracker && S.selected >= 0) attachTo(S.selected);
       render();
     });
+  }
+  /* "Add eval exports" / drop: one or many files go to the eval list and are matched to
+   * sessions; nothing is attached to whatever session happens to be selected. */
+  function matchItem(q) {
+    q.cands = []; q.auto = false;
+    if (!S.tracker) return;
+    var m = P().matchEval(S.tracker.sessions, q.hint, q.responseDate);
+    q.cands = m.candidates.slice(0, 8).map(function (x) { return S.tracker.sessions.indexOf(x.s); });
+    if (q.target >= 0 && S.tracker.sessions[q.target]) return; // keep a choice the user made
+    q.target = m.auto ? S.tracker.sessions.indexOf(m.auto) : -1;
+    q.auto = !!m.auto;
+  }
+  // Two files on one session: neither is pre-selected (the user picks).
+  function dedupeTargets() {
+    var seen = {};
+    S.queue.forEach(function (q) { if (q.target >= 0) (seen[q.target] = seen[q.target] || []).push(q); });
+    Object.keys(seen).forEach(function (k) {
+      if (seen[k].length < 2) return;
+      seen[k].forEach(function (q) { if (q.auto) { q.target = -1; q.auto = false; q.note = "Several files match the same session — pick one."; } });
+    });
+  }
+  async function openEvals(files) {
+    files = Array.prototype.slice.call(files || []).filter(function (f) { return /\.(xlsx|xlsm|xls)$/i.test(f.name); });
+    if (!files.length) return;
+    if (!S.tracker && files.length === 1 && !S.queue.length) { // eval on its own: one-off report
+      var wb0 = await readWorkbook(files[0]);
+      S.eval = makeEval(files[0], wb0); render(); return;
+    }
+    var bad = [], dup = 0;
+    for (var i = 0; i < files.length; i++) {
+      note("Reading " + (i + 1) + " of " + files.length + ": " + files[i].name + "…");
+      try {
+        var wb = await readWorkbook(files[i]);
+        var q = makeEval(files[i], wb);
+        if (S.queue.some(function (x) { return x.name === q.name && x.rows.length === q.rows.length; })) { dup++; continue; }
+        matchItem(q);
+        S.queue.push(q);
+      } catch (e) { bad.push(files[i].name + " (" + (e && e.message || e) + ")"); }
+    }
+    dedupeTargets();
+    render();
+    note(plural(files.length - bad.length - dup, "eval file") + " added" + (dup ? " · " + dup + " already in the list" : "") + (bad.length ? " · couldn't read: " + bad.join(", ") : "") + ".");
+    if (bad.length) window.alert("Couldn't read:\n" + bad.join("\n"));
+  }
+  function queueItem(id) { return S.queue.filter(function (q) { return q.id === id; })[0] || null; }
+  function itemState(q) {
+    var s = S.tracker && q.target >= 0 ? S.tracker.sessions[q.target] : null;
+    if (s && s.computed && s.computed.evalId === q.id) return "generated";
+    if (s && s.written && s.written.evalId === q.id && !s.computed) return "written";
+    return "";
+  }
+  /* Generate every matched, mapped file. Each result is checked before Write to tracker. */
+  function generateQueue() {
+    var t = S.tracker, done = 0, skipped = [];
+    if (!t) return;
+    var count = {};
+    S.queue.forEach(function (q) { if (q.target >= 0) count[q.target] = (count[q.target] || 0) + 1; });
+    S.queue.forEach(function (q) {
+      if (q.target < 0 || itemState(q)) return;
+      if (count[q.target] > 1) { q.note = "Another file is set to the same session."; skipped.push(q.name); return; }
+      if (q.needsMap) { q.note = "Confirm the columns first."; skipped.push(q.name); return; }
+      var c = computeFrom(q);
+      if (c.error) { q.note = c.error; skipped.push(q.name); return; }
+      q.note = "";
+      applyComputed(q.target, c);
+      done++;
+    });
+    note(plural(done, "session") + " generated" + (skipped.length ? " · " + skipped.length + " need attention" : "") + ". Check them, then Write to tracker.");
+    render();
   }
 
   // Attach the eval to a session. Results generated from a DIFFERENT eval file are dropped
@@ -156,7 +234,7 @@
     var s = S.tracker && S.tracker.sessions[idx];
     if (!s || !S.eval) return;
     S.eval.attachedTo = idx;
-    if (s.computed && s.computed.evalName !== S.eval.name) {
+    if (s.computed && (s.computed.evalId ? s.computed.evalId !== S.eval.id : s.computed.evalName !== S.eval.name)) {
       delete s.computed;
       s.status = s.nps != null || s.trainerScore != null ? "scored" : "unscored";
     }
@@ -170,7 +248,7 @@
     return {
       n: rep.nps.n, promoters: rep.nps.promoters, passives: rep.nps.passives, detractors: rep.nps.detractors,
       nps: rep.nps.nps, trainerScore: rep.trainer.score, itemAvgs: rep.trainer.itemAvgs,
-      report: rep, evalName: ev.name
+      report: rep, evalName: ev.name, evalId: ev.id
     };
   }
   function generateFor(idx) {
@@ -184,7 +262,10 @@
     if (ev.attachedTo !== idx) return null;
     var computed = computeFrom(ev);
     if (computed.error) return computed;
-    var session = t.sessions[idx];
+    return applyComputed(idx, computed);
+  }
+  function applyComputed(idx, computed) {
+    var t = S.tracker, session = t.sessions[idx];
     var prev = P().findPrevSession(t.sessions, session);
     computed.prevNps = prev ? prev.nps : null;
     computed.prevScore = prev ? prev.trainerScore : null;
@@ -445,7 +526,7 @@
              src: (roster && roster.length) ? "ALL TENANTS tracker" : "training tracker" };
   }
   function newSessionFormHTML() {
-    var t = S.tracker, ev = S.manualForm ? null : S.eval, hint = ev && ev.hint;
+    var t = S.tracker, ev = S.manualForm ? null : ((S.newFor && queueItem(S.newFor)) || S.eval), hint = ev && ev.hint;
     var date = "", dateSrc = "";
     if (ev && ev.responseDate) { date = ev.responseDate; dateSrc = "from response timestamps"; }
     else if (hint && hint.dateISO) { date = hint.dateISO; dateSrc = "from filename"; }
@@ -513,7 +594,9 @@
     t.sessions.push(session);
     if (t.roster.indexOf(trainer) < 0) { t.roster.push(trainer); t.roster.sort(); }
     S.selected = t.sessions.length - 1;
-    if (ev && !S.manualForm) attachTo(S.selected);
+    var nq = !S.manualForm && S.newFor && queueItem(S.newFor);
+    if (nq) { nq.target = S.selected; nq.auto = false; S.newFor = null; }
+    else if (ev && !S.manualForm) attachTo(S.selected);
     S.showingNewForm = false; S.manualForm = false;
     render();
   }
@@ -598,11 +681,12 @@
     var h = '<div class="card-box tr-load">' +
       '<div class="tr-load-row">' +
       '<button type="button" class="btn btn-' + (t ? "outline-primary" : "primary") + ' btn-sm" data-trpill="tracker">' + (t ? "Change tracker…" : "Open training tracker…") + '</button>' +
-      '<button type="button" class="btn btn-' + (t && !ev ? "primary" : "outline-primary") + ' btn-sm" data-trpill="eval">' + (ev ? "Add another eval…" : "Add eval export (.xlsx)…") + '</button>' +
+      '<button type="button" class="btn btn-' + (t && !S.queue.length ? "primary" : "outline-primary") + ' btn-sm" data-trpill="eval" title="Pick one or many MS Forms exports (Ctrl/Shift-click). Each file is one session.">Add eval exports (.xlsx)…</button>' +
       '<span class="tr-files">' +
       '<span class="tr-file' + (t ? " on" : "") + '" data-trfile="tracker"><b>Tracker</b> ' + (t ? esc(t.name) + ' <span class="text-muted">· ' + esc(t.sheetName) + ' · ' + plural(t.sessions.length, "session") + ' · ' + plural(t.roster.length, "trainer") + '</span>' + (t.handle ? ' <span class="badge bg-success" title="Write-back saves into this file">saves in place</span>' : "") : '<span class="text-muted">not loaded</span>') + '</span>' +
-      '<span class="tr-file' + (ev ? " on" : "") + '" data-trfile="eval"><b>Eval</b> ' + (ev ? esc(ev.name) + ' <span class="text-muted">· ' + plural(ev.rows.length - 1, "response") + '</span>' : '<span class="text-muted">none</span>') + '</span>' +
-      '</span></div>';
+      '<span class="tr-file' + (ev || S.queue.length ? " on" : "") + '" data-trfile="eval"><b>Evals</b> ' + (S.queue.length ? plural(S.queue.length, "file") + (ev ? " + " + esc(ev.name) : "") : ev ? esc(ev.name) + ' <span class="text-muted">· ' + plural(ev.rows.length - 1, "response") + '</span>' : '<span class="text-muted">none</span>') + '</span>' +
+      '</span></div>' +
+      '<div class="tr-drop small text-muted" id="tr-drop">or drop eval exports here — many at once is fine</div>';
     if (pend || added) {
       h += '<div class="tr-pending"><span><b>Not written yet:</b> ' +
         [added ? plural(added, "new session") : "", pend ? plural(pend, "scored session") : ""].filter(Boolean).join(" · ") + '</span>' +
@@ -663,14 +747,62 @@
       kpi("Repeat schools", all.repeatRate + "%", "teal", "sessions at schools trained more than once") +
       '</div>';
     var f = function (k, l) { return '<button type="button" class="btn btn-outline-secondary' + (S.filter === k ? " active" : "") + '" data-trfilter="' + k + '" aria-pressed="' + (S.filter === k) + '">' + l + '</button>'; };
+    h += queueHTML();
     h += '<div class="card-box mt-3"><div class="tr-ch-head"><h6 class="mb-0">Sessions</h6>' +
       '<div class="tr-toolbar"><div class="btn-group btn-group-sm" role="group" aria-label="Status filter">' +
       f("all", "All") + f("needs", "Needs verifying") + f("scored", "Scored") + f("unscored", "Unscored") + '</div>' +
       '<input type="search" class="form-control form-control-sm tr-search" id="tr-search" placeholder="Search trainer, school, course, date…" aria-label="Search sessions" value="' + esc(S.q) + '">' +
       '<button type="button" class="btn btn-outline-primary btn-sm" data-traction="add-session">+ Add session</button></div></div>' +
       '<div id="tr-list">' + tableHTML() + '</div></div>';
+    if (S.pickFor) h = h.replace('<div id="tr-list">', '<div class="tr-picking small">Click the session for <b>' + esc((queueItem(S.pickFor) || {}).name || "") + '</b> · <button type="button" class="btn btn-link btn-sm p-0" data-traction="q-pick-cancel">Cancel</button></div><div id="tr-list">');
     if (S.manualForm) h += newSessionFormHTML();
     return h + detailHTML();
+  }
+
+  /* ---------------- bulk eval list ---------------- */
+  function sessionLabel(s) { return (s.dateISO || "—") + " · " + s.client + " · " + s.trainer + " (" + s.code + ")" + (s.isNew ? " · new" : ""); }
+  function queueHTML() {
+    if (!S.queue.length) return "";
+    var t = S.tracker, ready = 0;
+    var rows = S.queue.map(function (q) {
+      var st = itemState(q), s = t && q.target >= 0 ? t.sessions[q.target] : null;
+      if (t && q.target >= 0 && !st && !q.needsMap) ready++;
+      var sel = "";
+      if (t) {
+        var opts = q.cands.slice();
+        if (q.target >= 0 && opts.indexOf(q.target) < 0) opts.unshift(q.target);
+        sel = '<select class="form-select form-select-sm" data-trq-target="' + q.id + '" aria-label="Session for ' + esc(q.name) + '"' + (st ? " disabled" : "") + '>' +
+          '<option value="-1">— choose a session —</option>' +
+          opts.map(function (i) { var x = t.sessions[i]; return x ? '<option value="' + i + '"' + (q.target === i ? " selected" : "") + '>' + esc(sessionLabel(x)) + '</option>' : ""; }).join("") +
+          '<option value="pick">Pick in the session list…</option><option value="new">＋ Add as a new session…</option></select>' +
+          (q.auto && q.target >= 0 && !st ? '<div class="tr-hint">matched from the filename' + (q.hint && q.hint.dateISO && s && s.dateISO !== q.hint.dateISO ? " + answer date" : "") + '</div>' : "") +
+          (!q.cands.length && q.target < 0 ? '<div class="tr-hint">no session on ' + esc((q.hint && q.hint.dateISO) || q.responseDate || "that date") + ' — pick one or add it</div>' : "");
+      }
+      var res;
+      if (q.needsMap) res = '<button type="button" class="btn btn-outline-primary btn-sm" data-traction="q-map" data-q="' + q.id + '">Confirm columns…</button>';
+      else if (st === "generated") res = '<span class="risk-badge risk-high">Generated</span> NPS <b>' + num(s.computed.nps, 1) + '</b> · ' + num(s.computed.trainerScore, 2) + ' <button type="button" class="btn btn-link btn-sm p-0" data-traction="q-open" data-q="' + q.id + '">View</button>';
+      else if (st === "written") res = '<span class="risk-badge risk-none">Written</span> <button type="button" class="btn btn-link btn-sm p-0" data-traction="q-open" data-q="' + q.id + '">View</button>';
+      else if (!t) res = '<button type="button" class="btn btn-outline-primary btn-sm" data-traction="q-report" data-q="' + q.id + '">Report</button>';
+      else res = q.target >= 0 ? '<span class="small text-muted">ready</span>' + (s && (s.nps != null || s.trainerScore != null) ? ' <span class="risk-badge risk-medium" title="Generating replaces the score already in the tracker">replaces score</span>' : "") : '<span class="small text-muted">needs a session</span>';
+      return '<tr data-q="' + q.id + '"><td><div class="tr-qname" title="' + esc(q.name) + '">' + esc(q.name) + '</div><div class="tr-hint">' + plural(q.rows.length - 1, "response") +
+        (q.responseDate ? " · answered " + esc(q.responseDate) : "") + (q.hint ? " · filename " + esc(q.hint.dateISO) + " " + esc(q.hint.session) + " " + esc(q.hint.school) : "") + '</div>' +
+        (q.note ? '<div class="small text-danger">' + esc(q.note) + '</div>' : "") + '</td>' +
+        (t ? '<td class="tr-qsel">' + sel + '</td>' : "") + '<td class="text-nowrap">' + res + '</td>' +
+        '<td class="text-end"><button type="button" class="btn btn-link btn-sm p-0" data-traction="q-remove" data-q="' + q.id + '" aria-label="Remove ' + esc(q.name) + ' from the list">Remove</button></td></tr>';
+    }).join("");
+    var unmapped = S.queue.filter(function (q) { return q.needsMap; });
+    var h = '<div class="card-box mt-3 tr-queue"><div class="tr-ch-head"><div><h6 class="mb-0">Eval files (' + S.queue.length + ')</h6>' +
+      '<div class="small text-muted">' + (t ? "Each file is matched to a session from its filename (date · AM/PM · school) and answer dates — check the pick, then generate." : "Open the training tracker to match these files to sessions, or open a one-off report per file.") + '</div></div>' +
+      '<div class="tr-toolbar">' + (t ? '<button type="button" class="btn btn-primary btn-sm" data-traction="q-generate"' + (ready ? "" : " disabled") + '>Generate ' + (ready ? plural(ready, "matched file") : "matched files") + '</button>' : "") +
+      '<button type="button" class="btn btn-outline-secondary btn-sm" data-traction="q-clear">Clear list</button></div></div>' +
+      (unmapped.length && !S.mapFor ? '<div class="tr-pending mt-0 mb-2"><span>New form layout: confirm its columns once — every file with the same layout uses it.</span>' +
+        '<button type="button" class="btn btn-primary btn-sm" data-traction="q-map" data-q="' + unmapped[0].id + '">Confirm columns…</button></div>' : "") +
+      '<div class="table-responsive"><table class="table table-sm mb-0 tr-qtable" data-resizable="static"><thead><tr><th>File</th>' + (t ? "<th>Session</th>" : "") + '<th>Result</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    var mq = S.mapFor && queueItem(S.mapFor);
+    if (mq) h += mapperHTML(mq);
+    var nq = S.newFor && queueItem(S.newFor);
+    if (nq && t) h += newSessionFormHTML();
+    return h + '</div>';
   }
 
   /* ---------------- session detail + feedback report ---------------- */
@@ -818,10 +950,10 @@
   var ROLE_LABELS = [["nps", "NPS score (0–10)"], ["school", "School"], ["t1", "Trainer: knowledge"],
     ["t2", "Trainer: communication"], ["t3", "Trainer: engagement"], ["sat", "Satisfaction"],
     ["c1", "Comments: liked best"], ["c2", "Comments: key insight"], ["c3", "Comments: suggestions"], ["cnps", "Comments: why rating"]];
-  function mapperHTML() {
-    var ev = S.eval;
+  function mapperHTML(ev) {
+    ev = ev || S.eval;
     var opts = ev.header.map(function (h, i) { return '<option value="' + i + '">' + esc(h.slice(0, 70)) + '</option>'; }).join("");
-    var h = '<div class="tr-mapper"><h6 class="mb-1">New form layout — confirm the columns</h6><p class="small text-muted mb-2">This form layout hasn’t been seen before. Check each role (saved in this browser for next time).</p><div class="row g-2">';
+    var h = '<div class="tr-mapper"><h6 class="mb-1">New form layout — confirm the columns</h6><p class="small text-muted mb-2">' + esc(ev.name) + ' — this form layout hasn’t been seen before. Check each role (saved in this browser for next time).</p><div class="row g-2">';
     ROLE_LABELS.forEach(function (pair) {
       h += '<div class="col-md-6"><label class="tr-maprow"><span class="small fw-semibold">' + pair[1] + '</span><select class="form-select form-select-sm" data-trmap="' + pair[0] + '">' +
            '<option value="-1">— not in this form —</option>' + opts + '</select></label></div>';
@@ -927,12 +1059,13 @@
     if (!on()) { host.innerHTML = ""; return; }
     var h = headHTML() + loadCardHTML();
     if (!S.tracker) {
+      h += queueHTML();
       if (S.eval) h += soloHTML();
-      else h += '<div class="card-box mt-3 tr-empty"><h6>Get started</h6><ol class="small mb-0">' +
+      else if (!S.queue.length) h += '<div class="card-box mt-3 tr-empty"><h6>Get started</h6><ol class="small mb-0">' +
         '<li><b>Open training tracker…</b> — the session log (e.g. ETG_Training_Tracker_2026.xlsx, “trial” sheet).</li>' +
         '<li>Pick a session and <b>add its eval export</b> (MS Forms .xlsx, one file per session) — or add the eval first and confirm the suggested session.</li>' +
         '<li><b>Generate results</b>, check them, then <b>Write to tracker</b>. Each session gets a feedback report you can save as PDF.</li></ol>' +
-        '<div class="small text-muted mt-2">Only have an eval file? Add it on its own for a one-off session report.</div></div>';
+        '<div class="small text-muted mt-2">Several sessions? Select or drop all their eval exports at once — each file is matched to its session. Only have one eval file? Add it on its own for a one-off session report.</div></div>';
     } else {
       h += viewBarHTML();
       if (S.view === "board") h += boardHTML();
@@ -946,7 +1079,9 @@
 
   function selectRow(i) {
     S.selected = i; S.manualForm = false;
-    if (S.eval && S.eval.attachedTo < 0 && S.tracker) attachTo(i); // "click a session to attach this file"
+    var pq = S.pickFor && queueItem(S.pickFor);
+    if (pq) { pq.target = i; pq.auto = false; pq.note = ""; S.pickFor = null; }
+    else if (S.eval && S.eval.attachedTo < 0 && S.tracker) attachTo(i); // "click a session to attach this file"
     render(); var d = $("tr-detail"); if (d && d.scrollIntoView) try { d.scrollIntoView({ block: "nearest" }); } catch (e) {} }
   function wireRows(root) {
     root.querySelectorAll("[data-trsession]").forEach(function (tr) {
@@ -1005,15 +1140,34 @@
       });
       showHint();
     }
+    host.querySelectorAll("[data-trq-target]").forEach(function (sel) {
+      sel.addEventListener("change", function () {
+        var q = queueItem(sel.getAttribute("data-trq-target")); if (!q) return;
+        var v = sel.value;
+        if (v === "pick") { S.pickFor = q.id; S.view = "sessions"; render(); var l = $("tr-list"); if (l && l.scrollIntoView) try { l.scrollIntoView({ block: "start" }); } catch (e) {} return; }
+        if (v === "new") { S.newFor = q.id; S.manualForm = false; S.showingNewForm = false; render(); return; }
+        q.target = +v; q.auto = false; q.note = ""; render();
+      });
+    });
+    var drop = host.querySelector(".tr-load");
+    if (drop) {
+      drop.addEventListener("dragover", function (e) { e.preventDefault(); drop.classList.add("tr-over"); });
+      drop.addEventListener("dragleave", function () { drop.classList.remove("tr-over"); });
+      drop.addEventListener("drop", function (e) {
+        e.preventDefault(); drop.classList.remove("tr-over");
+        openEvals(e.dataTransfer && e.dataTransfer.files).catch(function (er) { alert("Could not open the files: " + er.message); });
+      });
+    }
     var repT = host.querySelector("#tr-rep-trainer"), repS = host.querySelector("#tr-rep-school");
     if (repT) repT.addEventListener("change", function () { S.repTrainer = repT.value; render(); });
     if (repS) repS.addEventListener("change", function () { S.repSchool = repS.value; render(); });
     host.querySelectorAll("[data-traction]").forEach(function (b) {
       b.addEventListener("click", function () { action(b.getAttribute("data-traction"), b); });
     });
-    if (S.eval && S.eval.needsMap) {
+    var mapEv = (S.mapFor && queueItem(S.mapFor)) || (S.eval && S.eval.needsMap ? S.eval : null);
+    if (mapEv) {
       host.querySelectorAll("[data-trmap]").forEach(function (sel) {
-        var cur = S.eval.roles[sel.getAttribute("data-trmap")];
+        var cur = mapEv.roles[sel.getAttribute("data-trmap")];
         if (cur != null && cur >= 0) sel.value = String(cur);
       });
     }
@@ -1053,18 +1207,24 @@
     // Without write permission the tracker still opens; write-back downloads a copy.
     openTracker(file, perm ? handle : null).catch(function (e) { alert("Could not open " + file.name + ": " + e.message); });
   }
+  // kind: "tracker" | "eval" (top button: one or many files) | "session-eval" (for the selected session)
   function pickFile(kind) {
     if (kind === "tracker" && fsSupported()) { pickTrackerHandle(); return; }
     var inp = document.createElement("input");
     inp.type = "file"; inp.accept = ".xlsx,.xlsm,.xls";
+    if (kind === "eval") inp.multiple = true;
+    inp.style.display = "none";
+    document.body.appendChild(inp); // some browsers ignore click() on a detached input
     inp.onchange = function () {
-      var f = inp.files && inp.files[0];
-      if (!f) return;
-      (kind === "tracker" ? openTracker(f, null) : openEval(f)).catch(function (e) {
-        alert("Could not open " + f.name + ": " + e.message);
-      });
+      var files = inp.files ? Array.prototype.slice.call(inp.files) : [];
+      inp.remove();
+      if (!files.length) return;
+      var f = files[0];
+      var p = kind === "tracker" ? openTracker(f, null) : kind === "eval" ? openEvals(files) : openEval(f);
+      p.catch(function (e) { alert("Could not open " + (files.length > 1 ? "the files" : f.name) + ": " + e.message); });
     };
     inp.click();
+    setTimeout(function () { if (inp.parentNode && !(inp.files && inp.files.length)) inp.remove(); }, 120000);
   }
 
   /* ---------------- print to PDF ----------------
@@ -1147,7 +1307,24 @@
     if (name === "rep-clear") { S.repTrainer = ""; S.repSchool = ""; render(); return; }
     if (name === "print-report") return printReport("tr-report");
     if (name === "print-session") return printReport("tr-report-session");
-    if (name === "upload-eval") { pickFile("eval"); return; }
+    if (name === "upload-eval") { pickFile("session-eval"); return; }
+    var qid = el ? el.getAttribute("data-q") : null, qi = qid ? queueItem(qid) : null;
+    if (name === "q-generate") { generateQueue(); return; }
+    if (name === "q-clear") {
+      var pendQ = S.queue.filter(function (q) { return itemState(q) === "generated"; }).length;
+      if (pendQ && !window.confirm("Clear the list? The " + plural(pendQ, "generated result") + " stay on their sessions until you write or regenerate them.")) return;
+      S.queue = []; S.pickFor = S.mapFor = S.newFor = null; render(); return;
+    }
+    if (name === "q-remove" && qi) {
+      S.queue = S.queue.filter(function (q) { return q !== qi; });
+      if (S.pickFor === qi.id) S.pickFor = null; if (S.mapFor === qi.id) S.mapFor = null; if (S.newFor === qi.id) S.newFor = null;
+      if (S.eval === qi) S.eval = null;
+      render(); return;
+    }
+    if (name === "q-map" && qi) { S.mapFor = qi.id; render(); return; }
+    if (name === "q-open" && qi && qi.target >= 0) { S.view = "sessions"; S.pickFor = null; selectRow(qi.target); return; }
+    if (name === "q-report" && qi) { S.eval = qi; render(); return; }
+    if (name === "q-pick-cancel") { S.pickFor = null; render(); return; }
     if (name === "attach") {
       var idx = el ? +el.getAttribute("data-idx") : -1;
       if (idx >= 0 && S.eval) { S.selected = idx; attachTo(idx); S.showingNewForm = false; }
@@ -1155,7 +1332,7 @@
       return;
     }
     if (name === "new-session") { S.showingNewForm = true; render(); return; }
-    if (name === "cancel-new-session") { S.showingNewForm = false; render(); return; }
+    if (name === "cancel-new-session") { S.showingNewForm = false; S.newFor = null; render(); return; }
     if (name === "cancel-manual") { S.manualForm = false; render(); return; }
     if (name === "add-session") { S.manualForm = true; S.showingNewForm = false; render(); return; }
     if (name === "save-new-session") { saveNewSession(); return; }
@@ -1170,8 +1347,12 @@
       var host = $("trainers-body"), roles = {};
       host.querySelectorAll("[data-trmap]").forEach(function (sel) { roles[sel.getAttribute("data-trmap")] = +sel.value; });
       if (roles.nps == null || roles.nps < 0) { alert("The NPS (0–10) column is required."); return; }
-      S.eval.roles = roles; S.eval.needsMap = false;
-      S.maps[S.eval.sig] = { roles: roles, savedAt: new Date().toISOString() };
+      var mev = (S.mapFor && queueItem(S.mapFor)) || S.eval;
+      mev.roles = roles; mev.needsMap = false;
+      S.maps[mev.sig] = { roles: roles, savedAt: new Date().toISOString() };
+      // Same form layout in other files: use the same mapping.
+      S.queue.concat(S.eval ? [S.eval] : []).forEach(function (q) { if (q.sig === mev.sig) { q.roles = roles; q.needsMap = false; } });
+      S.mapFor = null;
       saveMaps(); render();
       return;
     }

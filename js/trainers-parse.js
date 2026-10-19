@@ -138,15 +138,19 @@
 
   /* ---- filename hint -> ranked tracker sessions ---------------------------- */
   function suggestSessions(sessions, hint) {
-    if (!hint) return [];
-    var hs = normKey(hint.school);
+    return rankSessions(sessions, hint).map(function (x) { return x.s; });
+  }
+  /* rank = school (exact or acronym 20, partial 10, none 0) + AM/PM match (1). Same day only. */
+  function rankSessions(sessions, hint) {
+    if (!hint || !hint.dateISO) return [];
+    var hs = normKey(hint.school), hsA = hs.replace(/[^a-z]/g, "");
     var scored = [];
     (sessions || []).forEach(function (s) {
       if (s.dateISO !== hint.dateISO) return;
       var c = normKey(s.client);
       var schoolScore = 0;
       if (hs && c) {
-        if (c === hs) schoolScore = 2;
+        if (c === hs || (hsA.length >= 2 && acronymOf(s.client).toLowerCase() === hsA)) schoolScore = 2;
         else if (c.indexOf(hs) >= 0 || hs.indexOf(c) >= 0) schoolScore = 1;
       }
       // No school match: still offer same-day sessions, ranked below matches
@@ -159,7 +163,23 @@
       scored.push({ s: s, rank: schoolScore * 10 + sessScore });
     });
     scored.sort(function (a, b) { return b.rank - a.rank; });
-    return scored.map(function (x) { return x.s; });
+    return scored;
+  }
+  /* Bulk matching: candidates for one eval file, and the session to pre-select when it is
+   * unambiguous (school matches and no other candidate ranks as high). The filename date is
+   * tried first, then the answers' own date. Never auto-picks a school-less same-day match. */
+  function matchEval(sessions, hint, responseDate) {
+    var tries = [];
+    if (hint && hint.dateISO) tries.push(hint);
+    if (responseDate && (!hint || responseDate !== hint.dateISO))
+      tries.push({ dateISO: responseDate, session: hint ? hint.session : "", school: hint ? hint.school : "" });
+    for (var i = 0; i < tries.length; i++) {
+      var r = rankSessions(sessions, tries[i]);
+      if (!r.length) continue;
+      var top = r[0], auto = top.rank >= 20 && (r.length === 1 || r[1].rank < top.rank) ? top.s : null;
+      return { candidates: r, auto: auto, dateISO: tries[i].dateISO };
+    }
+    return { candidates: [], auto: null, dateISO: "" };
   }
 
   /* ---- MS Forms export layout detection ------------------------------------
@@ -622,7 +642,7 @@
     buildCourseMap: buildCourseMap,
     analyzeEval: analyzeEval, ratingColumns: ratingColumns, topKeywords: topKeywords, isTrivial: isTrivial,
     parseTrackerSheet: parseTrackerSheet, parseFilename: parseFilename,
-    suggestSessions: suggestSessions, detectLayout: detectLayout,
+    suggestSessions: suggestSessions, rankSessions: rankSessions, matchEval: matchEval, detectLayout: detectLayout,
     mapLikert: mapLikert, calcNPS: calcNPS, calcTrainerScore: calcTrainerScore,
     findPrevSession: findPrevSession, buildRoster: buildRoster,
     planWriteback: planWriteback, TRACKER_COLS: TRACKER_COLS

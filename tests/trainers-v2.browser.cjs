@@ -53,6 +53,7 @@ async function upload(page, sel, f) {
   await page.waitForTimeout(500);
 }
 async function saveMapIfAsked(page) {
+  if (await page.$('[data-traction="q-map"]')) { await page.click('[data-traction="q-map"]'); await page.waitForTimeout(200); }
   if (await page.$(".tr-mapper")) { await page.click('[data-traction="save-map"]'); await page.waitForTimeout(300); }
 }
 async function fresh(browser) {
@@ -76,8 +77,9 @@ async function fresh(browser) {
   await upload(page, '[data-trpill="tracker"]', trk);
   await upload(page, '[data-trpill="eval"]', evf);
   await saveMapIfAsked(page);
-  await page.waitForSelector('[data-traction="new-session"]', { timeout: 5000 });
-  await page.click('[data-traction="new-session"]');
+  await page.waitForSelector("[data-trq-target]", { timeout: 5000 });
+  ok(await page.evaluate(() => QBR.trainers._state.queue.length === 1 && QBR.trainers._state.queue[0].target === -1), "A0 eval goes to the eval list (no session on that date, nothing auto-picked)");
+  await page.selectOption("[data-trq-target]", "new");
   await page.waitForSelector("#trns-date", { timeout: 5000 });
   ok(await page.inputValue("#trns-date") === "2026-05-07", "A1 date from response timestamps, not filename");
   ok(await page.evaluate(() => /response timestamps/.test(document.querySelector("#trns-date").closest("div").textContent)), "A2 date source hint shown");
@@ -89,15 +91,15 @@ async function fresh(browser) {
   await page.fill("#trns-trainer", "RICO, Reneeson III");
   await page.fill("#trns-school", "Typed Academy & <Test>");
   await page.click('[data-traction="save-new-session"]'); await page.waitForTimeout(300);
-  const added = await page.evaluate(() => { const t = QBR.trainers._state.tracker; const s = t.sessions[t.sessions.length - 1]; return { s: { client: s.client, dateISO: s.dateISO, id: s.id, rowIdx: s.rowIdx, isNew: s.isNew }, n: t.addedRows.length, att: QBR.trainers._state.eval.attachedTo === t.sessions.length - 1 }; });
+  const added = await page.evaluate(() => { const t = QBR.trainers._state.tracker; const s = t.sessions[t.sessions.length - 1]; return { s: { client: s.client, dateISO: s.dateISO, id: s.id, rowIdx: s.rowIdx, isNew: s.isNew }, n: t.addedRows.length, att: QBR.trainers._state.queue[0].target === t.sessions.length - 1 }; });
   ok(added.n === 1 && added.s.isNew && added.s.client === "Typed Academy & <Test>" && added.s.dateISO === "2026-05-07", "A6 session added (typed school, timestamp date)");
-  ok(added.s.id === "SES-2026-0001" && added.s.rowIdx === 3 && added.att, "A7 Session ID issued, placed right after the last row, eval attached");
+  ok(added.s.id === "SES-2026-0001" && added.s.rowIdx === 3 && added.att, "A7 Session ID issued, placed right after the last row, eval file set to it");
   ok(await page.evaluate(() => !document.querySelector("#trainers-body table td script, #trainers-body table td test")), "A8 typed school rendered escaped");
   ok(await page.evaluate(() => /1 new session/.test(document.querySelector(".tr-pending").textContent)), "A9 pending bar shows the unwritten new session");
 
   /* ---- B: generate + write: the new row itself is written ---- */
-  await saveMapIfAsked(page);
-  await page.click('[data-traction="generate"]'); await page.waitForTimeout(400);
+  await page.click('[data-traction="q-generate"]'); await page.waitForTimeout(400);
+  await page.click('[data-traction="q-open"]'); await page.waitForTimeout(400);
   ok(await page.evaluate(() => { const k = [...document.querySelectorAll("#tr-report-session .kpi")].find(x => /Satisfaction/.test(x.textContent)); return k && /83%/.test(k.textContent); }),
     "B1 satisfaction = top-2 share (5 of 6)");
   ok(await page.evaluate(() => { const r = QBR.trainers._state.tracker.sessions[2].computed.report; return r.ratings.some(x => /engage/.test(x.header) && x.avg === 3); }),
@@ -185,11 +187,18 @@ async function fresh(browser) {
   const evB = path.join(os.tmpdir(), "Other_-_01012026_-_PM_-_SPC.xlsx");
   fs.copyFileSync(evf, evB);
   await upload(page, '[data-trpill="eval"]', evB);
+  ok(await page.evaluate(() => { const S = QBR.trainers._state, s = S.tracker.sessions[1];
+      return s.computed && /Feedback_/.test(s.computed.evalName) && S.queue.length === 1 && S.queue[0].target === -1 && /Feedback_/.test(document.querySelector("#tr-detail").textContent); }),
+    "G1 'Add eval exports' with a session open: the file goes to the list — the open session keeps its own eval and results (reported bug)");
   await saveMapIfAsked(page);
-  ok(await page.evaluate(() => { const s = QBR.trainers._state.tracker.sessions[1]; return !s.computed && s.status === "unscored" && !!document.querySelector('#tr-detail [data-traction="generate"]') && !document.querySelector(".tr-pending"); }),
-    "G1 new eval file on a generated session: old results dropped, Generate shown, nothing pending");
+  await page.selectOption("[data-trq-target]", "pick"); await page.waitForTimeout(200);
+  ok(await page.evaluate(() => /Click the session for/.test(document.querySelector(".tr-picking").textContent)), "G1b 'Pick in the session list' asks for a click");
+  await page.click('.tr-table tbody tr[data-trsession="1"]'); await page.waitForTimeout(200);
+  ok(await page.evaluate(() => /replaces/.test(document.querySelector(".tr-queue").textContent) === false), "G2 (session not yet written: no 'replaces score' warning)");
+  await page.click('[data-traction="q-generate"]'); await page.waitForTimeout(300);
+  ok(await page.evaluate(() => { const s = QBR.trainers._state.tracker.sessions[1]; return s.computed && /Other_/.test(s.computed.evalName) && s.status === "ready"; }),
+    "G3 assigning the new file and generating replaces the session's results with the new file's");
   /* ---- H: after a lossy fallback the linked original is never written again ---- */
-  await page.click('[data-traction="generate"]'); await page.waitForTimeout(300);
   await page.evaluate(() => {
     const t = QBR.trainers._state.tracker; window.__w = 0; window.__dl = 0;
     URL.createObjectURL = function () { window.__dl++; return "blob:mock"; };
@@ -207,6 +216,55 @@ async function fresh(browser) {
   ok(page._errs.length === 0, "G/H zero page errors" + (page._errs.length ? ": " + page._errs.join(" | ") : ""));
   await page.close();
 
+  /* ---- Q: bulk — many eval files at once, matched to their sessions ---- */
+  {
+    const rows = [["Date", "Trainer", "New Code", "New Description", "Client", "Time Start", "Time End", "Net Promoter Score"],
+      [46149, "RICO, Reneeson III", "MS-102A", "Teams AM", "HCCCI", 0.333, 0.5, ""],
+      [46149, "SANTOS, Maria", "MS-102A", "Teams PM", "HCCCI", 0.54, 0.7, ""],
+      [46150, "REYES, Jun", "MS-103A", "Word", "St. Paul College", "8:00 AM", "12:00 PM", ""],
+      [46150, "DELA CRUZ, Ana", "MS-104A", "Excel", "Paco Catholic School", 0.333, 0.5, ""]];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "trial");
+    const tq = path.join(os.tmpdir(), "trq-tracker.xlsx"); fs.writeFileSync(tq, XLSX.write(wb, { bookType: "xlsx", type: "buffer" }));
+    const src = fs.readFileSync(evf), dir = fs.mkdtempSync(path.join(os.tmpdir(), "trq-"));
+    const names = ["Form_-_05072026_-_AM_-_HCCCI_1-6.xlsx", "Form_-_05072026_-_PM_-_HCCCI_1-6.xlsx", "Form_-_05082026_-_AM_-_SPC_1-6.xlsx",
+                   "Form_-_05082026_-_AM_-_Unknown_School_1-6.xlsx", "notes.txt"];
+    const files = names.map(n => { const f = path.join(dir, n); fs.writeFileSync(f, n.endsWith(".txt") ? "x" : src); return f; });
+    page = await fresh(browser);
+    await upload(page, '[data-trpill="tracker"]', tq);
+    const [ch] = await Promise.all([page.waitForEvent("filechooser"), page.click('[data-trpill="eval"]')]);
+    ok(ch.isMultiple(), "Q1 'Add eval exports' lets you select many files");
+    await ch.setFiles(files); await page.waitForTimeout(1200);
+    const st = () => page.evaluate(() => QBR.trainers._state.queue.map(q => q.target));
+    ok(JSON.stringify(await st()) === JSON.stringify([0, 1, 2, -1]), "Q2 4 xlsx files listed (txt ignored): AM→AM session, PM→PM session, SPC→St. Paul College (acronym), unknown school not auto-picked (" + JSON.stringify(await st()) + ")");
+    ok(await page.evaluate(() => { const q = QBR.trainers._state.queue[3]; return q.cands.length === 2 && q.cands.indexOf(2) >= 0; }), "Q3 unknown school: same-day sessions offered in its list");
+    // the same files again: duplicates skipped
+    const [ch2] = await Promise.all([page.waitForEvent("filechooser"), page.click('[data-trpill="eval"]')]);
+    await ch2.setFiles(files.slice(0, 2)); await page.waitForTimeout(800);
+    ok((await st()).length === 4, "Q4 files already in the list are not added twice");
+    // two files set to one session -> neither generated
+    await page.selectOption('[data-trq-target="' + (await page.evaluate(() => QBR.trainers._state.queue[3].id)) + '"]', "2"); await page.waitForTimeout(200);
+    await saveMapIfAsked(page);
+    await page.click('[data-traction="q-generate"]'); await page.waitForTimeout(500);
+    ok(await page.evaluate(() => { const S = QBR.trainers._state, s = S.tracker.sessions;
+        return !!s[0].computed && !!s[1].computed && !s[2].computed && /same session/.test(S.queue[2].note) && /same session/.test(S.queue[3].note); }),
+      "Q5 Generate: 2 sessions scored; two files on one session are held back with a note");
+    await page.selectOption('[data-trq-target="' + (await page.evaluate(() => QBR.trainers._state.queue[3].id)) + '"]', "3"); await page.waitForTimeout(200);
+    await page.click('[data-traction="q-generate"]'); await page.waitForTimeout(500);
+    ok(await page.evaluate(() => QBR.trainers._state.tracker.sessions.every(s => s.computed && s.status === "ready")), "Q6 after fixing the pick: all 4 sessions generated");
+    ok(await page.evaluate(() => /4 scored sessions/.test(document.querySelector(".tr-pending").textContent) && document.querySelectorAll(".tr-queue .risk-badge.risk-high").length === 4), "Q7 list shows Generated per file; pending bar: 4 sessions");
+    let msg = ""; page.once("dialog", d => { msg = d.message(); d.accept(); });
+    const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 8000 }).catch(() => null), page.click('.tr-pending [data-traction="writeback"]')]);
+    ok(/Write 4 session scores/.test(msg) && (msg.match(/^Row \d/mg) || []).length === 4, "Q8 one confirm lists all 4 rows");
+    if (dl) {
+      const out = path.join(os.tmpdir(), "trq-out.xlsx"); await dl.saveAs(out);
+      const ws = XLSX.read(fs.readFileSync(out)).Sheets.trial;
+      ok([2, 3, 4, 5].every(r => ws["H" + r] && ws["H" + r].v === 66.7 && ws["I" + r] && typeof ws["I" + r].v === "number"), "Q9 all 4 rows written in one file (NPS + Trainer Score)");
+    } else ok(false, "Q9 downloaded");
+    ok(await page.evaluate(() => document.querySelectorAll(".tr-queue .risk-badge.risk-none").length === 4), "Q10 list shows Written per file");
+    ok(page._errs.length === 0, "Q zero page errors" + (page._errs.length ? ": " + page._errs.join(" | ") : ""));
+    await page.close();
+  }
+
   /* ---- F: eval only, no tracker ---- */
   page = await fresh(browser);
   await upload(page, '[data-trpill="eval"]', evf);
@@ -215,8 +273,8 @@ async function fresh(browser) {
   ok(await page.evaluate(() => !!document.querySelector("#tr-report-session") && !document.querySelector('[data-traction="writeback"]') &&
       /no tracker loaded/.test(document.querySelector("#tr-detail").textContent)), "F1 eval-only: feedback report, nothing to write");
   await upload(page, '[data-trpill="tracker"]', trk);
-  ok(await page.evaluate(() => !!document.querySelector('[data-traction="attach"]') || !!document.querySelector('[data-traction="new-session"]')),
-    "F2 loading a tracker afterwards keeps the eval and offers to match it");
+  ok(await page.evaluate(() => QBR.trainers._state.queue.length === 1 && !!document.querySelector("[data-trq-target]") && !QBR.trainers._state.eval),
+    "F2 loading a tracker afterwards moves the eval to the list for matching");
   ok(page._errs.length === 0, "F zero page errors" + (page._errs.length ? ": " + page._errs.join(" | ") : ""));
 
   await browser.close();

@@ -243,5 +243,16 @@ ok(P.isTrivial("N/A") && P.isTrivial(" none. ") && P.isTrivial("wala") && !P.isT
 const SUM = P.buildSummary([{ client: "A", nps: 50, trainerScore: 4.5, n: 20, timeStart: 0.25, timeEnd: 0.5 }, { client: "A", nps: null, trainerScore: null, n: null }, { client: "B", nps: -10, trainerScore: 3.5, n: 5 }]);
 eq([SUM.respondents, SUM.respSessions, SUM.avgNps, SUM.avgScore, SUM.hours, SUM.repeatRate], [25, 2, 20, 4, 6, 67], "buildSummary: respondents from n, negative NPS averaged, hours, repeat rate");
 
+/* ---- bulk matching (matchEval / rankSessions) ---- */
+const MS = [{ dateISO: "2026-05-07", client: "HCCCI", timeStart: 0.33 }, { dateISO: "2026-05-07", client: "HCCCI", timeStart: 0.6 },
+            { dateISO: "2026-05-08", client: "St. Paul College", timeStart: 0.33 }, { dateISO: "2026-05-08", client: "Paco Catholic School", timeStart: 0.33 }];
+ok(P.matchEval(MS, { dateISO: "2026-05-07", session: "PM", school: "HCCCI" }).auto === MS[1], "matchEval: PM file -> PM session");
+ok(P.matchEval(MS, { dateISO: "2026-05-08", session: "AM", school: "SPC" }).auto === MS[2], "matchEval: acronym SPC -> St. Paul College");
+ok(P.matchEval(MS, { dateISO: "2026-05-08", session: "AM", school: "Unknown" }).auto === null, "matchEval: no school match -> nothing auto-picked");
+eq(P.matchEval(MS, { dateISO: "2026-05-08", session: "AM", school: "Unknown" }).candidates.length, 2, "matchEval: same-day sessions still offered");
+ok(P.matchEval(MS, { dateISO: "2026-05-07", session: "", school: "HCCCI" }).auto === null, "matchEval: two equal matches (no AM/PM) -> user picks");
+ok(P.matchEval(MS, { dateISO: "2026-01-01", session: "AM", school: "SPC" }, "2026-05-08").auto === MS[2], "matchEval: falls back to the answer date when the filename date has no session");
+ok(P.matchEval(MS, null, "2026-05-07").auto === null && P.matchEval(MS, null, "2026-05-07").candidates.length === 2, "matchEval: no filename hint -> candidates from answer date only");
+
 console.log("\n" + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
