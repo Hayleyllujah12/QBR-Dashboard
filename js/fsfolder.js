@@ -58,7 +58,7 @@
 
   /* ---------------- storage ---------------- */
   function dirsSave() {
-    var slim = QBR._fsDirs.map(function (d) { return { id: d.id, name: d.name, handle: d.handle, picked: d.picked || [] }; });
+    var slim = QBR._fsDirs.map(function (d) { return { id: d.id, name: d.name, handle: d.handle, picked: d.picked || [], keep: !!d.keep }; });
     return persistIdbPut(DIRS_KEY, slim).catch(function (x) { console.warn("[QBR] folder store failed:", x && x.message); });
   }
   function dirsLoad() {
@@ -240,6 +240,7 @@
     // only UNUSED remembered folders are trimmed (keep at most 5 records in total).
     var usedIds = {};
     (QBR._fsLinks || []).forEach(function (l) { if (l.dirId) usedIds[l.dirId] = 1; });
+    (QBR._fsDirs || []).forEach(function (d) { if (d.keep) usedIds[d.id] = 1; }); // picked for another tab (Trainers)
     var others = QBR._fsDirs.filter(function (d) { return d !== rec; });
     var used = others.filter(function (d) { return usedIds[d.id]; });
     var spare = others.filter(function (d) { return !usedIds[d.id]; }).slice(0, Math.max(0, 4 - used.length));
@@ -279,12 +280,56 @@
       if (typeof renderAll === "function") { try { renderAll(); } catch (x) {} }
       if (typeof renderFileList === "function") { try { renderFileList(); } catch (x) {} }
       try { QBR.persistRefreshBadge(); } catch (x) {}
+      linked(rec.id);
       note("Loaded & linked ✓ " + picks.length + " workbook" + (picks.length === 1 ? "" : "s") + " from " + dir.name, 5000);
       return true;
     } catch (x) {
       alert("Could not load from the folder: " + (x && x.message || x));
       return false;
     }
+  };
+
+  /* ---------------- other tabs: read files in a linked folder (v1.39.0) ----------------
+   * The Trainers tab finds its tracker + eval exports in the same folder the dashboard
+   * workbooks are linked from, without loading them as dashboard workbooks. */
+  function linked(id) {
+    try { document.dispatchEvent(new CustomEvent("qbr:folder-linked", { detail: { id: id } })); } catch (x) {}
+  }
+  QBR.fsFolderList = function () {
+    return (QBR._fsDirs || []).map(function (d) { return { id: d.id, name: d.name, state: QBR._fsDirState[d.id] || "prompt" }; });
+  };
+  // Excel files in a remembered folder: [{name, path, rel, handle, size, lastModified}], or null
+  // when the folder isn't allowed. ask:true may prompt (must run inside a click).
+  QBR.fsFolderBooks = async function (id, opts) {
+    var d = dirById(id); if (!d) return null;
+    var p;
+    try {
+      p = await d.handle.queryPermission({ mode: "readwrite" });
+      if (p !== "granted" && opts && opts.ask) p = await d.handle.requestPermission({ mode: "readwrite" });
+    } catch (x) { p = "denied"; }
+    QBR._fsDirState[id] = p;
+    if (p !== "granted") return null;
+    try { return (await scan(d.handle)).books; } catch (x) { return null; }
+  };
+  // Pick a folder and remember it WITHOUT loading anything into the dashboard. -> id | null
+  QBR.fsFolderPickOnly = async function () {
+    if (!QBR.fsFolderSupported()) return null;
+    var dir, last = (QBR._fsDirs || [])[0];
+    try {
+      var opt = { id: "qbr-workbooks", mode: "readwrite" };
+      if (last && last.handle) opt.startIn = last.handle;
+      dir = await window.showDirectoryPicker(opt);
+    } catch (x) { return null; }
+    var rec = null;
+    for (var i = 0; i < (QBR._fsDirs || []).length; i++) {
+      try { if (await QBR._fsDirs[i].handle.isSameEntry(dir)) { rec = QBR._fsDirs[i]; break; } } catch (x) {}
+    }
+    if (rec) { rec.handle = dir; QBR._fsDirs = [rec].concat(QBR._fsDirs.filter(function (d) { return d !== rec; })); }
+    else { rec = { id: newId(), name: dir.name, handle: dir, picked: [] }; QBR._fsDirs.unshift(rec); }
+    rec.keep = true;
+    try { QBR._fsDirState[rec.id] = await dir.queryPermission({ mode: "readwrite" }); } catch (x) { QBR._fsDirState[rec.id] = "prompt"; }
+    await dirsSave();
+    return rec.id;
   };
 
   /* ---------------- reconnect (next session) ---------------- */
@@ -308,6 +353,7 @@
     }
     await fsLinksSave();
     if (typeof renderFileList === "function") { try { renderFileList(); } catch (x) {} }
+    linked(id);
     if (missing.length) note("Reconnected " + d.name + " — not found (moved or renamed?): " + missing.join(", "), 12000);
     else note("Reconnected ✓ " + d.name + " — Direct save is on for every linked workbook in it", 5000);
     return true;
@@ -351,7 +397,7 @@
     (QBR._fsLinks || []).forEach(function (l) { if (l.dirId) used[l.dirId] = 1; });
     var before = QBR._fsDirs.length;
     // keep the most recent folder even when unused (picker starts there)
-    QBR._fsDirs = QBR._fsDirs.filter(function (d, i) { return i === 0 || used[d.id]; });
+    QBR._fsDirs = QBR._fsDirs.filter(function (d, i) { return i === 0 || used[d.id] || d.keep; });
     if (QBR._fsDirs.length !== before) dirsSave();
   };
 

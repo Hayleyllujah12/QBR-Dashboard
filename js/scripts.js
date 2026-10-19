@@ -1559,8 +1559,8 @@ Write-Host '>>> Phase 5 complete. To pull again with the same settings, paste Ph
       "</div>" +
       '<div class="qbr-scripts-list" data-slist></div>' +
       '<div class="qbr-scripts-gdap"><h4>GDAP mapping</h4>' +
-      '<p class="qbr-scripts-note">CSV with <code>Name,Microsoft ID</code> columns. Used to pre-fill the tenant ID when copying extraction scripts in the wizard. Stored in this browser only.</p>' +
-      '<div><input type="file" data-sfield="gdapfile" accept=".csv"> ' +
+      '<p class="qbr-scripts-note">Excel workbook (e.g. GDAP.xlsx) or CSV with <code>Name</code> and <code>Microsoft ID</code> columns. Used to pre-fill the tenant ID when copying extraction scripts in the wizard. Stored in this browser only.</p>' +
+      '<div><input type="file" data-sfield="gdapfile" accept=".xlsx,.xlsm,.csv"> ' +
       '<span class="qbr-scripts-note" data-sgdapstatus></span> ' +
       '<button type="button" class="btn btn-sm btn-outline-secondary" data-sact="gdapclear">Clear</button></div>' +
       "</div>";
@@ -1585,18 +1585,19 @@ Write-Host '>>> Phase 5 complete. To pull again with the same settings, paste Ph
     overlay.querySelector('[data-sfield="gdapfile"]').addEventListener("change", function (e) {
       var f = e.target.files[0];
       if (!f) return;
+      var isXl = /\.(xlsx|xlsm)$/i.test(f.name || "");
       var rd = new FileReader();
       rd.onload = function () {
         try {
-          var rows = QBR.gdapParseCsv(String(rd.result || ""));
+          var rows = isXl ? QBR.gdapParseWorkbook(new Uint8Array(rd.result)) : QBR.gdapParseCsv(String(rd.result || ""));
           if (!rows.length) throw new Error("no data rows found.");
           QBR.gdapSave(rows);
           updateGdapStatus();
           toast("GDAP mapping linked: " + rows.length + " schools.");
           if (typeof QBR.refreshGdapChip === "function") QBR.refreshGdapChip();
-        } catch (err) { alert("Could not parse that CSV: " + err.message); }
+        } catch (err) { alert("Could not read that GDAP file: " + err.message); }
       };
-      rd.readAsText(f);
+      if (isXl) rd.readAsArrayBuffer(f); else rd.readAsText(f);
       e.target.value = "";
     });
     overlay.addEventListener("click", function (e) {

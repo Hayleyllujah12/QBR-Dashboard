@@ -6,6 +6,17 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.39.0 [PREVIEW feature/gdap-xlsx] GDAP mapping as .xlsx · Trainers load from the linked folder
+  - GDAP mapping can be an Excel workbook: a file named like GDAP.xlsx / GranularAdministerRelationship.xlsx with
+    "Name" and "Microsoft ID" columns (any sheet, header in the first 10 rows) turns the gdap pill green and pre-fills
+    tenant IDs. Being .xlsx it can be folder-linked like the other workbooks (↻ re-reads it). The old .csv still works.
+  - Why GDAP.csv wasn't checkable: the checkbox in the Loaded list is "link to the file" (Direct save / ↻), and folder
+    links are Excel-only. A .csv row now has the checkbox greyed out with that explanation.
+  - Trainers tab: when a folder is linked (📁 Open folder…), the tab finds the training tracker (name has "train" +
+    "track") and the MS Forms eval exports (dated / "eval|feedback|form|survey" names, subfolders too) in it and loads
+    them on its own — the tracker saves in place. Evals already encoded in the tracker are left out. New
+    "📁 Load from folder" button re-reads it (or "📁 Open folder…" to pick one just for Trainers).
+
 UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: PDFs use the page (summary, trainer profile, session)
   - Printed reports lay themselves out from their content: 5 compact tiles per row; two cards stay side by side
     only while both are short; long tables (schools, trainings without an eval, comments, recommendations)

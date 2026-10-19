@@ -198,14 +198,15 @@
       seen[k].forEach(function (q) { if (q.auto) { q.target = -1; q.auto = false; q.note = "Several files match the same session — pick one."; } });
     });
   }
-  async function openEvals(files) {
+  async function openEvals(files, opts) {
+    opts = opts || {};
     files = Array.prototype.slice.call(files || []).filter(function (f) { return /\.(xlsx|xlsm|xls)$/i.test(f.name); });
-    if (!files.length) return;
-    if (!S.tracker && files.length === 1 && !S.queue.length) { // eval on its own: one-off report
+    if (!files.length) return { added: 0, dup: 0, encoded: 0, bad: [] };
+    if (!S.tracker && files.length === 1 && !S.queue.length && !opts.auto) { // eval on its own: one-off report
       var wb0 = await readWorkbook(files[0]);
       S.eval = makeEval(files[0], wb0); render(); return;
     }
-    var bad = [], dup = 0;
+    var bad = [], dup = 0, encoded = 0;
     for (var i = 0; i < files.length; i++) {
       note("Reading " + (i + 1) + " of " + files.length + ": " + files[i].name + "…");
       try {
@@ -214,13 +215,18 @@
         // Same file again (also renamed copies: same answers = same fingerprint).
         if (S.queue.some(function (x) { return (x.name === q.name && x.rows.length === q.rows.length) || (q.fp && x.fp === q.fp); })) { dup++; continue; }
         matchItem(q);
+        // Folder scan: evals already encoded in the tracker are old news — leave them out.
+        if (opts.auto && q.encodedAt >= 0) { encoded++; continue; }
         S.queue.push(q);
       } catch (e) { bad.push(files[i].name + " (" + (e && e.message || e) + ")"); }
     }
     dedupeTargets();
     render();
-    note(plural(files.length - bad.length - dup, "eval file") + " added" + (dup ? " · " + dup + " already in the list" : "") + (bad.length ? " · couldn't read: " + bad.join(", ") : "") + ".");
+    var res = { added: files.length - bad.length - dup - encoded, dup: dup, encoded: encoded, bad: bad };
+    if (opts.auto) return res;
+    note(plural(res.added, "eval file") + " added" + (dup ? " · " + dup + " already in the list" : "") + (bad.length ? " · couldn't read: " + bad.join(", ") : "") + ".");
     if (bad.length) window.alert("Couldn't read:\n" + bad.join("\n"));
+    return res;
   }
   function queueItem(id) { return S.queue.filter(function (q) { return q.id === id; })[0] || null; }
   function itemState(q) {
@@ -718,6 +724,7 @@
       '<div class="tr-load-row">' +
       '<button type="button" class="btn btn-' + (t ? "outline-primary" : "primary") + ' btn-sm" data-trpill="tracker">' + (t ? "Change tracker…" : "Open training tracker…") + '</button>' +
       '<button type="button" class="btn btn-' + (t && !S.queue.length ? "primary" : "outline-primary") + ' btn-sm" data-trpill="eval" title="Pick one or many MS Forms exports (Ctrl/Shift-click). Each file is one session.">Add eval exports (.xlsx)…</button>' +
+      folderBtnHTML() +
       '<span class="tr-files">' +
       '<span class="tr-file' + (t ? " on" : "") + '" data-trfile="tracker"><b>Tracker</b> ' + (t ? esc(t.name) + ' <span class="text-muted">· ' + esc(t.sheetName) + ' · ' + plural(t.sessions.length, "session") + ' · ' + plural(t.roster.length, "trainer") + '</span>' + (t.handle ? ' <span class="badge bg-success" title="Write-back saves into this file">saves in place</span>' : "") : '<span class="text-muted">not loaded</span>') + '</span>' +
       '<span class="tr-file' + (ev || S.queue.length ? " on" : "") + '" data-trfile="eval"><b>Evals</b> ' + (S.queue.length ? plural(S.queue.length, "file") + (ev ? " + " + esc(ev.name) : "") : ev ? esc(ev.name) + ' <span class="text-muted">· ' + plural(ev.rows.length - 1, "response") + '</span>' : '<span class="text-muted">none</span>') + '</span>' +
@@ -729,6 +736,14 @@
         '<button type="button" class="btn btn-primary btn-sm" data-traction="writeback">Write to tracker…</button></div>';
     }
     return h + '<div id="tr-status" class="small text-muted" role="status" aria-live="polite"></div></div>';
+  }
+  function folderBtnHTML() {
+    if (!(typeof QBR.fsFolderSupported === "function" && QBR.fsFolderSupported())) return "";
+    var d = folders();
+    return '<button type="button" class="btn btn-outline-secondary btn-sm" data-traction="folder" title="' +
+      (d.length ? "Find the training tracker and eval exports in " + esc(d.map(function (x) { return x.name; }).join(", ")) + " (and its subfolders)"
+        : "Pick the folder that holds the training tracker and eval exports — they load together") + '">📁 ' +
+      (d.length ? "Load from folder" : "Open folder…") + '</button>';
   }
   function viewBarHTML() {
     var b = function (k, l) { return '<button type="button" class="btn btn-outline-secondary' + (S.view === k ? " active" : "") + '" data-trview="' + k + '" aria-pressed="' + (S.view === k) + '">' + l + '</button>'; };
@@ -1181,6 +1196,7 @@
   }
   function render() {
     init(); // idempotent; loads saved column maps
+    autoFolder();
     var host = $("trainers-body");
     if (!host) return;
     destroyCharts();
@@ -1363,6 +1379,84 @@
     setTimeout(function () { if (inp.parentNode && !(inp.files && inp.files.length)) inp.remove(); }, 120000);
   }
 
+  /* ---------------- linked folder (v1.39.0) ----------------
+   * The folder the dashboard workbooks are linked from (📁 Open folder…) — or one picked
+   * here — is scanned for the training tracker and the MS Forms eval exports, so they
+   * load without picking each file. The tracker keeps its file handle (saves in place).
+   * Only file names that look like a tracker / an eval are opened; the content decides. */
+  function folders() { try { return typeof QBR.fsFolderList === "function" ? QBR.fsFolderList() : []; } catch (e) { return []; } }
+  function looksTracker(n) { return /train/i.test(n) && /track/i.test(n); }
+  function looksEval(n) { return !looksTracker(n) && !/gdap|granular/i.test(n) && (!!P().parseFilename(n) || /eval|feedback|form|survey/i.test(n)); }
+  function isEvalWb(wb) {
+    var rows = sheetRows(wb, wb.SheetNames[0]);
+    if (rows.length < 2) return false;
+    var det = P().detectLayout(rows[0]);
+    if (S.maps[det.sig]) return true;
+    var r = det.roles;
+    return (r.nps >= 0 ? 1 : 0) + (r.t1 >= 0 ? 1 : 0) + (r.t2 >= 0 ? 1 : 0) + (r.t3 >= 0 ? 1 : 0) + (r.sat >= 0 ? 1 : 0) >= 2;
+  }
+  async function fileOf(b) { try { return await b.handle.getFile(); } catch (e) { return null; } }
+  async function readFolder(opts) {
+    opts = opts || {};
+    if (S.folderBusy) return;
+    var list = folders();
+    if (!list.length) {
+      if (!opts.ask || typeof QBR.fsFolderPickOnly !== "function") return;
+      var nid = await QBR.fsFolderPickOnly();
+      if (!nid) return;
+      list = folders();
+    }
+    S.folderBusy = true;
+    try {
+      var books = [], used = [];
+      for (var i = 0; i < list.length; i++) {
+        var b = await QBR.fsFolderBooks(list[i].id, { ask: !!opts.ask });
+        if (b) { used.push(list[i].name); books = books.concat(b); }
+      }
+      if (!used.length) { if (opts.ask) note("The folder wasn't allowed — nothing was read."); return; }
+      var msg = [], tName = "";
+      if (!S.tracker) {
+        var tc = books.filter(function (b) { return looksTracker(b.name); })
+          .sort(function (a, b) { return (b.lastModified || 0) - (a.lastModified || 0); });
+        for (var j = 0; j < tc.length && !S.tracker; j++) {
+          var tf = await fileOf(tc[j]); if (!tf) continue;
+          note("Reading " + tf.name + "…");
+          var perm = "prompt";
+          try { perm = await tc[j].handle.queryPermission({ mode: "readwrite" }); } catch (e) {}
+          try { await openTracker(tf, perm === "granted" ? tc[j].handle : null); tName = tf.name; } catch (e) {}
+        }
+      }
+      if (tName) msg.push("tracker " + tName);
+      var inList = {};
+      S.queue.concat(S.eval ? [S.eval] : []).forEach(function (q) { inList[P().normKey(q.name)] = 1; });
+      var ec = books.filter(function (b) { return looksEval(b.name) && !inList[P().normKey(b.name)] && (!b.size || b.size < 20e6); });
+      var evals = [];
+      for (var k = 0; k < ec.length; k++) {
+        var f = await fileOf(ec[k]); if (!f) continue;
+        try { if (isEvalWb(await readWorkbook(f))) evals.push(f); } catch (e) {}
+      }
+      var r = evals.length ? await openEvals(evals, { auto: true }) : { added: 0, encoded: 0, dup: 0, bad: [] };
+      if (r.added) msg.push(plural(r.added, "eval export"));
+      if (!opts.ask && !tName && !r.added) return; // silent auto-scan: nothing new, say nothing
+      render();
+      note("📁 " + used.join(", ") + ": " + (msg.length ? msg.join(" + ") + " loaded" : "no new tracker or eval exports found") +
+        (r.encoded ? " · " + plural(r.encoded, "eval") + " already encoded (left out)" : "") +
+        (r.dup ? " · " + r.dup + " already in the list" : "") + ".");
+    } finally { S.folderBusy = false; }
+  }
+  // Auto-read once per folder grant: when the tab opens, and when a folder is linked/reconnected.
+  function autoFolder() {
+    if (S.folderTried || !on()) return;
+    if (!folders().some(function (d) { return d.state === "granted"; })) return;
+    S.folderTried = true;
+    setTimeout(function () { readFolder({}).catch(function (e) { console.warn("[QBR] trainers folder scan:", e && e.message); }); }, 0);
+  }
+  document.addEventListener("qbr:folder-linked", function () {
+    S.folderTried = false;
+    var p = $("dash-trainers");
+    if (p && !p.classList.contains("d-none")) autoFolder();
+  });
+
   /* ---------------- print to PDF ----------------
    * Same pattern as MOS: a print-only copy of the report is appended to <body>
    * (body.tr-printing hides everything else). Charts are re-rendered offscreen
@@ -1511,6 +1605,7 @@
     if (name === "print-report") return printReport("tr-report");
     if (name === "print-session") return printReport("tr-report-session");
     if (name === "upload-eval") { pickFile("session-eval"); return; }
+    if (name === "folder") { readFolder({ ask: true }).catch(function (e) { alert("Could not read the folder: " + (e && e.message || e)); }); return; }
     var qid = el ? el.getAttribute("data-q") : null, qi = qid ? queueItem(qid) : null;
     if (name === "q-generate") { generateQueue(); return; }
     if (name === "q-clear") {
