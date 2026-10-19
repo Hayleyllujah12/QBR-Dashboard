@@ -36,7 +36,8 @@
   //                  address "<site>.netlify.app" and "develop--<site>" are beta; also the
   //                  QBR-Dashboard_dev test folder, or ?beta (?dev kept as an alias)
   //   Preview      — any other Netlify branch / deploy-preview URL ("<branch>--<site>.netlify.app")
-  //   Main         — live: GitHub Pages, Azure production, the live OneDrive folder, or ?main
+  //   Main         — live: GitHub Pages, the live OneDrive folder, or ?main
+  //   (2026-10-19: the Azure Static Web App deploys develop → "Beta version"; its PR staging sites → "Staging · PR n")
   function envInfo() {
     var path = "", host = "", q = "";
     try { path = decodeURIComponent(location.pathname); } catch (e) { path = location.pathname || ""; }
@@ -52,7 +53,9 @@
     var az = /^([a-z0-9-]+)\.(?:[a-z0-9-]+\.)*azurestaticapps\.net$/.exec(host);
     var azPr = az && /^[a-z]+-[a-z]+-[0-9a-f]+-(\d+)$/.exec(az[1]);
     if (azPr) return { kind: "preview", text: "Staging · PR " + azPr[1], tag: "[STAGING]", tip: "Azure staging site for pull request #" + azPr[1] + " — not live." };
-    if (/\.github\.io$/.test(host) || az || /QBR-Dashboard_\d+\.\d+\.\d+[\\\/]/i.test(path) || /[?&]main\b/i.test(q))
+    // 2026-10-19: the Azure Static Web App deploys the develop branch → Beta, not Main
+    if (az) return { kind: "beta", text: "Beta version", tag: "[BETA]", tip: "Beta on Azure (develop branch) — for testing before release. Changes here are not live." };
+    if (/\.github\.io$/.test(host) || /QBR-Dashboard_\d+\.\d+\.\d+[\\\/]/i.test(path) || /[?&]main\b/i.test(q))
       return { kind: "main", text: "Main", tag: "[MAIN]", tip: "Main (live) — the production build everyone uses." };
     return null;
   }

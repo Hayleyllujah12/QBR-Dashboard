@@ -143,7 +143,7 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
     ok(r.t === "Main", "live OneDrive folder QBR-Dashboard_<x.y.z> → 'Main'");
     await ctx.route(/azurestaticapps\.net\//, route => { const u = new URL(route.request().url()); const f = path.join(APPDIR, u.pathname === "/" ? "index.html" : decodeURIComponent(u.pathname)); route.fulfill(fs.existsSync(f) ? { path: f } : { status: 404, body: "" }); });
     r = await badge("https://lively-sea-0f1e2d3c4.5.azurestaticapps.net/");
-    ok(r.t === "Main", "Azure production site → 'Main'");
+    ok(r.t === "Beta version" && /env-beta/.test(r.c), "Azure site (deploys develop since 2026-10-19) → 'Beta version'");
     r = await badge("https://lively-sea-0f1e2d3c4-12.eastasia.5.azurestaticapps.net/");
     ok(r.t === "Staging · PR 12" && /env-preview/.test(r.c), "Azure PR staging site → 'Staging · PR 12' (not Main)");
     try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) {}
