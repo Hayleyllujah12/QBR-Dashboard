@@ -1,6 +1,6 @@
 name: Azure Static Web Apps CI/CD
 
-# Internal live site (Azure SWA) — deploys from main.
+# Azure SWA — deploys from develop (beta) since 2026-10-19 (was main).
 # 2026-10-11: no build step (the dashboard is plain HTML/CSS/JS); publish ONLY the app files
 # from a dist/ folder. Without this, the "npm install @actions/core" step below left a
 # package.json in the repo root, Oryx tried to run "npm run build" and the deploy failed —
@@ -9,7 +9,7 @@ name: Azure Static Web Apps CI/CD
 on:
   push:
     branches:
-      - main
+      - develop
     paths-ignore:
       - 'docs/**'
       - 'tests/**'
@@ -18,7 +18,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
     branches:
-      - main
+      - develop
 
 jobs:
   build_and_deploy_job:
@@ -48,7 +48,7 @@ jobs:
           set -e
           mkdir -p dist
           cp index.html dist/
-          for d in css js libs assets; do
+          for d in css js libs assets config; do
             if [ -d "$d" ]; then cp -R "$d" dist/; fi
           done
           # optional SWA config / extra pages (added by the M365-login branch)
@@ -64,6 +64,7 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AMBITIOUS_GRASS_0E4BE480F }}
           action: "upload"
+          production_branch: "develop"   # pushes to develop = the production site; other branches = staging
           ###### Repository/Build Configurations ######
           app_location: "dist"     # pre-collected app files (see step above)
           skip_app_build: true     # plain static site — no Oryx/npm build
