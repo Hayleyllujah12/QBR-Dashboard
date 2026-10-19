@@ -754,7 +754,7 @@
     var school = S.f.school || (S.model && uniq(S.model.rows.map(function (r) { return r.school; })).length === 1 ? S.model.rows[0].school : "");
     if (!school) { window.alert("Pick a school in the School filter first."); return; }
     var pr = profileOf(school), work = { title: pr.title || "", acronym: pr.acronym || "", address: pr.address || "", logo: pr.logo || "" };
-    var br = branding(), bw = { left: br.left || "", right: br.right || "" };
+    var br = branding(), bw = { left: br.left || "", right: br.right || "", logoH: hdrOpt(br).logoH, scale: hdrOpt(br).scale, align: hdrOpt(br).align };
     var ov = document.createElement("div");
     ov.className = "mos-ov"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true"); ov.setAttribute("aria-labelledby", "mos-pf-h");
     function draw(msg) {
@@ -774,7 +774,17 @@
             '<div><div class="mos-pf-prev">' + (bw.right ? '<img id="mos-pf-right-img" alt="Right partner logo" src="' + bw.right + '">' : '<span class="small text-muted">None</span>') + '</div>' +
               '<label class="btn btn-outline-primary btn-sm mb-0">Right logo (GTP)…<input id="mos-pf-right" type="file" accept="image/*" hidden></label>' +
               (bw.right ? ' <button type="button" class="btn btn-link btn-sm" data-pf-coclear="right">Remove</button>' : "") + '</div></div>' +
-            '<div class="small text-muted">Printed above the results box: left and right, same height. ≤ 512 KB each.</div></div>' +
+            '<div class="small text-muted">≤ 512 KB each.</div>' +
+            '<div class="mos-pf-hdr"><div class="small fw-bold mt-2">Summary header size</div>' +
+              '<label class="mos-fl"><span>Logo height <b id="mos-pf-logoh-v">' + bw.logoH + ' px</b></span><input id="mos-pf-logoh" type="range" class="form-range" min="24" max="80" step="2" value="' + bw.logoH + '"></label>' +
+              '<label class="mos-fl"><span>Results box size <b id="mos-pf-scale-v">' + bw.scale + '%</b></span><input id="mos-pf-scale" type="range" class="form-range" min="60" max="120" step="5" value="' + bw.scale + '"></label>' +
+              '<label class="mos-fl"><span>Logo position</span><select id="mos-pf-align" class="form-select form-select-sm">' +
+                '<option value="center"' + (bw.align === "center" ? " selected" : "") + '>Centered, side by side</option>' +
+                '<option value="spread"' + (bw.align === "spread" ? " selected" : "") + '>Left and right edges</option></select></label>' +
+              '<button type="button" class="btn btn-link btn-sm p-0" id="mos-pf-hdr-reset">Default size</button>' +
+              '<div class="mos-pf-brandprev mos-al-' + bw.align + '" id="mos-pf-brandprev" style="--logo-h:' + Math.round(bw.logoH * 0.6) + 'px" aria-hidden="true">' +
+                '<img src="' + esc(bw.left || RAKSO_DEFAULT) + '" alt="">' + (bw.right ? '<img src="' + bw.right + '" alt="">' : "") + '</div>' +
+            '</div></div>' +
         '</div>' +
         '<div id="mos-pf-msg" class="small text-danger mt-1" role="alert">' + esc(msg || "") + '</div>' +
         '<div class="d-flex justify-content-end gap-2 mt-2"><button type="button" class="btn btn-outline-secondary btn-sm" id="mos-pf-cancel">Cancel</button>' +
@@ -791,6 +801,14 @@
         });
       });
       ov.querySelectorAll("[data-pf-coclear]").forEach(function (b) { b.addEventListener("click", function () { keep(); bw[b.getAttribute("data-pf-coclear")] = ""; draw(); }); });
+      function hdrLive() {
+        bw.logoH = +ov.querySelector("#mos-pf-logoh").value; bw.scale = +ov.querySelector("#mos-pf-scale").value; bw.align = ov.querySelector("#mos-pf-align").value;
+        ov.querySelector("#mos-pf-logoh-v").textContent = bw.logoH + " px"; ov.querySelector("#mos-pf-scale-v").textContent = bw.scale + "%";
+        var pv = ov.querySelector("#mos-pf-brandprev"); pv.style.setProperty("--logo-h", Math.round(bw.logoH * 0.6) + "px"); pv.className = "mos-pf-brandprev mos-al-" + bw.align;
+      }
+      ["#mos-pf-logoh", "#mos-pf-scale"].forEach(function (sel) { ov.querySelector(sel).addEventListener("input", hdrLive); });
+      ov.querySelector("#mos-pf-align").addEventListener("change", hdrLive);
+      ov.querySelector("#mos-pf-hdr-reset").addEventListener("click", function () { keep(); bw.logoH = HDR_DEF.logoH; bw.scale = HDR_DEF.scale; bw.align = HDR_DEF.align; draw(); });
       ov.querySelectorAll("[data-pf-clear]").forEach(function (b) { b.addEventListener("click", function () { keep(); work[b.getAttribute("data-pf-clear")] = ""; draw(); }); });
       ov.querySelector("#mos-pf-cancel").addEventListener("click", close);
       ov.querySelector("#mos-pf-save").addEventListener("click", function () {
@@ -816,6 +834,13 @@
   function romans(i) { return ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"][i] || String(i + 1); }
   /* company logos on every summary: left = Rakso CT (built in, replaceable), right = partner badge (upload) */
   var BRAND_KEY = "qbr-mos-branding-v1", RAKSO_DEFAULT = "assets/rakso-ct-logo.png";
+  // summary header size (School profile › Summary header size): logo height px, results box scale %, logo position
+  var HDR_DEF = { logoH: 40, scale: 85, align: "center" };
+  function hdrOpt(br) {
+    br = br || branding();
+    var h = +br.logoH, sc = +br.scale;
+    return { logoH: h >= 24 && h <= 80 ? h : HDR_DEF.logoH, scale: sc >= 60 && sc <= 120 ? sc : HDR_DEF.scale, align: br.align === "spread" ? "spread" : "center" };
+  }
   function branding() { try { return JSON.parse(localStorage.getItem(BRAND_KEY) || "{}") || {}; } catch (e) { return {}; } }
   function saveBranding(b) {
     try { localStorage.setItem(BRAND_KEY, JSON.stringify(b)); return true; }
@@ -823,6 +848,15 @@
   }
   function upper(s) { return String(s || "").toUpperCase(); }
   var MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  // "October 8 – 15, 2026" · "September 28 – October 2, 2026" · "December 30, 2025 – January 3, 2026"
+  function dateRange(a, b) {
+    if (!a) return "";
+    if (!b || a === b) return longDate(a);
+    var ma = MONTHS_LONG[+a.slice(5, 7) - 1], mb = MONTHS_LONG[+b.slice(5, 7) - 1], da = +a.slice(8, 10), db = +b.slice(8, 10);
+    if (a.slice(0, 4) !== b.slice(0, 4)) return longDate(a) + " – " + longDate(b);
+    if (ma === mb) return ma + " " + da + " – " + db + ", " + a.slice(0, 4);
+    return ma + " " + da + " – " + mb + " " + db + ", " + a.slice(0, 4);
+  }
   function longDate(iso) { return iso ? MONTHS_LONG[+iso.slice(5, 7) - 1] + " " + (+iso.slice(8, 10)) + ", " + iso.slice(0, 4) : ""; }
   // filters that hide part of a batch (pass/fail, score range, search, first-attempt) → shown on the summary + warned about
   function narrowingFilters() {
@@ -860,20 +894,21 @@
     }
     var examTitle = exams.length === 1 ? "Microsoft Office Specialist in " + exams[0] : exams.length ? "Microsoft Office Specialist — " + exams.join(", ") : "Microsoft Office Specialist";
     var certLine = certs.length === 1 ? certs[0] : "";
-    var dateTxt = !dates.length ? "" : dates.length === 1 ? longDate(dates[0]) : longDate(dates[0]) + " – " + longDate(dates[dates.length - 1]);
-    var batchTxt = batches.length === 1 ? (/^\d/.test(batches[0]) ? "Exam No.: " + batches[0] : "Batch: " + batches[0])
-      : batches.length <= 4 ? "Exam No.: " + batches.join(", ") : batches.length + " batches";
+    var dateTxt = dateRange(dates[0], dates[dates.length - 1]);
+    var batchTxt = batches.length === 1 ? (/^\d/.test(batches[0]) ? "Exam No.: " + batches[0] : "Batch: " + batches[0]) : batches.length + " batches";
+    var batchList = batches.length > 1 && batches.length <= 6 ? batches.join(", ") : "";
     var narrow = narrowingFilters();
     var leftLogo = br.left || RAKSO_DEFAULT;
-    var html = '<div class="mos-sum-doc">' +
-      '<div class="mos-sum-brand"><img class="mos-sum-co" alt="Rakso CT" src="' + esc(leftLogo) + '">' +
+    var ho = hdrOpt(br);
+    var html = '<div class="mos-sum-doc" style="--hs:' + (ho.scale / 100) + ';--logo-h:' + ho.logoH + 'px">' +
+      '<div class="mos-sum-brand mos-al-' + ho.align + '"><img class="mos-sum-co" alt="Rakso CT" src="' + esc(leftLogo) + '">' +
         (br.right ? '<img class="mos-sum-co" alt="Partner logo" src="' + esc(br.right) + '">' : "") + "</div>" +
       '<table class="mos-sum-box"><tbody>' +
         "<tr>" +
           '<td class="c1"><div class="mos-sum-school">' + (pr.logo ? '<img class="mos-sum-logo" alt="" src="' + esc(pr.logo) + '">' : "") +
             '<div><div class="nm">' + esc(upper(pr.title || school || "All schools")) + "</div>" + (pr.address ? '<div class="ad">' + esc(pr.address) + "</div>" : "") + "</div></div></td>" +
           '<td class="c2"><div class="sub">' + esc(examTitle) + "</div><div class=\"big\">EXAM RESULTS</div>" + (certLine ? '<div class="ad">' + esc(certLine) + "</div>" : "") + "</td>" +
-          '<td class="c3"><div class="dt">' + esc(upper(dateTxt || "—")) + '</div><div class="no">' + esc(batchTxt) + "</div></td>" +
+          '<td class="c3"><div class="dt">' + esc(upper(dateTxt || "—")) + '</div><div class="no">' + esc(batchTxt) + "</div>" + (batchList ? '<div class="ad bl">' + esc(batchList) + "</div>" : "") + "</td>" +
         "</tr><tr>" +
           '<td class="c1"><div class="mos-sum-counts">' +
             '<div><b>' + num(s.attempts) + "</b><span>TOTAL<br>STUDENTS</span></div>" +
