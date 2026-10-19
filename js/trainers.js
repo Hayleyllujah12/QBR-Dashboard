@@ -34,7 +34,10 @@
     tracker: null,   // { name, bytes, wb, sheetName, origin, headerRow, sessions[], roster[] }
     eval: null,      // { name, rows, header, roles, sig, attachedTo, suggested[] }
     selected: -1,    // index into sessions
-    filter: "all",   // all | needs | scored
+    filter: "all",
+    showingNewForm: false,   // all | needs | scored
+    manualForm: false,   // standalone Add session (no eval)
+    repTrainer: "", repSchool: "",  // summary report filters
     q: "",
     view: "sessions",// sessions | board
     maps: {}
@@ -79,7 +82,7 @@
   function excelRow(s) { return s.rowIdx + 1 + ((S.tracker && S.tracker.origin) ? S.tracker.origin.r : 0); }
 
   /* ---------------- tracker ---------------- */
-  function openTracker(file) {
+  function openTracker(file, handle) {
     return readWorkbook(file).then(function (wb) {
       var names = wb.SheetNames || [];
       // Prefer a sheet that parses as a session log; default to "trial".
@@ -96,9 +99,15 @@
       if (!sessions.length) throw new Error("No session log found in " + file.name);
       S.tracker = {
         name: file.name, bytes: wb.__bytes, wb: wb, sheetName: pick, origin: sheetOrigin(wb, pick),
+        handle: handle || null,
         headerRow: sheetRows(wb, pick)[0] || [],
-        sessions: sessions, roster: P().buildRoster(sessions)
+        sessions: sessions, roster: P().buildRoster(sessions),
+        addedRows: [], acronymIndex: P().buildAcronymIndex(sessions.map(function (s) { return s.client; })),
+        headerAdds: [],
+        courseMap: courseMap(wb)
       };
+      try { S.tracker.lastRow = XLSX.utils.decode_range(wb.Sheets[pick]["!ref"] || "A1").e.r; }
+      catch (e) { S.tracker.lastRow = sessions.length; }
       S.selected = -1; S.eval = null;
       render();
     });
@@ -112,11 +121,12 @@
       var det = P().detectLayout(rows[0]);
       var roles = (S.maps[det.sig] && S.maps[det.sig].roles) || det.roles;
       var hint = P().parseFilename(file.name);
+      var responseDate = P().detectResponseDate(rows);
       var suggested = hint && S.tracker ? P().suggestSessions(S.tracker.sessions, hint) : [];
       S.eval = {
         name: file.name, rows: rows, header: rows[0].map(P().norm),
         roles: roles, sig: det.sig, auto: det.roles,
-        attachedTo: -1, suggested: suggested, hint: hint, needsMap: !S.maps[det.sig]
+        attachedTo: -1, suggested: suggested, hint: hint, responseDate: responseDate, needsMap: !S.maps[det.sig]
       };
       // If a session is already selected, attach; otherwise the user picks
       // from suggestions (or the session list).
@@ -187,7 +197,7 @@
     } catch (e) { base = null; work = t.wb; }
     applyPlan(work, t, plan);
     var stem = t.name.replace(/\.(xlsx|xlsm|xls)$/i, "");
-    function finish(out, ext) { // ext null: tracker already holds these values, nothing to download
+    async function finish(out, ext) { // ext null: tracker already holds these values, nothing to download
       t.bytes = new Uint8Array(out);
       t.wb = XLSX.read(t.bytes, { type: "array" });
       t.headerRow = sheetRows(t.wb, t.sheetName)[0] || [];
@@ -200,8 +210,26 @@
           delete s.computed;
         }
       });
-      if (ext) download(t.bytes, stem + "-scored" + ext);
-      else window.alert("The tracker already has these values — nothing new to download.");
+      // In-place save when the tracker was linked with a file handle:
+      // writes into the original file, no download. Otherwise the -scored download.
+      var savedInPlace = false;
+      if (ext && t.handle) {
+        try {
+          var w = await t.handle.createWritable();
+          await w.write(t.bytes);
+          await w.close();
+          savedInPlace = true;
+        } catch (e) {
+          try { if (w && w.abort) await w.abort(); } catch (x) {}
+          var locked = /NoModificationAllowed|InvalidState|InvalidModification/i.test((e && e.name) || "") ||
+                       /lock|in use|being used/i.test((e && e.message) || "");
+          if (window.console) console.warn("[trainers] in-place save failed:", e);
+          if (locked) window.alert("The file is open in Excel — downloaded a copy instead. Close it there and re-link to save in place.");
+        }
+      }
+      if (ext && !savedInPlace) download(t.bytes, stem + "-scored" + ext);
+      else if (!ext) window.alert("The tracker already has these values — nothing new to download.");
+      else if (typeof QBR.persistNote === "function") QBR.persistNote("trainers", "Saved to " + t.name + " — scores written in place.", 6000);
       render();
     }
     function legacy(why) {
@@ -307,6 +335,157 @@
     });
   }
 
+  var MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+                "August", "September", "October", "November", "December"];
+  function findHeader(headerRow, names) {
+    for (var i = 0; i < headerRow.length; i++) {
+      var h = P().normKey(headerRow[i]);
+      for (var k = 0; k < names.length; k++) if (h === names[k]) return i;
+    }
+    return -1;
+  }
+  function timeToFrac(hhmm) {
+    var m = /^(\d{1,2}):(\d{2})/.exec(hhmm || "");
+    if (!m) return null;
+    return Math.round(((+m[1]) * 60 + (+m[2])) / 1440 * 10000) / 10000;
+  }
+
+  function courseMap(wb) {
+    try {
+      var ws = wb.Sheets["03 Course List"];
+      if (!ws) return { byCode: {}, byTitle: {} };
+      return P().buildCourseMap(XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }));
+    } catch (e) { return { byCode: {}, byTitle: {} }; }
+  }
+  function tenantSchoolRoster() {
+    try {
+      var risky = (typeof APP !== "undefined" && APP.model && APP.model.risky) || [];
+      if (!risky.length) return null;
+      var map = {};
+      risky.forEach(function (r) {
+        var name = String(r.schoolRaw || "").trim();
+        if (!name) return;
+        if (!map[name]) map[name] = { name: name, org: "" };
+        var org = r.org ? String(r.org).trim() : "";
+        if (org && !map[name].org) map[name].org = org;
+      });
+      return Object.keys(map).sort().map(function (k) { return map[k]; });
+    } catch (e) { return null; }
+  }
+
+  function schoolOptionsHTML() {
+    var t = S.tracker;
+    var roster = tenantSchoolRoster();
+    var names = [], seen = {};
+    var add = function (nm) {
+      if (nm && !seen[nm.toLowerCase()]) { seen[nm.toLowerCase()] = true; names.push(nm); }
+    };
+    if (roster && roster.length) roster.forEach(function (s) { add(s.name); });
+    t.sessions.forEach(function (s) { add(s.client); });
+    var html = names.sort().map(function (nm) {
+      return '<option value="' + esc(nm) + '">';
+    }).join("");
+    return { html: html, src: (roster && roster.length) ? "ALL TENANTS tracker" : "training tracker" };
+  }
+
+  function newSessionFormHTML() {
+    var t = S.tracker, ev = S.eval, hint = ev && ev.hint;
+    var date = "", dateSrc = "";
+    if (ev && ev.responseDate) { date = ev.responseDate; dateSrc = "from response timestamps"; }
+    else if (hint && hint.dateISO) { date = hint.dateISO; dateSrc = "from filename"; }
+    var school = "";
+    if (hint && hint.school) {
+      school = t.acronymIndex[hint.school.toUpperCase()] || hint.school;
+    }
+    var t0 = hint && hint.session === "PM" ? "13:00" : "08:00";
+    var t1 = hint && hint.session === "PM" ? "17:00" : "12:00";
+    var trainers = t.roster.map(function (r) {
+      return '<option value="' + esc(r) + '">';
+    }).join("");
+    var cm = t.courseMap || { byCode: {}, byTitle: {} };
+    var codes = Object.keys(cm.byCode).sort().map(function (c) {
+      return '<option value="' + esc(c) + '">';
+    }).join("");
+    var titles = Object.keys(cm.byTitle).sort().map(function (x) {
+      return '<option value="' + esc(x) + '">';
+    }).join("");
+    var sch = schoolOptionsHTML();
+    return '<div class="tr-newform"><h4>Add this as a new session</h4>' +
+      '<div class="tr-newgrid">' +
+      '<label>Date* <input type="date" id="trns-date" value="' + esc(date) + '">' +
+      (dateSrc ? '<span class="tr-hint">' + dateSrc + "</span>" : "") + "</label>" +
+      '<label>Trainer* <input id="trns-trainer" list="trns-trainers" placeholder="type or pick"><datalist id="trns-trainers">' + trainers + "</datalist></label>" +
+      '<label>Course name <input id="trns-title" list="trns-titles" placeholder="start typing the course name"><datalist id="trns-titles">' + titles + "</datalist></label>" +
+      '<label>Course code* <input id="trns-code" list="trns-codes" placeholder="auto-filled from the name"><datalist id="trns-codes">' + codes +
+        '</datalist><span class="tr-hint" id="trns-codehint"></span></label>' +
+      '<label>School* <input id="trns-school" list="trns-schools" value="' + esc(school) + '" placeholder="type or pick"><datalist id="trns-schools">' + sch.html +
+        '</datalist><span class="tr-hint">suggestions from ' + sch.src + "</span></label>" +
+      '<label>Time start <input type="time" id="trns-t0" value="' + t0 + '"></label>' +
+      '<label>Time end <input type="time" id="trns-t1" value="' + t1 + '"></label>' +
+      "</div>" +
+      '<button type="button" class="tr-btn primary" data-traction="save-new-session">Save session</button> ' +
+      '<button type="button" class="tr-btn" data-traction="' + (S.manualForm ? 'cancel-manual' : 'cancel-new-session') + '">Cancel</button></div>';
+  }
+
+  function saveNewSession() {
+    var host = $("trainers-body"), t = S.tracker, ev = S.eval;
+    if (!t) return;
+    var g = function (id) { var el = host.querySelector("#trns-" + id); return el ? el.value.trim() : ""; };
+    var date = g("date"), trainer = g("trainer"), code = g("code"), client = g("school");
+    if (!date || !trainer || !code || !client) { alert("Date, trainer, course code and school are required."); return; }
+    var year = date.slice(0, 4);
+    var sid = P().nextSessionId(t.sessions, year);
+    // Ensure a Session ID column exists (in-memory; written at write-back).
+    var idCol = findHeader(t.headerRow, P().TRACKER_COLS.id);
+    if (idCol < 0) { t.headerRow.push("Session ID"); t.headerAdds = t.headerAdds || []; t.headerAdds.push("Session ID"); }
+    var row = new Array(t.headerRow.length).fill("");
+    var set = function (names, val) {
+      var i = findHeader(t.headerRow, names);
+      if (i >= 0) row[i] = val;
+    };
+    var ts = timeToFrac(g("t0")), te = timeToFrac(g("t1"));
+    set(["date"], date);
+    set(["year"], year);
+    set(["month"], MONTHS[+date.slice(5, 7) - 1] || "");
+    set(P().TRACKER_COLS.trainer, trainer);
+    set(P().TRACKER_COLS.code, code);
+    set(P().TRACKER_COLS.title, g("title"));
+    set(P().TRACKER_COLS.client, client);
+    set(["time start", "start"], ts == null ? "" : ts);
+    set(["time end", "end"], te == null ? "" : te);
+    if (ts != null && te != null) set(["duration"], Math.round((te - ts) * 24 * 100) / 100);
+    set(P().TRACKER_COLS.id, sid);
+
+    var rowIdx = t.lastRow + 1 + t.addedRows.length;
+    t.addedRows.push(row);
+    var d = new Date(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10));
+    var session = {
+      rowIdx: rowIdx, id: sid, date: d, dateISO: date,
+      trainer: trainer, code: code, title: g("title"), client: client,
+      timeStart: ts, timeEnd: te, nps: null, trainerScore: null,
+      status: "unscored", isNew: true
+    };
+    t.sessions.push(session);
+    // Keep the roster complete for future picks.
+    if (t.roster.indexOf(trainer) < 0) { t.roster.push(trainer); t.roster.sort(); }
+    S.selected = t.sessions.length - 1;
+    if (ev) ev.attachedTo = S.selected;
+    S.showingNewForm = false;
+    S.manualForm = false;
+    render();
+  }
+
+  function kpiStripHTML() {
+    var t = S.tracker, sum = P().buildSummary(t.sessions);
+    return '<div class="tr-kpis tr-kpis-top">' +
+      kpi(sum.total, "Sessions", "all sessions in tracker") +
+      kpi(sum.respondents, "Respondents", sum.respSessions + " session(s) scored") +
+      kpi(sum.avgNps == null ? "\u2014" : sum.avgNps, "Avg NPS", sum.scoredNps + " scored session(s)") +
+      kpi(sum.avgScore == null ? "\u2014" : sum.avgScore, "Avg trainer score", sum.scoredTs + " scored session(s)") +
+      kpi(sum.repeatRate + "%", "Repeat schools", "sessions at repeat schools") +
+      '</div>';
+  }
+
   function listHTML() {
     var rows = filteredSessions();
     var shown = rows.slice(0, 400);
@@ -320,13 +499,21 @@
       '<div class="tr-viewbtns">' +
       '<button type="button" class="tr-fpill' + (S.view === "sessions" ? " on" : "") + '" data-trview="sessions">Sessions</button>' +
       '<button type="button" class="tr-fpill' + (S.view === "board" ? " on" : "") + '" data-trview="board">Leaderboard</button>' +
+      '<button type="button" class="tr-fpill' + (S.view === "summary" ? " on" : "") + '" data-trview="summary">Summary</button>' +
+      '<button type="button" class="tr-fpill' + (S.view === "gen" ? " on" : "") + '" data-trview="gen">Feedback Generator</button>' +
       '<button type="button" class="tr-fpill" data-traction="export">Export</button>' +
       '</div></div>';
     if (S.view === "board") return h + boardHTML();
+    if (S.view === "summary") return h + summaryHTML();
+    if (S.view === "gen") return h + '<iframe class="tr-genframe" src="feedback-generator.html" title="Feedback Generator"></iframe>';
+    h += kpiStripHTML();
+    h += '<div class="tr-addrow"><button type="button" class="tr-btn primary" data-traction="add-session">+ Add session</button>' +
+         '<span class="tr-hint">manual entry \u2014 no eval file needed; type or pick every field</span></div>';
+    if (S.manualForm) h += newSessionFormHTML();
     h += '<div class="tr-count">' + rows.length + ' session' + (rows.length === 1 ? "" : "s") +
          (rows.length > 400 ? ' (showing 400 — refine search)' : '') + '</div>';
     h += '<table class="table table-sm tr-table" data-resizable="static"><thead><tr><th>Date</th><th>Trainer</th><th>Course</th><th>School</th>' +
-         '<th class="num">n</th><th class="num">NPS</th><th class="num">T-score</th><th>Status</th></tr></thead><tbody>';
+         '<th class="num">Responses</th><th class="num">NPS</th><th class="num">Trainer score</th><th>Status</th></tr></thead><tbody>';
     shown.forEach(function (s) {
       var c = s.computed || {};
       var nps = c.nps != null ? c.nps : s.nps, tsc = c.trainerScore != null ? c.trainerScore : s.trainerScore;
@@ -341,11 +528,85 @@
     return h + '</tbody></table>';
   }
 
+  function kpi(label, value, sub) {
+    return '<div class="tr-kpi"><div class="tr-kpi-v">' + value + '</div>' +
+           '<div class="tr-kpi-l">' + label + '</div>' +
+           (sub ? '<div class="tr-kpi-s">' + sub + '</div>' : '') + '</div>';
+  }
+
+  function summaryHTML() {
+    var t = S.tracker;
+    var rsess = t.sessions.filter(function (s) {
+      if (S.repTrainer && s.trainer !== S.repTrainer) return false;
+      if (S.repSchool && s.client !== S.repSchool) return false;
+      return true;
+    });
+    var trainers = t.roster.slice().sort();
+    var schools = [];
+    t.sessions.forEach(function (s) { if (s.client && schools.indexOf(s.client) < 0) schools.push(s.client); });
+    schools.sort();
+    var sum = P().buildSummary(rsess);
+    var today = new Date();
+    var stamp = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" +
+                String(today.getDate()).padStart(2, "0");
+    var filtDesc = [];
+    if (S.repTrainer) filtDesc.push('Trainer: ' + S.repTrainer);
+    if (S.repSchool) filtDesc.push('School: ' + S.repSchool);
+    var h = '<div class="tr-report" id="tr-report">' +
+      '<div class="tr-rpt-filters tr-noprint">' +
+      '<label>Trainer <select id="tr-rep-trainer"><option value="">All trainers</option>' +
+      trainers.map(function (r) { return '<option value="' + esc(r) + '"' + (S.repTrainer === r ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') +
+      '</select></label>' +
+      '<label>School <select id="tr-rep-school"><option value="">All schools</option>' +
+      schools.map(function (s) { return '<option value="' + esc(s) + '"' + (S.repSchool === s ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('') +
+      '</select></label>' +
+      ((S.repTrainer || S.repSchool) ? '<button type="button" class="tr-btn" data-traction="rep-clear">Clear</button>' : '') +
+      '</div>' +
+      '<div class="tr-rpt-head"><div><h3>Training Summary Report</h3>' +
+      '<div class="tr-meta">Generated ' + stamp + ' · ' + esc(t.name) + ' · ' + sum.total + ' session' + (sum.total === 1 ? '' : 's')
+      + (filtDesc.length ? ' · ' + esc(filtDesc.join(' · ')) : '') + '</div></div>' +
+      '<button type="button" class="tr-btn primary tr-noprint" data-traction="print-report">Print / PDF</button></div>' +
+      '<div class="tr-kpis">' +
+      kpi(sum.total, "Sessions", "all sessions in tracker") +
+      kpi(sum.hours, "Training hours", "sessions with start/end times") +
+      kpi(sum.respondents, "Respondents", sum.respSessions + " session(s) scored in the dashboard") +
+      kpi(sum.avgNps == null ? "—" : sum.avgNps, "Avg NPS", sum.scoredNps + " scored session(s)") +
+      kpi(sum.avgScore == null ? "—" : sum.avgScore, "Avg trainer score", sum.scoredTs + " scored session(s)") +
+      kpi(sum.repeatRate + "%", "Repeat-school rate", "sessions at repeat schools") +
+      '</div>';
+    // Monthly trend (CSS bars, offline-safe)
+    if (sum.monthly.length) {
+      var maxM = Math.max.apply(null, sum.monthly.map(function (m) { return m.sessions; }));
+      h += '<h4>Sessions by month</h4><div class="tr-bars">' +
+        sum.monthly.map(function (m) {
+          var w = maxM ? Math.round(m.sessions / maxM * 100) : 0;
+          return '<div class="tr-bar-row"><span class="tr-bar-k">' + esc(m.key) + '</span>' +
+                 '<span class="tr-bar-track"><span class="tr-bar-fill" style="width:' + w + '%"></span></span>' +
+                 '<span class="tr-bar-v">' + m.sessions + (m.avgNps != null ? ' · NPS ' + m.avgNps : '') + '</span></div>';
+        }).join("") + '</div>';
+    }
+    // Breakdowns
+    function breakTable(title, rows) {
+      var b = '<h4>' + title + '</h4><table class="table table-sm tr-table"><thead><tr>' +
+              '<th>' + title.replace(" by ", "") + '</th><th>Sessions</th><th>Avg NPS</th><th>Avg trainer score</th>' +
+              '</tr></thead><tbody>';
+      rows.forEach(function (r) {
+        b += '<tr><td>' + esc(r.key) + '</td><td class="num">' + r.sessions + '</td>' +
+             '<td class="num">' + (r.avgNps == null ? "—" : r.avgNps) + '</td>' +
+             '<td class="num">' + (r.avgScore == null ? "—" : r.avgScore) + '</td></tr>';
+      });
+      return b + '</tbody></table>';
+    }
+    if (sum.bySchool.length) h += breakTable("Sessions by school", sum.bySchool);
+    if (sum.byCourse.length) h += breakTable("Sessions by course", sum.byCourse);
+    return h + '</div>';
+  }
+
   function boardHTML() {
     var rows = leaderboard();
     if (!rows.length) return '<div class="tr-empty">No scored sessions yet.</div>';
     var h = '<table class="table table-sm tr-table" data-resizable="static"><thead><tr><th>Trainer</th><th class="num">Sessions</th>' +
-            '<th class="num">Avg NPS</th><th class="num">Avg T-score</th><th>Last session</th></tr></thead><tbody>';
+            '<th class="num">Avg NPS</th><th class="num">Avg trainer score</th><th>Last session</th></tr></thead><tbody>';
     rows.forEach(function (r) {
       h += '<tr><td>' + esc(r.trainer) + '</td><td class="num">' + r.sessions + '</td>' +
            '<td class="num">' + (r.avgNps != null ? num(r.avgNps, 1) : "—") + '</td>' +
@@ -369,7 +630,13 @@
                  esc(s.dateISO || "") + ' · ' + esc(s.client) + ' · ' + esc(s.trainer) + ' (' + esc(s.code) + ')</button>';
         }).join("") + '</div>';
       } else {
-        h += '<div class="tr-empty">No session matched the filename — pick one from the list.</div>';
+        h += '<div class="tr-empty">No session matched the filename — click a session in the list to attach this file to it.</div>';
+      }
+      if (S.showingNewForm) {
+        h += newSessionFormHTML();
+      } else {
+        h += '<div><button type="button" class="tr-btn" data-traction="new-session">Add as new session</button> ' +
+             '<span class="tr-hint">logs it in the tracker, then scores it like any other session</span></div>';
       }
       return h + '</div>';
     }
@@ -446,7 +713,7 @@
     // Write-back
     if (s.status === "ready") {
       h += '<div class="tr-writeback"><div class="tr-wb-preview">Write back: NPS <b>' + num(c.nps, 1) +
-           '</b> → “Net Promoter Score”, T-score <b>' + num(c.trainerScore, 2) +
+           '</b> → “Net Promoter Score”, trainer score <b>' + num(c.trainerScore, 2) +
            '</b> → “Trainer Score” on row ' + excelRow(s) + ' of ' + esc(S.tracker.name) + '.</div>' +
            '<button type="button" class="tr-btn primary" data-traction="writeback">Preview &amp; write to tracker</button></div>';
     } else if (s.status === "scored") {
@@ -479,7 +746,10 @@
     var h = '<div class="tr-head"><h2>Trainers</h2>' +
             '<div class="tr-pills">' + pillHTML("tracker") + pillHTML("eval") + '</div></div>';
     if (!S.tracker) {
-      h += '<div class="tr-empty">Upload your training tracker to list sessions. ' +
+      h += '<div class="tr-viewbtns">' +
+        '<button type="button" class="tr-fpill' + (S.view === "gen" ? " on" : "") + '" data-trview="gen">Feedback Generator</button></div>';
+      if (S.view === "gen") h += '<iframe class="tr-genframe" src="feedback-generator.html" title="Feedback Generator"></iframe>';
+      else h += '<div class="tr-empty">Upload your training tracker to list sessions. ' +
            '<button type="button" class="tr-btn" data-trpill="tracker">Upload tracker</button></div>';
     } else {
       h += '<div class="tr-sub">From <b>' + esc(S.tracker.name) + '</b> (' + esc(S.tracker.sheetName) + '): ' +
@@ -508,6 +778,55 @@
     });
     var search = host.querySelector("#tr-search");
     if (search) search.addEventListener("input", function () { S.q = search.value; renderListOnly(); });
+    // New-session form: course code <-> session title auto-fill (two-way).
+    var codeEl = host.querySelector("#trns-code"), titleEl = host.querySelector("#trns-title");
+    if (codeEl && titleEl && S.tracker) {
+      var cm = S.tracker.courseMap || { byCode: {}, byTitle: {} };
+      var hintEl = host.querySelector("#trns-codehint");
+      var showHint = function () {
+        if (!hintEl) return;
+        var m = cm.byCode[P().norm(codeEl.value)];
+        hintEl.textContent = m ? (m.product || "") + (m.duration != null ? " · " + m.duration + "h" : "") : "";
+      };
+      codeEl.addEventListener("input", function () { codeEl.setAttribute("data-auto", "0"); showHint(); });
+      codeEl.addEventListener("change", function () {
+        var m = cm.byCode[P().norm(codeEl.value)];
+        showHint();
+        if (m && m.title && (!titleEl.value || titleEl.getAttribute("data-auto") === "1")) {
+          titleEl.value = m.title;
+          titleEl.setAttribute("data-auto", "1");
+        }
+      });
+      var findCodeForTitle = function (txt) {
+        var key = P().norm(txt);
+        if (cm.byTitle[key]) return cm.byTitle[key];
+        // Fallback: unique case-insensitive prefix match (handles partial typing).
+        var low = key.toLowerCase(), hits = [];
+        Object.keys(cm.byTitle).forEach(function (k) {
+          if (k.toLowerCase().indexOf(low) === 0) hits.push(cm.byTitle[k]);
+        });
+        return hits.length === 1 ? hits[0] : null;
+      };
+      titleEl.addEventListener("change", function () {
+        var cc = findCodeForTitle(titleEl.value);
+        if (cc && (!codeEl.value || codeEl.getAttribute("data-auto") === "1")) {
+          codeEl.value = cc;
+          codeEl.setAttribute("data-auto", "1");
+          showHint();
+        }
+      });
+      // Live assist while typing: fill when the partial text uniquely matches.
+      titleEl.addEventListener("input", function () {
+        titleEl.setAttribute("data-auto", "0");
+        if (codeEl.value && codeEl.getAttribute("data-auto") !== "1") return;
+        var cc = findCodeForTitle(titleEl.value);
+        if (cc) { codeEl.value = cc; codeEl.setAttribute("data-auto", "1"); showHint(); }
+      });
+      showHint();
+    }
+    var repT = host.querySelector("#tr-rep-trainer"), repS = host.querySelector("#tr-rep-school");
+    if (repT) repT.addEventListener("change", function () { S.repTrainer = repT.value; render(); });
+    if (repS) repS.addEventListener("change", function () { S.repSchool = repS.value; render(); });
     host.querySelectorAll("[data-traction]").forEach(function (b) {
       b.addEventListener("click", function () { action(b.getAttribute("data-traction"), b); });
     });
@@ -531,14 +850,46 @@
     void val;
   }
 
+  function fsSupported() {
+    if (QBR.fsSupported) return QBR.fsSupported();
+    return typeof window.showOpenFilePicker === "function";
+  }
+  async function pickTrackerHandle() {
+    var handle;
+    try {
+      var picks = await window.showOpenFilePicker({
+        multiple: false,
+        types: [{ description: "Excel workbook", accept: {
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+          "application/vnd.ms-excel.sheet.macroEnabled.12": [".xlsm"] } }],
+      });
+      handle = picks[0];
+    } catch (e) { return; }
+    var perm = true;
+    try {
+      if (typeof QBR.fsEnsurePermission === "function") perm = await QBR.fsEnsurePermission(handle);
+      else {
+        var q = await handle.queryPermission({ mode: "readwrite" });
+        perm = q === "granted" || (await handle.requestPermission({ mode: "readwrite" })) === "granted";
+      }
+    } catch (e) { perm = false; }
+    if (!perm) { alert("Permission was not granted \u2014 the tracker was not linked."); return; }
+    var file;
+    try { file = await handle.getFile(); }
+    catch (e) { alert("Could not read the file: " + (e && e.message || e)); return; }
+    openTracker(file, handle).catch(function (e) {
+      alert("Could not open " + file.name + ": " + e.message);
+    });
+  }
   function pickFile(kind) {
     if (kind === "eval" && S.selected < 0 && !S.tracker) return;
+    if (kind === "tracker" && fsSupported()) { pickTrackerHandle(); return; }
     var inp = document.createElement("input");
     inp.type = "file"; inp.accept = ".xlsx,.xlsm,.xls";
     inp.onchange = function () {
       var f = inp.files && inp.files[0];
       if (!f) return;
-      (kind === "tracker" ? openTracker(f) : openEval(f)).catch(function (e) {
+      (kind === "tracker" ? openTracker(f, null) : openEval(f)).catch(function (e) {
         alert("Could not open " + f.name + ": " + e.message);
       });
     };
@@ -547,6 +898,15 @@
 
   function action(name, el) {
     if (name === "export") { exportResults(); return; }
+    if (name === "rep-clear") { S.repTrainer = ""; S.repSchool = ""; render(); return; }
+    if (name === "print-report") {
+      document.body.classList.add("tr-printing");
+      document.body.setAttribute("data-print", "dash-trainers");
+      var done = function () { document.body.classList.remove("tr-printing");
+        document.body.removeAttribute("data-print");
+        window.removeEventListener("afterprint", done); };
+      return;
+    }
     if (name === "upload-eval") { pickFile("eval"); return; }
     if (name === "attach") {
       var idx = el ? +el.getAttribute("data-idx") : -1;
@@ -554,6 +914,11 @@
       render();
       return;
     }
+    if (name === "new-session") { S.showingNewForm = true; render(); return; }
+    if (name === "cancel-new-session") { S.showingNewForm = false; render(); return; }
+    if (name === "cancel-manual") { S.manualForm = false; render(); return; }
+    if (name === "add-session") { S.manualForm = true; render(); return; }
+    if (name === "save-new-session") { saveNewSession(); return; }
     if (name === "generate") {
       var r = generateFor(S.selected);
       if (r && r.error) alert(r.error);
@@ -580,8 +945,9 @@
                num(x.computed.nps, 1) + ", Trainer Score = " + num(x.computed.trainerScore, 2);
       });
       if (pend.length > 12) lines.push("…and " + (pend.length - 12) + " more");
+      var inplace = !!S.tracker.handle;
       var msg = "Write " + pend.length + " session" + (pend.length === 1 ? "" : "s") + " to " + S.tracker.name + "?\n\n" +
-                lines.join("\n") + "\n\nThis downloads an updated copy (-scored).";
+                lines.join("\n") + "\n\n" + (inplace ? "Saves directly into the linked file." : "Downloads an updated copy (-scored).");
       if (window.confirm(msg)) writeback();
       return;
     }

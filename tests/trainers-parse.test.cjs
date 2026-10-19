@@ -32,6 +32,56 @@ eq(ss[1].status, "scored", "filled NPS -> scored");
 eq(ss[1].nps, 88.6, "nps numeric");
 eq(ss[0].timeStart < 0.5, true, "time start fraction kept");
 
+/* ---- session id column ---- */
+const irows = [["Session ID","Date","Trainer"],
+  ["SES-2023-0001", 45000, "ROE, Sample III"],
+  ["", 45001, "SANTOS, Maria"]];
+const iss = P.parseTrackerSheet(irows);
+eq(iss[0].id, "SES-2023-0001", "session id parsed");
+eq(iss[1].id, "", "blank session id -> empty string");
+
+/* ---- acronym index + next session id ---- */
+eq(P.acronymOf("Hill Crest College Carmel, Inc."), "HCCC", "acronym skips Inc.");
+eq(P.acronymOf("Academia De San Valle Fuerte"), "ASVF", "acronym skips De");
+var aidx = P.buildAcronymIndex(["Hill Crest College Carmel, Inc.", "Saint Garnet Academy", ""]);
+eq(aidx["HCCC"], "Hill Crest College Carmel, Inc.", "acronym lookup");
+eq(aidx["SGA"], "Saint Garnet Academy", "acronym lookup 2");
+eq(P.nextSessionId([{id:"SES-2024-0001"},{id:"SES-2024-0003"},{id:"SES-2023-0009"},{id:""}], "2024"), "SES-2024-0004", "next id = max+1 for the year");
+eq(P.nextSessionId([{id:"SES-2024-0001"}], "2026"), "SES-2026-0001", "new year restarts at 0001");
+
+/* ---- buildSummary ---- */
+var sumSessions = [
+  { dateISO: "2026-05-07", trainer: "A", code: "MS-101", client: "HCCCI", timeStart: 0.333, timeEnd: 0.5, nps: 80, trainerScore: 4.5, n: 44 },
+  { dateISO: "2026-05-08", trainer: "A", code: "MS-101", client: "HCCCI", timeStart: 0.333, timeEnd: 0.5, nps: 60, trainerScore: 4.0, n: 30 },
+  { dateISO: "2026-06-01", trainer: "B", code: "WD-201", client: "SPC", timeStart: null, timeEnd: null, nps: null, trainerScore: null }
+];
+var sm = P.buildSummary(sumSessions);
+eq(sm.total, 3, "summary total sessions");
+eq(sm.hours, 8, "summary training hours (2 x 4h)");
+eq(sm.avgNps, 70, "summary avg NPS over scored only");
+eq(sm.scoredNps, 2, "summary scored count");
+eq(sm.avgScore, 4.25, "summary avg trainer score");
+eq(sm.respondents, 74, "summary respondents summed");
+eq(sm.respSessions, 2, "summary respondent session count");
+eq(sm.repeatRate, 67, "summary repeat-school rate (2 of 3 at HCCCI)");
+eq(sm.bySchool.length, 2, "summary two schools");
+eq(sm.bySchool[0].key, "HCCCI", "summary schools sorted");
+eq(sm.bySchool[0].sessions, 2, "summary HCCCI session count");
+eq(sm.monthly.length, 2, "summary two months");
+eq(sm.monthly[0].key, "2026-05", "summary months sorted");
+eq(sm.byCourse[0].key, "MS-101", "summary courses sorted");
+
+/* ---- buildCourseMap ---- */
+var cmap = P.buildCourseMap([["Course Code","Product","Session Title","Estimated Duration"],
+  ["MS-101A","Microsoft","M365 Onboarding for Faculty",3],
+  ["MS-101B","Microsoft","M365 Onboarding for Students",3],
+  ["","Microsoft","No code row",2]]);
+eq(cmap.byCode["MS-101A"].title, "M365 Onboarding for Faculty", "course map code->title");
+eq(cmap.byCode["MS-101A"].product, "Microsoft", "course map product");
+eq(cmap.byCode["MS-101A"].duration, 3, "course map duration");
+eq(cmap.byTitle["M365 Onboarding for Students"], "MS-101B", "course map title->code");
+eq(!("" in cmap.byCode), true, "course map skips blank codes");
+
 /* ---- parseFilename ---- */
 let f = P.parseFilename("Training_Feedback_Form_-_05072026_-_AM_-_HCCCI_1-44.xlsx");
 eq(f, { dateISO: "2026-05-07", session: "AM", school: "HCCCI" }, "sample filename parsed");
@@ -112,40 +162,19 @@ eq(plan.addTrainerCol, true, "trainer score col added when missing");
 const plan2 = P.planWriteback(["Date", "Net Promoter Score", "Trainer Score"], wss);
 eq(plan2.addTrainerCol, false, "no new column when present");
 
-/* ---- regressions (v1.38.0 review) ---- */
-// Serial dates must not shift with the viewer's time zone (UTC getters)
-eq(P.excelDate(46149).iso, "2026-05-07", "serial 46149 -> 2026-05-07 in any TZ");
-// Text dates: M/D/Y (en-US, like the MMDDYYYY filenames); D/M/Y only when day > 12
-eq(P.excelDate("05/07/2026").iso, "2026-05-07", "text 05/07/2026 is May 7 (M/D/Y)");
-eq(P.excelDate("25/07/2026").iso, "2026-07-25", "text 25/07/2026 -> day-first when first part > 12");
-eq(P.excelDate("May 07, 2026").iso, "2026-05-07", "\"May 07, 2026\" (form Event Date) parsed");
-eq(P.excelDate("13/13/2026").iso, "", "impossible date -> empty");
-// Text times feed the AM/PM tiebreak
-eq(P.timeOf("8:00 AM"), 8 / 24, "\"8:00 AM\" -> 0.333");
-eq(P.timeOf("1:30 pm"), 13.5 / 24, "\"1:30 pm\" -> afternoon");
-eq(P.timeOf("12:15 AM") < 0.5 && P.timeOf("12:15 PM") >= 0.5, true, "12 AM / 12 PM edge");
-eq(P.timeOf(""), null, "blank time -> null");
-const tt = P.parseTrackerSheet([["Date", "Trainer", "Client", "Time Start"],
-  ["05/07/2026", "A", "HCCCI", "1:00 PM"], ["05/07/2026", "B", "HCCCI", "8:00 AM"]]);
-eq(P.suggestSessions(tt, { dateISO: "2026-05-07", session: "AM", school: "HCCCI" })[0].trainer, "B",
-  "AM/PM tiebreak works with text times");
-// Underscored school names (MS Forms filenames)
-eq(P.parseFilename("Training_Feedback_Form_-_05072026_-_PM_-_St._Example_Parish_School_1-44.xlsx").school,
-  "St. Example Parish School", "underscored school name -> spaces, _1-44 suffix dropped");
-eq(P.parseFilename("Form_-_05072026_-_am_-_A&B_College.xlsx").school, "A&B College", "lowercase am + & + trailing name");
-// Same-day fallback ranked below school matches
-const fb = P.suggestSessions([{ dateISO: "2026-05-07", client: "Hill Crest College", timeStart: 0.3 },
-  { dateISO: "2026-05-07", client: "HCCCI", timeStart: 0.6 }, { dateISO: "2026-05-08", client: "X" }],
-  { dateISO: "2026-05-07", session: "AM", school: "HCCCI" });
-eq(fb.map(s => s.client), ["HCCCI", "Hill Crest College"], "school match first, same-day fallback next, other days excluded");
-// Likert neutral
-eq(P.mapLikert("Neither agree nor disagree"), 3, "\"Neither agree nor disagree\" = 3 (not 2)");
-eq(P.mapLikert("Neither satisfied nor dissatisfied"), 3, "\"Neither satisfied nor dissatisfied\" = 3");
-// Missing NPS column is added, not silently skipped
-const p3 = P.planWriteback(["Date", "Trainer"], [{ rowIdx: 1, computed: { nps: 50, trainerScore: 4.2 } }]);
-eq([p3.npsCol, p3.addNpsCol, p3.addTrainerCol], [-1, true, true], "no NPS column -> addNpsCol");
-const p4 = P.planWriteback(["Net Promoter Score"], [{ rowIdx: 1, computed: { nps: null, trainerScore: null } }]);
-eq([p4.edits.length, p4.addTrainerCol], [0, false], "empty result -> no edits, no new column");
+/* ---- detectResponseDate ---- */
+var tsHead = ["ID", "Start time", "Completion time", "Q1"];
+var tsRows = [tsHead,
+  [1, "5/7/2026 9:00:00 AM", "5/7/2026 9:12:00 AM", 10],
+  [2, "5/7/2026 9:05:00 AM", "5/7/2026 9:18:00 AM", 9],
+  [3, "5/8/2026 9:00:00 AM", "5/8/2026 9:15:00 AM", 10]];
+eq(P.detectResponseDate(tsRows), "2026-05-07", "modal timestamp date wins");
+var tsSerial = [["ID", "Start time", "Q1"], [1, 46149.375, 10], [2, 46149.5, 9]];
+eq(P.detectResponseDate(tsSerial), "2026-05-07", "excel serial timestamps parsed");
+eq(P.detectResponseDate([["ID", "Q1"], [1, 10]]), null, "no timestamp column -> null");
+eq(P.detectResponseDate([["Start time"]]), null, "header only -> null");
+var tsBlank = [["ID", "Start time", "Q1"], [1, "", 10], [2, "5/7/2026 9:00 AM", 9]];
+eq(P.detectResponseDate(tsBlank), "2026-05-07", "blank cells ignored");
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

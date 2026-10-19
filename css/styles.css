@@ -552,7 +552,8 @@ table.resizable th{position:relative}
   body[data-print="dash-report"] #dash-report,
   body[data-print="dash-inventory"] #dash-inventory,
   body[data-print="dash-quality"] #dash-quality,
-  body[data-print="dash-fulldata"] #dash-fulldata{display:block !important}
+  body[data-print="dash-fulldata"] #dash-fulldata,
+  body[data-print="dash-trainers"] #dash-trainers,body.tr-printing #dash-trainers{display:block !important}
   .card-box,.kpi{box-shadow:none !important;border:1px solid var(--line);break-inside:avoid;transform:none !important}
   .card-box>table.table>thead>tr>th{position:static !important}
   .chart-wrap{height:230px}
@@ -2524,3 +2525,39 @@ body.mos-resizing,body.mos-resizing *{cursor:col-resize !important;user-select:n
 .tr-maprow span{width:220px;flex:none}
 .tr-maprow select{flex:1;max-width:420px}
 .tr-prev{font-size:13px;color:#6c757d;margin-bottom:6px}
+
+.tr-newform{margin-top:10px;padding:12px;border:1px solid #dee2e6;border-radius:8px;background:#f8f9fa}
+.tr-newform h4{margin:0 0 8px}
+.tr-newgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-bottom:8px}
+.tr-newgrid label{display:flex;flex-direction:column;font-size:12px;font-weight:600;gap:2px}
+.tr-newgrid input,.tr-newgrid select{font-weight:400}
+.tr-addrow{display:flex;align-items:center;gap:10px;margin:4px 0 10px}
+.tr-kpis-top{margin-top:4px}
+
+/* Trainers summary report */
+.tr-report{max-width:960px}
+.tr-rpt-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.tr-rpt-filters{display:flex;align-items:flex-end;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.tr-rpt-filters label{display:flex;flex-direction:column;font-size:12px;font-weight:600;gap:2px}
+.tr-rpt-filters select{min-width:200px;font-weight:400}
+.tr-rpt-head h3{margin:0}
+.tr-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}
+.tr-kpi{background:#fff;border:1px solid #dee2e6;border-radius:10px;padding:12px}
+.tr-kpi-v{font-size:24px;font-weight:700}
+.tr-kpi-l{font-size:12px;font-weight:600;color:#495057}
+.tr-kpi-s{font-size:11px;color:#6c757d}
+.tr-report h4{margin:16px 0 8px}
+.tr-bars{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+.tr-bar-row{display:grid;grid-template-columns:90px 1fr 130px;gap:8px;align-items:center;font-size:12px}
+.tr-bar-k{color:#495057}
+.tr-bar-track{background:#e9ecef;border-radius:4px;height:14px;overflow:hidden}
+.tr-bar-fill{display:block;height:100%;background:var(--blue,#1955a5)}
+.tr-bar-v{text-align:right;color:#495057}
+@media print{
+  body.tr-printing #app-sidebar,body.tr-printing .app-header,body.tr-printing .tr-noprint,
+  body.tr-printing .tr-toolbar,body.tr-printing .tr-pills{display:none!important}
+  body.tr-printing #app-body{margin:0}
+  body.tr-printing .tr-report{max-width:none}
+  body.tr-printing .tr-kpi{break-inside:avoid}
+}
+.tr-genframe{width:100%;height:calc(100vh - 220px);min-height:560px;border:1px solid #dee2e6;border-radius:8px;background:#fff}
