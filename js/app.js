@@ -2418,10 +2418,11 @@ function renderFileList() {
       const linked = (typeof QBR !== "undefined" && typeof QBR.fsIsLinkedByName === "function") ? QBR.fsIsLinkedByName(it.name) : false;
       const lk = linked ? (QBR._fsLinks || []).filter(l => fileKey(l.name) === fileKey(it.name))[0] : null;
       const viewOnly = !!(lk && !(lk.kinds || []).length); // v1.33.0: folder-linked, no editable sheets → ↻ reload only
-      const canLink = (typeof QBR !== "undefined" && typeof QBR.fsSupported === "function") ? QBR.fsSupported() : false;
+      const isCsv = /\.csv$/i.test(it.name || "");  // v1.39.0: folder links are Excel-only — say why
+      const canLink = !isCsv && ((typeof QBR !== "undefined" && typeof QBR.fsSupported === "function") ? QBR.fsSupported() : false);
       const editBox = `<input type="checkbox" class="loaded-file-edit" data-fk="${k}" data-fname="${escAttr(it.name)}"` +
         (linked ? " checked" : "") + (canLink ? "" : " disabled") +
-        ` title="${canLink ? (linked ? (viewOnly ? "Linked — ↻ reloads it from the file. It has no sheets the dashboard edits, so nothing is ever written to it. Uncheck to unlink" : "Direct save ON — uncheck to unlink") : "Check to enable direct save to this Excel file") : "Direct save needs Chrome or Edge"}" aria-label="Direct save">`;
+        ` title="${isCsv ? "CSV files can\u2019t be linked to a folder \u2014 save it as .xlsx (e.g. GDAP.xlsx) and link that instead" : canLink ? (linked ? (viewOnly ? "Linked — ↻ reloads it from the file. It has no sheets the dashboard edits, so nothing is ever written to it. Uncheck to unlink" : "Direct save ON — uncheck to unlink") : "Check to enable direct save to this Excel file") : "Direct save needs Chrome or Edge"}" aria-label="Direct save">`;
       return `<div class="loaded-file">${editBox}<span class="loaded-file-name" title="${escAttr(it.name)}">${esc(it.name)}</span>` +
         `<button type="button" class="loaded-file-r" data-fk="${k}" title="${linked ? "Reload this workbook from the file (picks up edits made in Excel)" : "Refresh this workbook — re-pick the file to load its latest data"}">↻</button>` +
         `<button type="button" class="loaded-file-x" data-fk="${k}" title="Remove this workbook">×</button></div>`;
@@ -2478,7 +2479,7 @@ function gdapLinked() {
 function gdapChip() {
   const on = gdapLinked();
   return `<span class="badge bg-${on ? "success" : "secondary"}" data-gdap-chip style="cursor:pointer" ` +
-    `title="GranularAdministerRelationship.csv \u2014 tenant IDs for script pre-fill \u2014 optional (click to link)">gdap</span>`;
+    `title="GDAP mapping workbook (e.g. GDAP.xlsx: Name + Microsoft ID columns) \u2014 tenant IDs for script pre-fill \u2014 optional (click to link)">gdap</span>`;
 }
 function wireGdapChip() {
   const c = document.querySelector("[data-gdap-chip]");
@@ -2544,13 +2545,26 @@ function processBuffers(buffers, meta) {
 
 // Parse + render a full item set, committing APP.files only on a clean parse
 // (rolls back on failure so a bad file never wipes the loaded session).
-// If a loaded file is a GDAP mapping CSV (Name,Microsoft ID), store it for the
-// tenant-ID lookup and refresh the gdap pill — no separate overlay linking
-// needed. The CSV stays in the workbook list; it contributes no workbook sources.
-function detectGdapCsv(items) {
+// If a loaded file is a GDAP mapping (Name + Microsoft ID columns), store it for the
+// tenant-ID lookup and refresh the gdap pill — no separate overlay linking needed.
+// v1.39.0: .xlsx/.xlsm whose name says GDAP/Granular (GDAP.xlsx, a folder-linked copy
+// re-read on ↻) is parsed from the bytes already read; the legacy .csv still works.
+// The file stays in the workbook list; it contributes no workbook sources.
+function detectGdap(items, buffers) {
   if (typeof QBR === "undefined" || typeof QBR.gdapParseCsv !== "function") return;
-  (items || []).forEach(it => {
-    if (!/\.csv$/i.test(it.name || "")) return;
+  const done = rows => {
+    if (!rows || !rows.length) return;
+    QBR.gdapSave(rows);
+    if (typeof QBR.refreshGdapChip === "function") QBR.refreshGdapChip();
+  };
+  (items || []).forEach((it, i) => {
+    const nm = it.name || "";
+    if (/\.(xlsx|xlsm)$/i.test(nm)) {
+      if (typeof QBR.gdapParseWorkbook !== "function" || !QBR.gdapIsMappingName(nm) || !buffers || !buffers[i]) return;
+      try { done(QBR.gdapParseWorkbook(buffers[i])); } catch (e) { console.warn("[QBR] " + nm + ": not a GDAP mapping \u2014 " + e.message); }
+      return;
+    }
+    if (!/\.csv$/i.test(nm)) return;
     const rd = new FileReader();
     rd.onload = () => {
       try {
@@ -2583,7 +2597,7 @@ function loadItems(items, meta) {
     try { if (typeof QBR !== "undefined" && QBR.fsRememberBase) QBR.fsRememberBase(items, buffers); } catch (e) {}
     const ok = processBuffers(buffers, meta || {});
     if (!ok) { APP.files = prev; return ok; }
-    try { detectGdapCsv(items); } catch (e) {}
+    try { detectGdap(items, buffers); } catch (e) {}
     // Replay any journaled entries recorded against these exact files
     // (covers both fresh uploads and session restores after Ctrl+R).
     try {
