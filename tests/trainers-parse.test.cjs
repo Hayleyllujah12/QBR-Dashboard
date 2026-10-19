@@ -176,5 +176,72 @@ eq(P.detectResponseDate([["Start time"]]), null, "header only -> null");
 var tsBlank = [["ID", "Start time", "Q1"], [1, "", 10], [2, "5/7/2026 9:00 AM", 9]];
 eq(P.detectResponseDate(tsBlank), "2026-05-07", "blank cells ignored");
 
+/* ---- regressions (v1.38.0 review) ---- */
+// Serial dates must not shift with the viewer's time zone (UTC getters)
+eq(P.excelDate(46149).iso, "2026-05-07", "serial 46149 -> 2026-05-07 in any TZ");
+// Text dates: M/D/Y (en-US, like the MMDDYYYY filenames); D/M/Y only when day > 12
+eq(P.excelDate("05/07/2026").iso, "2026-05-07", "text 05/07/2026 is May 7 (M/D/Y)");
+eq(P.excelDate("25/07/2026").iso, "2026-07-25", "text 25/07/2026 -> day-first when first part > 12");
+eq(P.excelDate("May 07, 2026").iso, "2026-05-07", "\"May 07, 2026\" (form Event Date) parsed");
+eq(P.excelDate("13/13/2026").iso, "", "impossible date -> empty");
+// Text times feed the AM/PM tiebreak
+eq(P.timeOf("8:00 AM"), 8 / 24, "\"8:00 AM\" -> 0.333");
+eq(P.timeOf("1:30 pm"), 13.5 / 24, "\"1:30 pm\" -> afternoon");
+eq(P.timeOf("12:15 AM") < 0.5 && P.timeOf("12:15 PM") >= 0.5, true, "12 AM / 12 PM edge");
+eq(P.timeOf(""), null, "blank time -> null");
+const tt = P.parseTrackerSheet([["Date", "Trainer", "Client", "Time Start"],
+  ["05/07/2026", "A", "HCCCI", "1:00 PM"], ["05/07/2026", "B", "HCCCI", "8:00 AM"]]);
+eq(P.suggestSessions(tt, { dateISO: "2026-05-07", session: "AM", school: "HCCCI" })[0].trainer, "B",
+  "AM/PM tiebreak works with text times");
+// Underscored school names (MS Forms filenames)
+eq(P.parseFilename("Training_Feedback_Form_-_05072026_-_PM_-_St._Example_Parish_School_1-44.xlsx").school,
+  "St. Example Parish School", "underscored school name -> spaces, _1-44 suffix dropped");
+eq(P.parseFilename("Form_-_05072026_-_am_-_A&B_College.xlsx").school, "A&B College", "lowercase am + & + trailing name");
+// Same-day fallback ranked below school matches
+const fb = P.suggestSessions([{ dateISO: "2026-05-07", client: "Hill Crest College", timeStart: 0.3 },
+  { dateISO: "2026-05-07", client: "HCCCI", timeStart: 0.6 }, { dateISO: "2026-05-08", client: "X" }],
+  { dateISO: "2026-05-07", session: "AM", school: "HCCCI" });
+eq(fb.map(s => s.client), ["HCCCI", "Hill Crest College"], "school match first, same-day fallback next, other days excluded");
+// Likert neutral
+eq(P.mapLikert("Neither agree nor disagree"), 3, "\"Neither agree nor disagree\" = 3 (not 2)");
+eq(P.mapLikert("Neither satisfied nor dissatisfied"), 3, "\"Neither satisfied nor dissatisfied\" = 3");
+// Missing NPS column is added, not silently skipped
+const p3 = P.planWriteback(["Date", "Trainer"], [{ rowIdx: 1, computed: { nps: 50, trainerScore: 4.2 } }]);
+eq([p3.npsCol, p3.addNpsCol, p3.addTrainerCol], [-1, true, true], "no NPS column -> addNpsCol");
+const p4 = P.planWriteback(["Net Promoter Score"], [{ rowIdx: 1, computed: { nps: null, trainerScore: null } }]);
+eq([p4.edits.length, p4.addTrainerCol], [0, false], "empty result -> no edits, no new column");
+
+
+/* ---- v1.39 review: session feedback report (analyzeEval) + summary ---- */
+const H = ["ID", "Start time", "School / Organization", "Knowledge and mastery of the topic", "Communication and presentation skills",
+  "Ability to engage and connect", "The pace of the session was just right", "Overall, how satisfied were you with the training?",
+  "On a scale of 0 to 10, how likely are you to recommend", "Why did you give this rating?", "What did you like best", "What suggestions do you have to improve"];
+const ER = [H,
+  [1, 46149.4, "HCCCI", "Strongly Agree", "Strongly Agree", "Agree", "Neutral", "Very satisfied", 10, "great", "Hands-on activities", "More hands-on practice"],
+  [2, 46149.4, "Hill Crest College of Carmel, Inc.", "Agree", "Strongly Agree", "Agree", "Somewhat Disagree", "Satisfied", 6, "Too fast pace", "Examples", "Slower pace, more practice"],
+  [3, 46149.4, "HCCCI", "Strongly Agree", "Agree", "Strongly Agree", "Agree", "Dissatisfied", "", "", "n/a", "none"],
+  ["", "", "", "", "", "", "", "", "", "", "", ""]];
+const ER_ROLES = P.detectLayout(H).roles;
+const A = P.analyzeEval(ER, ER_ROLES);
+eq(A.responses, 3, "analyzeEval: fully blank rows are not responses");
+eq([A.nps.n, A.nps.promoters, A.nps.detractors, A.nps.nps], [2, 1, 1, 0], "analyzeEval: blank NPS skipped (not a detractor) — v7 generator bug");
+eq(A.ratings.map(r => r.header.slice(0, 12)), ["Knowledge an", "Communicatio", "Ability to e", "The pace of ", "Overall, how"], "rating items detected; NPS / comment columns are not rating items");
+eq(A.ratings[3].avg, 3, "pace item: Neutral 3, Somewhat Disagree 2, Agree 4 -> 3.00");
+eq(A.satisfaction, 66.7, "satisfaction = top-2 share of the satisfaction item (2 of 3)");
+eq(A.schools.map(s => [s.name, s.count]), [["Hill Crest College of Carmel, Inc.", 3]], "acronym HCCCI merged into the full school name");
+eq(A.comments.suggest, ["More hands-on practice", "Slower pace, more practice"], "trivial answers (none / n/a) left out of comments");
+eq(A.detractorReasons, ["Too fast pace"], "detractor reasons come from NPS 0–6 rows only");
+eq(A.keywords.suggest[0], { word: "practice", count: 2 }, "top suggestion theme counted once per answer");
+eq(A.recommendations.map(r => r.priority), A.recommendations.map(r => r.priority).slice().sort((a, b) => ({ high: 0, medium: 1, low: 2 })[a] - ({ high: 0, medium: 1, low: 2 })[b]), "recommendations ordered high → low");
+ok(A.recommendations.some(r => /pace/i.test(r.title)), "lowest-rated item (pace) gets a recommendation");
+eq(A.responseDate, "2026-05-07", "answer date from the Start time column");
+eq(P.ratingColumns([["Comment"], ["Excellent session!"], ["Good"], ["Too long"], ["Fair enough I guess"], ["ok"], ["Loved it"], ["Hmm"], ["A"], ["B"]], {}).length, 0,
+  "free-text column with many distinct answers is not a rating item");
+const AE = P.analyzeEval([H], ER_ROLES);
+eq([AE.responses, AE.nps.nps, AE.overall, AE.recommendations.length], [0, null, null, 0], "empty eval: no crash, nulls, no recommendations");
+ok(P.isTrivial("N/A") && P.isTrivial(" none. ") && P.isTrivial("wala") && !P.isTrivial("Nothing to improve, great job"), "isTrivial");
+const SUM = P.buildSummary([{ client: "A", nps: 50, trainerScore: 4.5, n: 20, timeStart: 0.25, timeEnd: 0.5 }, { client: "A", nps: null, trainerScore: null, n: null }, { client: "B", nps: -10, trainerScore: 3.5, n: 5 }]);
+eq([SUM.respondents, SUM.respSessions, SUM.avgNps, SUM.avgScore, SUM.hours, SUM.repeatRate], [25, 2, 20, 4, 6, 67], "buildSummary: respondents from n, negative NPS averaged, hours, repeat rate");
+
 console.log("\n" + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
