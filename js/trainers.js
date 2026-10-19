@@ -1422,6 +1422,43 @@
       r.style.setProperty("--tr-tiles", String(n <= 4 ? n : n % 5 === 0 || n > 6 ? 5 : n === 6 ? 3 : 4));
     });
   }
+  /* Measure the print copy at paper width and walk it page by page: a block that must stay together
+   * but doesn't fit on the rest of the page would leave a gap there. If that gap is large, a card pair is
+   * stacked (each card then fits or flows on its own) and a card with a table/list is allowed to run on. */
+  var PAGE_W = 720, PAGE_H = 950; // px at 96 dpi: printable area of Letter/A4 with default margins
+  function fitToPages(host) {
+    var root = host.querySelector(".tr-report");
+    if (!root) return { changed: 0 };
+    host.classList.add("tr-measure");
+    var changed = 0, pages = 1;
+    try {
+      var y = 0, guard = 0;
+      var blocks = Array.prototype.slice.call(root.children);
+      for (var i = 0; i < blocks.length && guard++ < 400; i++) {
+        var b = blocks[i], cs = getComputedStyle(b);
+        if (cs.display === "none") continue;
+        var h = b.offsetHeight + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
+        var keep = b.classList.contains("tr-p-pair") || b.classList.contains("tr-p-keep") || b.classList.contains("kpi-row") || b.classList.contains("tr-print-head");
+        if (!keep || y + h <= PAGE_H) { y += h; while (y > PAGE_H) { y -= PAGE_H; pages++; } continue; }
+        var gap = PAGE_H - y, big = gap > PAGE_H * 0.2;
+        if (big && b.classList.contains("tr-p-pair")) {          // stack the pair and look at its cards again
+          b.classList.remove("tr-p-pair"); b.classList.add("tr-p-stack"); changed++;
+          var cards = Array.prototype.slice.call(b.querySelectorAll(":scope > [class*='col-'] > .card-box"));
+          cards.forEach(function (c) { if (c.querySelector("table, ul, ol")) { c.classList.remove("tr-p-keep"); c.classList.add("tr-p-flow"); } });
+          blocks.splice.apply(blocks, [i + 1, 0].concat(cards.map(function (c) { return c.parentNode; })));
+          y += 0; // the row itself has no height of its own now; its columns are walked next
+          continue;
+        }
+        if (big && b.querySelector("table, ul, ol")) {           // let it run on to the next page
+          b.classList.remove("tr-p-keep"); b.classList.add("tr-p-flow"); changed++;
+          y += h; while (y > PAGE_H) { y -= PAGE_H; pages++; } continue;
+        }
+        pages++; y = h; while (y > PAGE_H) { y -= PAGE_H; pages++; }  // starts on the next page
+      }
+    } finally { host.classList.remove("tr-measure"); }
+    S.lastFit = { changed: changed, pages: pages };
+    return S.lastFit;
+  }
   function printReport(srcId) {
     var src = $(srcId);
     if (!src) return false;
@@ -1440,7 +1477,10 @@
       var w = cv.closest(".chart-wrap");
       if (w) { w.replaceWith(im); } else cv.replaceWith(im);
     });
-    host.innerHTML = '<div class="tr-print-doc">' + doc.outerHTML + '<div class="tr-print-foot"><span>RCT OpsDesk · Trainer evaluations</span><span>Generated ' + esc(new Date().toLocaleString()) + '</span></div></div>';
+    // No separate footer block: on its own it could spill onto an otherwise empty last page.
+    var ph = doc.querySelector(".tr-print-head");
+    if (ph) ph.insertAdjacentHTML("beforeend", '<div class="tr-ph-by">RCT OpsDesk · Trainer evaluations · printed ' + esc(new Date().toLocaleString()) + '</div>');
+    host.innerHTML = '<div class="tr-print-doc">' + doc.outerHTML + '</div>';
     document.body.appendChild(host);
     document.body.classList.add("tr-printing");
     // Paper is light: print with the light theme tokens (restored afterwards).
@@ -1461,7 +1501,7 @@
     S.lastPrint = { charts: Object.keys(imgs).length, html: host.innerHTML.length };
     return Promise.race([Promise.all(pics.map(function (im) { return im.decode ? im.decode().catch(function () {}) : Promise.resolve(); })),
                          new Promise(function (r) { setTimeout(r, 3000); })])
-      .then(function () { try { window.print(); } finally { setTimeout(cleanup, 60000); } });
+      .then(function () { try { fitToPages(host); } catch (e) {} try { window.print(); } finally { setTimeout(cleanup, 60000); } });
   }
 
   /* ---------------- actions ---------------- */

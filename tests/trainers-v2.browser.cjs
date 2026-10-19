@@ -175,6 +175,8 @@ async function fresh(browser) {
     "E5 Session report (PDF) prints the feedback report");
   ok(await page.evaluate(() => /tr-p-(pair|stack)/.test(window.__printHtml) && /tr-p-(keep|flow)/.test(window.__printHtml) && /--tr-tiles: ?5/.test(window.__printHtml)),
     "E6 print layout decided from content (pairs / stacked long tables, 5 tiles per row)");
+  ok(await page.evaluate(() => { const f = QBR.trainers._state.lastFit; return !!f && f.pages >= 1 && !document.querySelector("#tr-print .tr-print-foot") && /printed /.test(window.__printHtml); }),
+    "E7 page fitting ran before print (measured at paper width); no stray footer block");
   await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
   ok(page._errs.length === 0, "zero page errors" + (page._errs.length ? ": " + page._errs.join(" | ") : ""));
   await page.close();

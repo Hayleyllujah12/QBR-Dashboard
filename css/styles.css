@@ -2532,6 +2532,8 @@ body.mos-resizing,body.mos-resizing *{cursor:col-resize !important;user-select:n
 .tr-meter>span{display:block;height:100%;background:var(--brand)}
 .tr-print-only{display:none}
 #tr-print{display:none}
+/* print copy measured at paper width before printing (fitToPages) */
+#tr-print.tr-measure{display:block !important;position:absolute;left:-12000px;top:0;width:720px;visibility:hidden}
 @media print{
   body.tr-printing > *:not(#tr-print){display:none !important}
   body.tr-printing #tr-print{display:block !important}
@@ -2542,6 +2544,7 @@ body.mos-resizing,body.mos-resizing *{cursor:col-resize !important;user-select:n
 #tr-print .tr-print-head{border-bottom:2px solid #0F6CBD;padding-bottom:4px;margin-bottom:6px}
 #tr-print .tr-ph-title{font-size:16pt;font-weight:700;color:#0F6CBD}
 #tr-print .tr-ph-sub{font-size:9.5pt;color:#424242}
+#tr-print .tr-ph-by{font-size:7.5pt;color:#616161}
 #tr-print .card-box{box-shadow:none !important;border:1px solid #D1D1D1;background:#fff;color:#000;padding:6px 8px;height:auto;margin-top:6px !important}
 #tr-print .card-box.tr-p-keep{break-inside:avoid}
 #tr-print .card-box.tr-p-flow{break-inside:auto}
