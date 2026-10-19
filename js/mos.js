@@ -155,7 +155,7 @@
   }
 
   function rebuild() {
-    S.model = S.attempts.length ? P().buildModel(S.attempts, S.roster, S.overrides) : null;
+    S.model = S.attempts.length ? P().buildModel(S.attempts, S.roster, S.overrides, { acronyms: acronymMap() }) : null;
     render();
   }
 
@@ -212,6 +212,8 @@
             '<label class="mos-chk small"><input id="mos-f-first" type="checkbox"> First attempts only</label>' +
             '<button id="mos-reset" class="btn btn-outline-secondary btn-sm" type="button">Reset filters</button>' +
             '<button id="mos-export" class="btn btn-outline-primary btn-sm" type="button" title="Download the filtered results as an Excel workbook (no emails or addresses)">Export (.xlsx)</button>' +
+            '<button id="mos-summary" class="btn btn-primary btn-sm" type="button" title="Printable Exam Summary for the current filters (school logo + banner). Choose “Save as PDF” in the print dialog.">Exam Summary (PDF)</button>' +
+            '<button id="mos-profile" class="btn btn-outline-secondary btn-sm" type="button" title="Logo, banner, name and acronym used on the Exam Summary for the selected school (saved in this browser)">School profile…</button>' +
           '</div>' +
         '</div>' +
         '<div id="mos-kpi" class="row row-cols-2 row-cols-md-4 row-cols-xl-8 g-3 kpi-row mt-1"></div>' +
@@ -277,6 +279,8 @@
       S.limit = 200; update();
     });
     $("mos-export").addEventListener("click", exportXlsx);
+    $("mos-summary").addEventListener("click", printSummary);
+    $("mos-profile").addEventListener("click", openProfile);
     $("mos-groupby").addEventListener("change", function (e) { S.groupBy = e.target.value; update(); });
     host.querySelectorAll("[data-mos-trend]").forEach(function (b) {
       b.addEventListener("click", function () { S.trend = b.getAttribute("data-mos-trend"); update(); });
@@ -651,12 +655,171 @@
     return p.join(" · ") || "None";
   }
 
+  /* ---------------- school profiles (logo + banner; this browser only) ----------------
+   * { [school as in the data]: { title, acronym, address, logo: dataURL, banner: dataURL } } in localStorage.
+   * School images only — no student data is ever stored. */
+  var PROF_KEY = "qbr-mos-school-profiles-v1", LOGO_MAX = 512 * 1024, BANNER_MAX = 1536 * 1024;
+  function profiles() { try { return JSON.parse(localStorage.getItem(PROF_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function saveProfiles(all) {
+    try { localStorage.setItem(PROF_KEY, JSON.stringify(all)); return true; }
+    catch (e) { window.alert("Could not save the school images in this browser (storage is full). Try a smaller image."); return false; }
+  }
+  function profileOf(school) { return profiles()[school] || {}; }
+  function acronymMap() { var all = profiles(), o = {}; Object.keys(all).forEach(function (k) { if (all[k].acronym) o[k] = all[k].acronym; }); return o; }
+  function readImage(file, max) {
+    return new Promise(function (res, rej) {
+      if (!file) return rej(new Error("No file"));
+      if (!/^image\/(png|jpe?g|gif|webp|svg\+xml)$/i.test(file.type)) return rej(new Error("Use a PNG, JPG, GIF, WebP or SVG image."));
+      if (file.size > max) return rej(new Error("Image is too large (" + Math.round(file.size / 1024) + " KB; max " + Math.round(max / 1024) + " KB)."));
+      var fr = new FileReader();
+      fr.onerror = function () { rej(new Error("Could not read the image.")); };
+      fr.onload = function () {
+        var img = new Image();
+        img.onload = function () { res(fr.result); };
+        img.onerror = function () { rej(new Error("That file is not a valid image.")); };
+        img.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+  function openProfile() {
+    var school = S.f.school || (S.model && uniq(S.model.rows.map(function (r) { return r.school; })).length === 1 ? S.model.rows[0].school : "");
+    if (!school) { window.alert("Pick a school in the School filter first."); return; }
+    var pr = profileOf(school), work = { title: pr.title || "", acronym: pr.acronym || "", address: pr.address || "", logo: pr.logo || "", banner: pr.banner || "" };
+    var ov = document.createElement("div");
+    ov.className = "mos-ov"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true"); ov.setAttribute("aria-labelledby", "mos-pf-h");
+    function draw(msg) {
+      ov.innerHTML = '<div class="mos-ov-box card-box">' +
+        '<h5 id="mos-pf-h" class="mb-1">School profile</h5><div class="small text-muted mb-2">' + esc(school) + ' · used on the Exam Summary. Saved in this browser only.</div>' +
+        '<label class="mos-fl w-100 mb-2"><span>Name on the summary</span><input id="mos-pf-title" class="form-control form-control-sm" value="' + esc(work.title) + '" placeholder="' + esc(school) + '"></label>' +
+        '<div class="d-flex gap-2 mb-2"><label class="mos-fl"><span>Acronym (batch codes)</span><input id="mos-pf-acr" class="form-control form-control-sm" maxlength="8" value="' + esc(work.acronym) + '" placeholder="' + esc(P().acronym(school)) + '"></label>' +
+        '<label class="mos-fl flex-grow-1"><span>Address line (optional)</span><input id="mos-pf-addr" class="form-control form-control-sm" value="' + esc(work.address) + '"></label></div>' +
+        '<div class="mos-pf-imgs">' +
+          '<div><div class="small fw-bold">Logo</div><div class="mos-pf-prev">' + (work.logo ? '<img id="mos-pf-logo-img" alt="School logo" src="' + work.logo + '">' : '<span class="small text-muted">None</span>') + '</div>' +
+          '<label class="btn btn-outline-primary btn-sm mb-0">Upload logo…<input id="mos-pf-logo" type="file" accept="image/*" hidden></label> ' +
+          (work.logo ? '<button type="button" class="btn btn-link btn-sm" data-pf-clear="logo">Remove</button>' : "") + '<div class="small text-muted">PNG/JPG/SVG, ≤ 512 KB</div></div>' +
+          '<div><div class="small fw-bold">Banner (full width, optional)</div><div class="mos-pf-prev mos-pf-prev-banner">' + (work.banner ? '<img id="mos-pf-banner-img" alt="School banner" src="' + work.banner + '">' : '<span class="small text-muted">None</span>') + '</div>' +
+          '<label class="btn btn-outline-primary btn-sm mb-0">Upload banner…<input id="mos-pf-banner" type="file" accept="image/*" hidden></label> ' +
+          (work.banner ? '<button type="button" class="btn btn-link btn-sm" data-pf-clear="banner">Remove</button>' : "") + '<div class="small text-muted">Wide image, e.g. 2000×300 px, ≤ 1.5 MB</div></div>' +
+        '</div>' +
+        '<div id="mos-pf-msg" class="small text-danger mt-1" role="alert">' + esc(msg || "") + '</div>' +
+        '<div class="d-flex justify-content-end gap-2 mt-2"><button type="button" class="btn btn-outline-secondary btn-sm" id="mos-pf-cancel">Cancel</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="mos-pf-save">Save</button></div></div>';
+      function keep() { work.title = ov.querySelector("#mos-pf-title").value.trim(); work.acronym = ov.querySelector("#mos-pf-acr").value.trim().toUpperCase(); work.address = ov.querySelector("#mos-pf-addr").value.trim(); }
+      ["logo", "banner"].forEach(function (k) {
+        ov.querySelector("#mos-pf-" + k).addEventListener("change", function (e) {
+          keep();
+          readImage(e.target.files[0], k === "logo" ? LOGO_MAX : BANNER_MAX).then(function (url) { work[k] = url; draw(); }, function (err) { draw(err.message); });
+        });
+      });
+      ov.querySelectorAll("[data-pf-clear]").forEach(function (b) { b.addEventListener("click", function () { keep(); work[b.getAttribute("data-pf-clear")] = ""; draw(); }); });
+      ov.querySelector("#mos-pf-cancel").addEventListener("click", close);
+      ov.querySelector("#mos-pf-save").addEventListener("click", function () {
+        keep();
+        var all = profiles(); all[school] = work;
+        if (!work.title && !work.acronym && !work.address && !work.logo && !work.banner) delete all[school];
+        if (saveProfiles(all)) { close(); rebuild(); }
+      });
+      setTimeout(function () { var t = ov.querySelector("#mos-pf-title"); if (t) t.focus(); }, 20);
+    }
+    function close() { document.removeEventListener("keydown", onKey, true); if (ov.parentNode) ov.parentNode.removeChild(ov); var b = $("mos-profile"); if (b) b.focus(); }
+    function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
+    document.addEventListener("keydown", onKey, true);
+    document.body.appendChild(ov); draw();
+  }
+
+  /* ---------------- Exam Summary (print → Save as PDF) ----------------
+   * Covers exactly the current filters. One page header (banner, logo, school, batch/exam, dates, proctors),
+   * KPI strip, then the student table: skill areas as columns I–V when every row is the same exam (legend
+   * under the table), red below 50%; scores below 700 red. Opened as a print view; the browser's
+   * "Save as PDF" makes the file. No emails, addresses or IDs are printed. */
+  function romans(i) { return ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"][i] || String(i + 1); }
+  function buildSummary(R) {
+    var f = S.f, rows = R.slice().sort(function (a, b) {
+      return (a.section || "~").localeCompare(b.section || "~") || String(a.rosterName || a.name).toLowerCase().localeCompare(String(b.rosterName || b.name).toLowerCase()) || (a.date || "").localeCompare(b.date || "");
+    });
+    var schools = uniq(rows.map(function (r) { return r.school; }));
+    var school = schools.length === 1 ? schools[0] : "";
+    var pr = school ? profileOf(school) : {};
+    var exams = uniq(rows.map(function (r) { return r.exam; }));
+    var dates = uniq(rows.map(function (r) { return r.date; }));
+    var batches = uniq(rows.map(function (r) { return r.examNo ? "Exam " + r.examNo : r.batch; }));
+    var proctors = uniq(rows.map(function (r) { return r.proctor; }));
+    var sections = uniq(rows.map(function (r) { return r.section; }));
+    var s = P().summarize(rows);
+    // skill columns only when one exam family + the same objectives
+    var areas = [];
+    if (exams.length === 1) {
+      var withSk = rows.filter(function (r) { return r.skills && r.skills.length; });
+      if (withSk.length) {
+        var sig = withSk[0].skills.map(function (k) { return k.area; }).join("|");
+        if (withSk.every(function (r) { return r.skills.map(function (k) { return k.area; }).join("|") === sig; })) areas = withSk[0].skills.map(function (k) { return k.area; });
+      }
+    }
+    var dateTxt = !dates.length ? "" : dates.length === 1 ? fmtDate(dates[0]) : fmtDate(dates[0]) + " – " + fmtDate(dates[dates.length - 1]);
+    var meta = [
+      ["Exam", exams.join(", ") || "—"], ["Exam No. / batch", batches.length > 4 ? batches.length + " batches" : (batches.join(", ") || "—")],
+      ["Date", dateTxt || "—"], ["Section", sections.length ? (sections.length > 6 ? sections.length + " sections" : sections.join(", ")) : "—"],
+      ["Proctor", proctors.length ? proctors.join(", ") : "—"]
+    ];
+    var html = '<div class="mos-sum-doc">' +
+      (pr.banner ? '<img class="mos-sum-banner" alt="" src="' + pr.banner + '">' : "") +
+      '<div class="mos-sum-hdr">' + (pr.logo ? '<img class="mos-sum-logo" alt="" src="' + pr.logo + '">' : "") +
+        '<div class="mos-sum-titles"><div class="mos-sum-school">' + esc(pr.title || school || "All schools") + "</div>" +
+        (pr.address ? '<div class="mos-sum-addr">' + esc(pr.address) + "</div>" : "") +
+        '<div class="mos-sum-title">Microsoft Office Specialist — Exam Summary</div></div></div>' +
+      '<table class="mos-sum-meta"><tbody><tr>' + meta.map(function (m) { return "<th>" + esc(m[0]) + "</th><td>" + esc(m[1]) + "</td>"; }).join("") + "</tr></tbody></table>" +
+      '<div class="mos-sum-kpis">' + [
+        ["Examinees", num(s.attempts)], ["Passed", num(s.passed)], ["Failed", num(s.failed)], ["Passing rate", pct(s.passRate)],
+        ["Average", num(s.avg)], ["Highest", s.high == null ? "—" : s.high], ["Lowest", s.low == null ? "—" : s.low]
+      ].concat(s.pending ? [["In progress", num(s.pending)]] : []).map(function (k) { return '<div><b>' + k[1] + "</b><span>" + esc(k[0]) + "</span></div>"; }).join("") + "</div>" +
+      '<table class="mos-sum-tbl"><thead><tr><th class="num">#</th><th>Name</th><th>Section</th>' + (exams.length > 1 ? "<th>Exam</th>" : "") + (dates.length > 1 ? "<th>Date</th>" : "") +
+        areas.map(function (a, i) { return '<th class="num" title="' + esc(a) + '">' + romans(i) + "</th>"; }).join("") +
+        '<th class="num">Score</th><th>Result</th></tr></thead><tbody>' +
+      rows.map(function (r, i) {
+        var skCells = areas.map(function (a, j) { var k = (r.skills || [])[j]; return '<td class="num' + (k && k.pct < 50 ? " low" : "") + '">' + (k ? k.pct + "%" : "—") + "</td>"; }).join("");
+        return "<tr" + (r.pending ? ' class="wait"' : !r.pass ? ' class="fail"' : "") + '><td class="num">' + (i + 1) + "</td><td>" + esc(r.rosterName || r.name) + (r.isRetake ? ' <span class="rt">retake</span>' : "") +
+          "</td><td>" + esc(r.section || "—") + "</td>" + (exams.length > 1 ? "<td>" + esc(r.exam) + "</td>" : "") + (dates.length > 1 ? "<td>" + fmtDate(r.date) + "</td>" : "") + skCells +
+          '<td class="num"><b>' + (r.score == null ? "—" : r.score) + "</b></td><td>" + (r.pending ? "In progress" : r.pass ? "Passed" : "Failed") + "</td></tr>";
+      }).join("") + "</tbody></table>" +
+      (areas.length ? '<div class="mos-sum-legend"><b>Skill areas</b> (section analysis %, red below 50%): ' + areas.map(function (a, i) { return "<span><b>" + romans(i) + "</b> " + esc(a) + "</span>"; }).join("") + "</div>" : "") +
+      '<div class="mos-sum-foot"><span>Passing score: 700 / 1000 · Source: Certiport score reports' + (S.exports.length ? " and results export" : "") + "</span>" +
+        "<span>Filters: " + esc(describeFilters()) + "</span><span>Generated " + esc(new Date().toLocaleString()) + " · RCT OpsDesk</span></div>" +
+      "</div>";
+    return { html: html, rows: rows.length, areas: areas.length, school: school, logo: !!pr.logo, banner: !!pr.banner };
+  }
+  function printSummary() {
+    var R = rows();
+    if (!R.length) { window.alert("No attempts match the current filters."); return; }
+    if (R.length > 600 && !window.confirm(R.length + " attempts will be printed. Narrow the filters to one school / batch for a shorter summary. Continue?")) return;
+    var out = buildSummary(R);
+    var host = $("mos-print"); if (host) host.parentNode.removeChild(host);
+    host = document.createElement("div"); host.id = "mos-print"; host.innerHTML = out.html;
+    document.body.appendChild(host);
+    document.body.classList.add("mos-printing");
+    var prevTitle = document.title;
+    document.title = "MOS Exam Summary" + (out.school ? " - " + (profileOf(out.school).acronym || P().acronym(out.school)) : "") + (S.f.examNo ? " - " + S.f.examNo : "") + " - " + new Date().toISOString().slice(0, 10);
+    var done = false;
+    function cleanup() {
+      if (done) return; done = true;
+      document.body.classList.remove("mos-printing"); document.title = prevTitle;
+      var h = $("mos-print"); if (h && h.parentNode) h.parentNode.removeChild(h);
+      window.removeEventListener("afterprint", cleanup);
+    }
+    window.addEventListener("afterprint", cleanup);
+    var imgs = Array.prototype.slice.call(host.querySelectorAll("img"));
+    Promise.race([Promise.all(imgs.map(function (im) { return im.decode ? im.decode().catch(function () {}) : Promise.resolve(); })), new Promise(function (r) { setTimeout(r, 3000); })])
+      .then(function () { try { window.print(); } finally { setTimeout(cleanup, 60000); } });
+    S.lastSummary = out;
+  }
+
   /* ---------------- hooks ---------------- */
   QBR.mos = {
     render: render,
     addPdfs: addPdfs, addRoster: addRoster, clear: clearAll,
     // test seams (no DOM file pickers in headless tests)
     _state: function () { return S; },
+    _summary: function () { return buildSummary(rows()); }, printSummary: printSummary, openProfile: openProfile,
     _loadAttempts: function (attempts, roster) { S.attempts = attempts.slice(); S.roster = (roster || []).slice(); rebuild(); }
   };
   document.addEventListener("qbr:flags-ready", function () { if (S.built || $("mos-body")) render(); });
