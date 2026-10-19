@@ -148,6 +148,10 @@
         <div class="sb-gh" id="sbg-cert">Certification</div>
         <button class="tab-btn sb-item" type="button" data-tab="dash-mos" data-group="Certification" data-feature="mos"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-cert"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-cert-f"/></svg><span class="sb-label">MOS results</span></button>
       </div>
+      <div class="sb-group" role="group" aria-labelledby="sbg-training" data-module="training" data-feature="trainers">
+        <div class="sb-gh" id="sbg-training">Training</div>
+        <button class="tab-btn sb-item" type="button" data-tab="dash-trainers" data-group="Training" data-feature="trainers"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-people-team"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-people-team-f"/></svg><span class="sb-label">Trainers</span></button>
+      </div>
       <div class="sb-group" role="group" aria-labelledby="sbg-inv" data-module="inventory">
         <div class="sb-gh" id="sbg-inv">Inventory</div>
         <button class="tab-btn sb-item" type="button" data-tab="dash-inventory" data-group="Inventory"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-storage"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-storage-f"/></svg><span class="sb-label">Inventory</span></button>
@@ -698,6 +702,10 @@
     <section id="dash-mos" class="dash-panel d-none" data-deck="skip">
       <div id="mos-body"></div>
     </section>
+    <!-- TRAINERS (trainer evaluations from MS Forms; own upload pills + session list) -->
+    <section id="dash-trainers" class="dash-panel d-none" data-deck="skip">
+      <div id="trainers-body"></div>
+    </section>
     <section id="dash-todo" class="dash-panel d-none">
     </section>
     <section id="dash-gtickets" class="dash-panel d-none">
@@ -1142,6 +1150,8 @@
   <script src="js/todo.js"></script>
   <script src="js/mos-parse.js"></script>  <!-- v1.37.0: MOS score-report parser (pure; pdf.js loads on demand from libs/pdfjs) -->
   <script src="js/mos.js"></script>  <!-- v1.37.0: MOS tab (Certification > MOS results) -->
+  <script src="js/trainers-parse.js"></script>  <!-- Trainers tab: pure eval/score logic (Node-testable) -->
+  <script src="js/trainers.js"></script>  <!-- Trainers tab: tracker sessions + MS Forms eval scoring -->
   <script src="js/gentickets.js"></script>
   <script src="js/identity.js"></script>  <!-- v1.31.0: Netlify Identity login on *.netlify.app only (loads its widget there; no-op offline/live) -->
   <script src="js/admin.js"></script>  <!-- v1.31.0: discreet admin panel (feature flags) -->
