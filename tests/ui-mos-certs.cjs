@@ -26,6 +26,7 @@ function tree(d) {
 const T = { "MOS Courses": tree(FX) };
 const C4 = T["MOS Courses"];
 C4["01 - Demo High School"]["Images"] = { "Exam 9999 Certificates.pdf": C4["02 - Sample Academy"]["Certificates"]["Exam 9002 Excel Certificates.pdf"] };   // skipped folder
+C4["05 - Other Academy"] = { "Certificates": { "Exam 9100 Excel Certificates.pdf": C4["02 - Sample Academy"]["Certificates"]["Exam 9002 Excel Certificates.pdf"] } };   // a school not in the results
 let deep = C4; ["a", "b", "c", "d", "e", "f", "Certificates g"].forEach(n => { deep = deep[n] = deep[n] || {}; });
 deep["Exam 9998 Certificates.pdf"] = C4["02 - Sample Academy"]["Certificates"]["Exam 9002 Excel Certificates.pdf"];                                 // 7 levels: not opened
 
@@ -99,16 +100,22 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   await page.click('[data-mc="folder-choose"]');
   await page.waitForFunction(() => QBR.mos._state().certs.length >= 4 && !QBR.mosCerts._state.busy, null, { timeout: 30000 });
   ok(await page.evaluate(() => window.__scanOpts.id === "d1" && localStorage.getItem("qbr-mos-cert-folder") === "d1") && await page.$('select[data-mc="folder-pick"]'), "“Link another folder…” links the MOS folder, loads it, remembers it, and a picker lists both");
+  const sm = await page.evaluate(() => QBR.mosCerts._state.msg);
+  ok(/Demo High School 1/.test(sm) && /Sample Academy 2/.test(sm) && /1 PDF of 1 other school not read/.test(sm), "scoped scan: only the schools in the results are read; the other school's PDF is skipped and counted — " + sm.slice(0, 160));
+  ok(await page.evaluate(() => !QBR.mos._state().files.some(f => /9100/.test(f.file))), "other school's certificate PDF not read");
   await page.waitForTimeout(300);
   const st = await page.evaluate(() => ({ n: QBR.mos._state().certs.length, dup: QBR.mos._state().certDupPages, files: QBR.mos._state().certs.map(c => c.fileName), msg: QBR.mosCerts._state.msg, d: window.__scanOpts.depth }));
   ok(st.n === 4 && st.dup === 1, "deep scan: 4 certificates found (4 folders below the linked folder), repeated page ignored");
   ok(!st.files.some(f => /9999|9998/.test(f)), "Images folder and folders deeper than 6 levels are not opened");
-  ok(/3 certificate PDFs · 4 new certificates/.test(st.msg) && /deeper than 6 levels not opened/.test(st.msg) && /no log in this folder yet/.test(st.msg), "scan summary: PDFs, depth note, no log yet — " + st.msg.slice(0, 140));
+  ok(/3 certificate PDFs .*· 4 new certificates/.test(st.msg) && /deeper than 6 levels not opened/.test(st.msg) && /no log in this folder yet/.test(st.msg), "scan summary: PDFs, depth note, no log yet — " + st.msg.slice(0, 140));
   let k = await kpis(page);
   ok(k["Passed"] === "4" && k["Generated"] === "4" && k["Printed"] === "0" && k["Pending print"] === "3" && k["Passed, no certificate"] === "1" && k["Needs checking"] === "1", "KPIs " + JSON.stringify(k));
   const statuses = await page.$$eval(".mos-cert-tbl tbody tr", trs => trs.map(t => t.children[1].textContent.trim().split(" ")[0] + ":" + t.querySelector(".risk-badge").textContent));
   ok(statuses.includes("Carl:Not generated") && statuses.includes("Zed:Needs checking") && statuses.includes("Bea:Pending print"), "rows: Carl's pass not generated · unmatched certificate needs checking · retake certificate pending");
 
+  // disabled box on a pass without a certificate (was: no box at all)
+  ok(await page.$eval('tr:has(td:text-is("Carl Reyes Test")) input[type=checkbox]', el => el.disabled && /nothing to print/.test(el.title)), "Not generated row: disabled checkbox with an explanation");
+  ok(/no certificate PDF read for this school yet|no PowerPoint certificate|none for PowerPoint/.test(await page.textContent('tr:has(td:text-is("Carl Reyes Test"))')), "Not generated row says why");
   /* ---- B ---- */
   await dialogs(page, [true]);   // "create the log?"
   await page.click('tr:has(td:text-is("Alex Cruz Demo")) [data-mc="print"]');
@@ -156,6 +163,20 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   k = await kpis(page);
   ok(k["Needs checking"] === "0" && k["Printed"] === "2" && k["Pending print"] === "2", "after the link: nothing to check · 2 printed · 2 pending " + JSON.stringify(k));
 
+  /* ---- J: All schools ---- */
+  await page.selectOption('[data-mc="scope"]', "all");
+  await page.click('[data-mc="folder"]'); await page.waitForFunction(() => !QBR.mosCerts._state.busy && QBR.mos._state().files.some(f => /9100/.test(f.file)), null, { timeout: 15000 }).catch(() => {});
+  ok(await page.evaluate(() => QBR.mos._state().files.some(f => /9100/.test(f.file)) && QBR.mos._state().certDupPages >= 2), "“All schools” reads the other school too (same certificate there → counted once)");
+  /* ---- K: PRINTED (date) folder ---- */
+  await page.evaluate(() => { const s = QBR.mos._state(), c = s.certs.find(x => x.code === "b2c3D-4e5f"); c.file = c.file.replace(/\/([^/]+)$/, "/PRINTED (FEB 13, 2026)/$1"); QBR.mos.render(); });
+  await page.waitForTimeout(200);
+  const kr = await page.textContent('tr:has(td:text-is("Bea Lopez Sample"))');
+  ok(/Printed/.test(kr) && /Feb 13, 2026/.test(kr) && /from folder: PRINTED \(FEB 13, 2026\)/.test(kr), "certificate in a PRINTED (FEB 13, 2026) folder shows Printed on that date — " + kr.replace(/\s+/g, " ").slice(0, 120));
+  ok(/1 certificate.*in a PRINTED folder/.test(await page.textContent(".mos-certlog")), "bar offers to record the folder print in the log");
+  const w0 = await page.evaluate(() => window.__w);
+  await page.click('[data-mc="record-folder"]'); await page.waitForFunction(w => window.__w > w, w0); await page.waitForTimeout(200);
+  L = await logRows(page);
+  ok(row(L, "b2c3D-4e5f").Printed === "Yes" && /from folder “PRINTED \(FEB 13, 2026\)”/.test(row(L, "b2c3D-4e5f").Remarks) && /2026|13/.test(row(L, "b2c3D-4e5f")["First Printed"]), "Record in log: Printed Yes, printed date from the folder, remark");
   /* ---- I ---- */
   const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 8000 }).catch(() => null), page.click('[data-mc="export"]')]);
   let ex = null;
@@ -179,8 +200,8 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   await page.waitForTimeout(200);
   await page.click('[data-mc="folder"]'); await page.waitForFunction(() => QBR.mosCerts._state.log && !QBR.mosCerts._state.busy, null, { timeout: 10000 }); await page.waitForTimeout(300);
   k = await kpis(page);
-  ok(k["Generated"] === "4" && k["Printed"] === "2" && k["Pending print"] === "2", "new session, log only: 4 generated · 2 printed · 2 pending " + JSON.stringify(k));
-  ok(/4 certificates · 2 printed/.test(await page.textContent(".mos-certlog")), "log bar counts from the workbook");
+  ok(k["Generated"] === "4" && k["Printed"] === "3" && k["Pending print"] === "1", "new session, log only: 4 generated · 3 printed (incl. the folder print) · 1 pending " + JSON.stringify(k));
+  ok(/4 certificates · 3 printed/.test(await page.textContent(".mos-certlog")), "log bar counts from the workbook");
   ok(await page.evaluate(() => window.__scanOpts.id === "d1"), "with two linked folders, the MOS-named one is used by default");
   ok(!page._errs.length, "no page errors (H) " + page._errs.join(" | "));
   await page.close();

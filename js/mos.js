@@ -111,7 +111,7 @@
     var school = ($("mos-school-in") || {}).value || "";
     var done = 0;
     for (var i = 0; i < files.length; i++) {
-      var f = files[i], id = (f.webkitRelativePath || f.name) + "|" + f.size;
+      var f = files[i], id = (f.webkitRelativePath || f._path || f.name) + "|" + f.size;
       if (S.files.some(function (x) { return x.id === id; })) continue;
       S.progress = "Reading file " + (i + 1) + " of " + files.length + " · " + f.name; status(); await tick();
       var rec = await readPdf(f, school); rec.id = id;

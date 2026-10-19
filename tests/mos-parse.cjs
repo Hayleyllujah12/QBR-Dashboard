@@ -200,6 +200,12 @@ function walk(d) { let o = []; for (const f of fs.readdirSync(d)) { const p = pa
   const LP = M.parseLogRows([["MOS Certificate Log"], M.LOG_COLS, ["a1b2-C3d4", "Alex Cruz Demo", "Excel Associate", "", "", "", "", "", "", "", "90000001", "Yes", "", "", "", 2, ""], ["", "", ""], ["b2c3D-4e5f", "Bea", "Excel Associate", "", "", "", "", "", "", "", "", "No"]]);
   ok(LP.headerRow === 1 && LP.order.length === 2 && LP.rows["a1b2-C3d4"].r === 2 && LP.last === 4 && M.logPrinted(LP.rows["a1b2-C3d4"].v) && !M.logPrinted(LP.rows["b2c3D-4e5f"].v), "log rows: header found below a title, keyed by verification code, Printed Yes/No");
 
+  ok(M.schoolMatch("Demo High School (DHS)", "Demo High School") && M.schoolMatch("Demo High School (DHS)", "DHS") && !M.schoolMatch("Demo High School", "Sample Academy"), "school match: spelling with acronym in ( ), acronym alone, different school");
+  ok(M.schoolRelated("St. Example College Westbrook (SECW)", "Sisters of St Example of Riverdale Education Ministry") && !M.schoolRelated("Demo High School", "Sisters of St Example of Riverdale Education Ministry"), "test-center group ~ its school folders (shared distinctive word), not other schools");
+  const pf = M.printedFromPath("X/Certificates SY 25-26/PRINTED (FEB 13, 2026)/Exam 1.pdf"), pf2 = M.printedFromPath("X/Y/(printed)Exam 2.pdf");
+  ok(pf && pf.date === "2026-02-13" && pf.folder === "PRINTED (FEB 13, 2026)" && pf2 && pf2.printed && M.printedFromPath("X/Certificates/Exam 3.pdf") === null && M.printedFromPath("X/PRINTED (MARCH 11, 2026)/a.pdf").date === "2026-03-11", "printed from a PRINTED (date) folder or a (printed) file name");
+  ok(M.fileMeta("Certificates SY 25-26/Exam 9001 Excel Certificates.pdf").school === "Unassigned school", "a certificates folder linked on its own is not taken as a school");
+
   _log("\n" + pass + " passed, " + fail + " failed");
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error("HARNESS ERROR:", e); process.exit(2); });

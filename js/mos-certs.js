@@ -22,6 +22,7 @@
   var C = {
     log: null,          // { name, where, handle, dirId, writable, bytes, parsed, dirty }
     links: {}, sel: {}, folderId: "", busy: false, msg: "", limit: 300,
+    scope: "",          // "" = schools in the loaded results (all when none), "all" = every school folder
     f: { school: "", examNo: "", cert: "", status: "", q: "" }
   };
 
@@ -266,7 +267,7 @@
     mm.certs.forEach(function (c) {
       seen[c.code] = 1;
       var at = c.attemptKey ? byKey[c.attemptKey] : null, l = lr[c.code];
-      out.push({ kind: "cert", code: c.code, name: c.name, cert: c.certName, family: c.family, version: c.version, date: c.date,
+      out.push({ kind: "cert", code: c.code, name: c.name, cert: c.certName, family: c.family, version: c.version, date: c.date, pf: P().printedFromPath(c.file),
         school: at ? at.school : c.school, examNo: c.examBase || (at ? at.examBase : ""), file: c.file, fileName: c.fileName, page: c.page,
         match: rows.length ? c.status : "noresults", how: c.how, attempt: at, cands: c.cands.map(function (x) { return byKey[x.key]; }).filter(Boolean),
         dupOf: c.dupOf || "", inLog: !!l, log: l ? l.v : null });
@@ -285,7 +286,8 @@
         school: r.school, examNo: r.examBase || "", attempt: r, match: "nocert", cands: [] });
     });
     out.forEach(function (it) {
-      it.printed = !!(it.log && P().logPrinted(it.log));
+      it.logPrinted = !!(it.log && P().logPrinted(it.log));
+      it.printed = it.logPrinted || !!it.pf;                 // a PDF in a "PRINTED (date)" folder counts as printed
       it.status = it.kind === "nocert" ? "nocert" : it.printed ? "printed"
         : (it.match === "ambiguous" || it.match === "unmatched" || it.match === "duplicate") ? "check" : "pending";
     });
@@ -330,9 +332,14 @@
       (fl.length > 1 ? '<select class="form-select form-select-sm d-inline-block w-auto" data-mc="folder-pick" aria-label="Certificates folder">' + fl.map(function (d) { return '<option value="' + esc(d.id) + '"' + (cf && cf.id === d.id ? " selected" : "") + ">📁 " + esc(d.name) + "</option>"; }).join("") + "</select>"
         : cf ? "<b>📁 " + esc(cf.name) + "</b>" : '<span class="small text-muted">none linked yet</span>') +
       ' <button type="button" class="btn btn-outline-secondary btn-sm" data-mc="folder-choose" title="Pick the MOS folder (e.g. the course folder with the school folders). It is remembered and kept with your other linked folders.">' + (fl.length ? "Link another folder…" : "Choose folder…") + "</button>" +
+      ' <select class="form-select form-select-sm d-inline-block w-auto" data-mc="scope" aria-label="Schools to read" title="Which school folders to read certificate PDFs from">' +
+        '<option value=""' + (C.scope !== "all" ? " selected" : "") + '>Schools in my results</option><option value="all"' + (C.scope === "all" ? " selected" : "") + ">All schools</option></select>" +
       ' <button type="button" class="btn btn-primary btn-sm" data-mc="folder"' + (cf ? "" : " disabled") + ' title="Find certificate PDFs (folders and files with “Certificate” in the name, up to 6 levels deep) and the log in ' +
       esc(cf ? cf.name : "the folder") + '">Load certificates</button></div>';
     h += "</div>";
+    var folderOnly = all.filter(function (i) { return i.kind === "cert" && i.inLog && i.pf && !i.logPrinted; }).length;
+    if (folderOnly) h += '<div class="mos-cert-pend"><span><b>' + plural(folderOnly, "certificate") + "</b> " + (folderOnly === 1 ? "is" : "are") + " in a PRINTED folder but not marked printed in the log.</span>" +
+      '<button type="button" class="btn btn-primary btn-sm" data-mc="record-folder">Record in log</button></div>';
     if (notIn) h += '<div class="mos-cert-pend"><span><b>' + plural(notIn, "certificate") + "</b> loaded here " + (notIn === 1 ? "is" : "are") + " not in the log yet (newly generated).</span>" +
       '<button type="button" class="btn btn-primary btn-sm" data-mc="add-log">Add to log</button></div>';
     return h + '<div id="mos-cert-msg" class="small text-muted mt-1" role="status" aria-live="polite">' + esc(C.msg) + "</div>";
@@ -384,7 +391,8 @@
   function rowHTML(it) {
     var b = BADGE[it.status], v = it.log || {};
     var res;
-    if (it.kind === "nocert") res = '<span class="text-nowrap">' + esc((it.attempt.score == null ? "" : it.attempt.score + " · ") + fmtDate(it.attempt.date)) + "</span>";
+    if (it.kind === "nocert") res = '<span class="text-nowrap">' + esc((it.attempt.score == null ? "" : it.attempt.score + " · ") + fmtDate(it.attempt.date)) + "</span>" +
+      '<div class="tr-hint">' + esc(whyNoCert(it)) + "</div>";
     else if (it.attempt && it.match !== "duplicate") res = '<span class="text-nowrap">' + esc(it.attempt.score + " · " + fmtDate(it.attempt.date)) + '</span><div class="tr-hint">' + (it.how === "manual" ? (C.links[it.code] ? "picked by hand" : "linked in the log") : it.kind === "log" ? "linked in the log" : "matched") + "</div>";
     else if (it.match === "noresults" || it.match === "logonly") res = '<span class="small text-muted">no score report loaded</span>';
     else if (it.match === "unlinked") res = '<span class="small text-muted">no matching result (confirmed)</span>';
@@ -394,25 +402,45 @@
         '<select class="form-select form-select-sm" data-mc="link" data-code="' + esc(it.code) + '" aria-label="Exam result for ' + esc(it.name) + '"><option value="">— pick the exam result —</option>' +
         pool.map(function (r) { return '<option value="' + esc(r.key) + '">' + esc(attemptLabel(r)) + "</option>"; }).join("") + '<option value="none">No matching result</option></select>';
     }
+    if (it.printed && !it.logPrinted && it.pf) return rowStart(it, b, res) + '<td>' + (it.pf.date ? esc(fmtDate(it.pf.date)) : "Printed") +
+      '<div class="tr-hint" title="The PDF is in a folder named PRINTED — Add to log records it">from folder' + (it.pf.folder ? ": " + esc(it.pf.folder) : "") + "</div></td></tr>";
     var pr = it.printed ? esc(fmtDate(isoOf(v["Last Printed"] || v["First Printed"]))) + ((+v["Print Count"] || 0) > 1 ? ' <span class="badge bg-secondary" title="Printed ' + (+v["Print Count"]) + ' times">×' + (+v["Print Count"]) + "</span>" : "") +
       (v["Printed By"] ? '<div class="tr-hint">' + esc(v["Printed By"]) + "</div>" : "") + '<button type="button" class="btn btn-link btn-sm p-0" data-mc="reprint" data-code="' + esc(it.code) + '">Reprint</button>'
       : it.kind === "nocert" ? "—" : '<button type="button" class="btn btn-outline-primary btn-sm text-nowrap" data-mc="print" data-code="' + esc(it.code) + '">Mark printed</button>';
+    return rowStart(it, b, res) + "<td>" + pr + "</td></tr>";
+  }
+  function rowStart(it, b, res) {
     return '<tr class="mos-cert-' + it.status + '">' +
-      "<td>" + (it.kind === "nocert" ? "" : '<input type="checkbox" data-mc="sel" data-code="' + esc(it.code) + '"' + (C.sel[it.code] ? " checked" : "") + ' aria-label="Select ' + esc(it.name) + '">') + "</td>" +
+      "<td>" + (it.kind === "nocert"
+        ? '<input type="checkbox" disabled title="No certificate for this pass yet — nothing to print" aria-label="' + esc(it.name) + ': no certificate yet">'
+        : '<input type="checkbox" data-mc="sel" data-code="' + esc(it.code) + '"' + (C.sel[it.code] ? " checked" : "") + ' aria-label="Select ' + esc(it.name) + '">') + "</td>" +
       "<td>" + esc(it.name) + (it.kind === "cert" && C.log && !it.inLog ? ' <span class="badge bg-info text-dark" title="Not in the log yet">new</span>' : "") +
         '<div class="tr-hint">' + esc([it.school, it.examNo ? "Exam " + it.examNo : ""].filter(Boolean).join(" · ")) + "</div></td>" +
       "<td>" + esc(it.cert) + '<div class="tr-hint" title="' + esc(it.version || "") + '">' + esc(fmtDate(it.date)) + (it.version ? " · " + esc(it.version) : "") + "</div></td>" +
       '<td><code>' + esc(it.code || "—") + "</code>" + (it.fileName ? '<div class="tr-hint mos-cert-file" title="' + esc(it.file + (it.page ? " · page " + it.page : "")) + '">' + esc(it.fileName) + (it.page ? " · p." + esc(it.page) : "") + "</div>" : "") + "</td>" +
       "<td>" + res + "</td>" +
-      '<td><span class="risk-badge ' + b[0] + '">' + b[1] + "</span></td><td>" + pr + "</td></tr>";
+      '<td><span class="risk-badge ' + b[0] + '">' + b[1] + "</span></td>";
   }
 
   /* ---------------- actions ---------------- */
+  // Why a passing result shows "Not generated": no certificate PDF of that school read yet, or none with that name.
+  function whyNoCert(it) {
+    var s = M(), sch = it.school;
+    var mine = (s ? s.certs : []).filter(function (c) { return c.school === "Unassigned school" || P().schoolMatch(c.school, sch); });
+    if (!mine.length) return "no certificate PDF read for this school yet";
+    var fam = mine.filter(function (c) { return P().examFamily(c.family) === P().examFamily(it.family); });
+    if (!fam.length) return "certificates read for this school, none for " + it.family;
+    var best = fam.map(function (c) { return { c: c, s: P().nameScore(c.name, it.name) }; }).sort(function (a, b) { return b.s - a.s; })[0];
+    return best && best.s ? "closest certificate: " + best.c.name + " (" + fmtDate(best.c.date) + ")" : "no " + it.family + " certificate with this name";
+  }
   function logRow(it) {
     var now = new Date();
     return { "Verification Code": it.code, "Name": it.name, "Certification": it.cert, "Version": it.version || "", "Certificate Date": dateOf(it.date),
       "School": it.school || "", "Exam No.": it.examNo || "", "Source File": it.file || "", "Page": it.page || "", "First Seen": now,
-      "Linked Exam Ref #": it.attempt && it.attempt.ref ? it.attempt.ref : (C.links[it.code] === "none" ? "none" : ""), "Printed": "No", "Print Count": 0 };
+      "Linked Exam Ref #": it.attempt && it.attempt.ref ? it.attempt.ref : (C.links[it.code] === "none" ? "none" : ""),
+      "Printed": it.pf ? "Yes" : "No", "Print Count": it.pf ? 1 : 0,
+      "First Printed": it.pf && it.pf.date ? dateOf(it.pf.date) : "", "Last Printed": it.pf && it.pf.date ? dateOf(it.pf.date) : "",
+      "Remarks": it.pf ? "Printed (from folder" + (it.pf.folder ? " “" + it.pf.folder + "”" : " / file name") + ")" : "" };
   }
   function byCode(code) { return items().filter(function (i) { return i.code === code; })[0]; }
   async function markPrinted(list, opt) {
@@ -453,12 +481,23 @@
     if (!list.length) { var id = QBR.fsFolderPickOnly ? await QBR.fsFolderPickOnly() : null; if (!id) return; setFolder(id); }
     var d = currentFolder(); if (!d) return;
     C.busy = true; msg("Scanning " + d.name + " for certificate PDFs…");
+    // Read only the schools in the loaded results (a whole MOS folder can hold 700+ certificate PDFs);
+    // "All schools" reads every school folder.
+    var s0 = M(), rs = {};
+    (s0 && s0.model ? s0.model.rows : []).forEach(function (r) { if (r.school && r.school !== "Unassigned school") rs[r.school] = 1; });
+    var resSchools = Object.keys(rs), scoped = C.scope !== "all" && resSchools.length > 0, other = {};
+    var already = {}; (s0 ? s0.files : []).forEach(function (f) { already[f.file] = 1; });
     try {
       var res = await QBR.fsFolderFiles(d.id, {
-        ask: true, ext: /\.(pdf|xlsx)$/i, maxDepth: 6, maxEntries: 20000, maxFiles: 400,
+        ask: true, ext: /\.(pdf|xlsx)$/i, maxDepth: 6, maxEntries: 50000, maxFiles: 5000,
         want: function (rel) {
           var n = rel[rel.length - 1];
-          return /\.xlsx$/i.test(n) ? n.toLowerCase() === LOG_NAME.toLowerCase() : rel.some(function (p) { return /certif/i.test(p); });
+          if (/\.xlsx$/i.test(n)) return n.toLowerCase() === LOG_NAME.toLowerCase();
+          if (!rel.some(function (p) { return /certif/i.test(p); })) return false;
+          if (!scoped) return true;
+          var sch = P().fileMeta(d.name + "/" + rel.join("/")).school;
+          if (sch === "Unassigned school" || resSchools.some(function (x) { return P().schoolRelated(sch, x); })) return true;
+          other[sch] = (other[sch] || 0) + 1; return false;
         },
         prefer: function (n) { return /certif/i.test(n); }
       });
@@ -466,7 +505,9 @@
       C.folderId = d.id; remember(d.id);
       var logs = res.files.filter(function (x) { return /\.xlsx$/i.test(x.name); }).sort(function (a, b) { return a.rel.length - b.rel.length; });
       if (logs.length && !C.log) await openLogHandle(logs[0].handle, d.id, d.name + "/" + logs[0].rel.join("/"));
-      var pdfs = res.files.filter(function (x) { return /\.pdf$/i.test(x.name); }), fl = [];
+      var pdfs = res.files.filter(function (x) { return /\.pdf$/i.test(x.name); }), fl = [], perSchool = {};
+      pdfs.forEach(function (x) { var sc = P().fileMeta(d.name + "/" + x.rel.join("/")).school; perSchool[sc] = (perSchool[sc] || 0) + 1; });
+      pdfs = pdfs.filter(function (x) { return !already[d.name + "/" + x.rel.join("/")]; });
       for (var i = 0; i < pdfs.length; i++) {
         try { var fo = (await readHandle(pdfs[i].handle)).file; try { fo._path = d.name + "/" + pdfs[i].rel.join("/"); } catch (e) {} fl.push(fo); } catch (e) {}
       }
@@ -474,12 +515,17 @@
       C.busy = false;
       if (fl.length && QBR.mos && QBR.mos.addCertFiles) await QBR.mos.addCertFiles(fl);
       var added = (M() || { certs: [] }).certs.length - before;
-      if (!pdfs.length && !logs.length) {
-        msg("📁 " + d.name + ": no certificate PDFs and no log found (" + res.scanned.toLocaleString() + " items in " + plural(res.folders, "folder") +
-          "). Is this the MOS folder? Use “Link another folder…” to pick the one with the school folders.");
+      var otherN = Object.keys(other).reduce(function (a, k) { return a + other[k]; }, 0);
+      if (!Object.keys(perSchool).length && !logs.length) {
+        msg("📁 " + d.name + ": no certificate PDFs " + (otherN ? "for the schools in your results (" + plural(otherN, "PDF") + " of other schools skipped — choose “All schools”)" : "and no log found") +
+          " (" + res.scanned.toLocaleString() + " items in " + plural(res.folders, "folder") + ")." + (otherN ? "" : " Is this the MOS folder? Use “Link another folder…” to pick the one with the school folders."));
         return;
       }
-      msg("📁 " + d.name + ": " + plural(pdfs.length, "certificate PDF") + " · " + plural(added, "new certificate") +
+      C.read = perSchool;
+      msg("📁 " + d.name + ": " + plural(Object.keys(perSchool).reduce(function (a, k) { return a + perSchool[k]; }, 0), "certificate PDF") +
+        " (" + Object.keys(perSchool).sort().map(function (k) { return k + " " + perSchool[k]; }).join(", ") + ")" +
+        (pdfs.length ? "" : " · already read") + " · " + plural(added, "new certificate") +
+        (otherN ? " · " + plural(otherN, "PDF") + " of " + plural(Object.keys(other).length, "other school") + " not read (not in the loaded results — choose “All schools” to read them)" : "") +
         (logs.length ? " · log: " + logs[0].rel.join("/") : " · no log in this folder yet") +
         " · " + res.scanned.toLocaleString() + " items in " + res.folders.toLocaleString() + " folders scanned" +
         (res.truncated ? " · stopped early (very large folder — link a narrower one if something is missing)" : "") +
@@ -500,6 +546,7 @@
       if (a === "sel") { C.sel[t.getAttribute("data-code")] = t.checked; render(); }
       else if (a === "sel-all") { items().filter(function (i) { return inScope(i, false) && i.kind !== "nocert"; }).slice(0, C.limit).forEach(function (i) { C.sel[i.code] = t.checked; }); render(); }
       else if (a === "folder-pick") { setFolder(t.value); render(); }
+      else if (a === "scope") { C.scope = t.value; }
       else if (a === "link") {
         var code = t.getAttribute("data-code"), v = t.value; if (!v) return;
         C.links[code] = v;
@@ -519,6 +566,11 @@
       else if (a === "add-log") {
         var nw = items().filter(function (i) { return i.kind === "cert" && !i.inLog; });
         commit(nw.map(function (i) { return { t: "add", code: i.code, row: logRow(i) }; }), plural(nw.length, "certificate") + " added to the log");
+      }
+      else if (a === "record-folder") {
+        var fo = items().filter(function (i) { return i.kind === "cert" && i.inLog && i.pf && !i.logPrinted; });
+        commit(fo.map(function (i) { return { t: "print", code: i.code, at: i.pf.date ? dateOf(i.pf.date) : new Date(), by: "", reason: "Printed (from folder" + (i.pf.folder ? " “" + i.pf.folder + "”" : " / file name") + ")" }; }),
+          plural(fo.length, "folder print") + " recorded");
       }
       else if (a === "print") markPrinted([byCode(code)]);
       else if (a === "reprint") markPrinted([byCode(code)], { reprint: true });

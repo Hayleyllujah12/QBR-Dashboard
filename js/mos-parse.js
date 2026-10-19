@@ -206,7 +206,7 @@
     }
     if (!school && schoolOverride) school = schoolOverride;
     // fallback: the top folder, unless it is a generic folder name ("Archive SY 2021 - 2022", "Exam Results", "SY 25-26")
-    if (!school && parts.length > 1 && !/^(archive|exam\s*results?|results?|sy\s*\d|school\s*year|\d{4})/i.test(parts[0])) school = parts[0];
+    if (!school && parts.length > 1 && !/^(archive|exam\s*results?|results?|sy\s*\d|school\s*year|\d{4}|certificates?|certs?\b)/i.test(parts[0])) school = parts[0];
     school = norm(school.replace(/^\d+\s*[-.]\s*/, ""));
     var m = base.match(/Exam\s*(\d{4}(?:\.\d+)?)/i);
     var examNo = m ? m[1] : "";
@@ -535,6 +535,44 @@
     if (inter === small && small >= 2) return 2;
     return inter >= 2 ? 1 : 0;
   }
+  /* Same school under different spellings: "St. Example College Westbrook (SECW)" (folder) ~ "St Example College Westbrook"
+   * (Certiport Test Center) ~ "SECW". Equal words, one name's words inside the other (2+ words), or an acronym. */
+  var SCH_STOP = { of: 1, the: 1, and: 1, de: 1, la: 1, del: 1, inc: 1, school: 0 };
+  function schoolWords(s) { return tokens(String(s || "").replace(/\(([^)]*)\)/g, " ")).filter(function (t) { return !SCH_STOP[t]; }); }
+  function schoolAcr(s) { var m = String(s || "").match(/\(([A-Za-z0-9]{2,10})\)/); return (m ? m[1] : acronym(s)).toLowerCase(); }
+  function schoolMatch(a, b) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    var A = schoolWords(a), B = schoolWords(b);
+    if (!A.length || !B.length) return false;
+    var inB = A.filter(function (t) { return B.indexOf(t) >= 0; }).length, inA = B.filter(function (t) { return A.indexOf(t) >= 0; }).length;
+    if (inB === A.length && inA === B.length) return true;
+    if ((inB === A.length && A.length >= 2) || (inA === B.length && B.length >= 2)) return true;
+    var aa = schoolAcr(a), ab = schoolAcr(b);
+    return aa.length >= 3 && (aa === ab || (A.length === 1 && A[0] === ab) || (B.length === 1 && B[0] === aa));
+  }
+  /* Loosely related (for choosing which folders to read, never for linking): a Certiport Test Center that groups
+   * several schools ("Sisters of St Example of Riverdale …") ~ its school folders ("St. Example College Westbrook") — they
+   * share a distinctive word. */
+  var SCH_GENERIC = /^(saint|sainte|santa|santo|school|schools|college|colleges|university|academy|education|educational|ministry|sisters|brothers|catholic|parish|high|integrated|elementary|institute|center|centre|foundation|incorporated|system|learning|group|test|campus|main|city|international|christian|montessori)$/;
+  function schoolRelated(a, b) {
+    if (schoolMatch(a, b)) return true;
+    var A = schoolWords(a).filter(function (t) { return t.length >= 4 && !SCH_GENERIC.test(t); });
+    var B = schoolWords(b).filter(function (t) { return t.length >= 4 && !SCH_GENERIC.test(t); });
+    return A.some(function (t) { return B.indexOf(t) >= 0; });
+  }
+  /* "…/PRINTED (FEB 13, 2026)/Exam 1343.2 … CERT.pdf" or "(printed)Exam 1339.1 …" → printed (date when the folder has one) */
+  function printedFromPath(path) {
+    var parts = String(path || "").replace(/\\/g, "/").split("/");
+    for (var i = parts.length - 1; i >= 0; i--) {
+      var p = parts[i], last = i === parts.length - 1;
+      if (last ? /^\((p|printed)\)/i.test(p) : /^printed\b/i.test(p)) {
+        var m = p.match(/\(([^)]*\d{4})\)/), iso = m ? parseDate(m[1].replace(/^([A-Za-z]{3})[a-z]*\.?/, "$1")) : "";
+        return { printed: true, date: iso, folder: last ? "" : p };
+      }
+    }
+    return null;
+  }
   function famKey(f) { return String(f || "").toLowerCase().replace(/\s+/g, " ").trim(); }
   /* certs: parsed certificates (+ fileMeta); rows: buildModel rows; links: { code: attemptKey | "none" } (manual / from the log).
    * → { certs: [cert + {status: linked|ambiguous|unmatched|duplicate, attemptKey, how, cands:[{key, score, days}]}], byAttempt: {key: code} } */
@@ -549,7 +587,7 @@
       (rows || []).forEach(function (r) {
         if (!r.pass || r.pending) return;
         if (famKey(r.exam) !== famKey(c.family)) return;
-        if (c.school && c.school !== "Unassigned school" && r.school && r.school !== c.school && !r.schoolFromCenter) return;
+        if (c.school && c.school !== "Unassigned school" && r.school && !r.schoolFromCenter && !schoolMatch(c.school, r.school)) return;
         if (c.examBase && r.examBase && c.examBase !== r.examBase) return;
         var d = dayDiff(c.date, r.date);
         if (d != null && d > 14) return;
@@ -681,7 +719,7 @@
     parseAnyDate: parseAnyDate, nameCase: nameCase, acronym: acronym, summarize: summarize, groupRate: groupRate, skillAreas: skillAreas,
     bandOf: bandOf, BANDS: BANDS, displayName: displayName,
     parseCertificatePage: parseCertificatePage, matchCertificates: matchCertificates, nameScore: nameScore, dayDiff: dayDiff,
-    parseLogRows: parseLogRows, logPrinted: logPrinted, LOG_COLS: LOG_COLS, LOG_SHEET: LOG_SHEET
+    parseLogRows: parseLogRows, schoolMatch: schoolMatch, schoolRelated: schoolRelated, printedFromPath: printedFromPath, logPrinted: logPrinted, LOG_COLS: LOG_COLS, LOG_SHEET: LOG_SHEET
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else { root.QBR = root.QBR || {}; root.QBR.mosParse = api; }
