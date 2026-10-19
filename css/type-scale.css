@@ -282,6 +282,7 @@
 :root[data-qbr-fs] #dash-mos .mos-sk{font-size:calc(11px * var(--fs-t,1))}
 :root[data-qbr-fs] .mos-ov .mos-fl{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-mos .mos-colreset{font-size:calc(12px * var(--fs-t,1))}
+
 :root[data-qbr-fs] .tr-pill .tr-pill-label{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] .tr-pill .tr-pill-sub{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .tr-sub{font-size:calc(13px * var(--fs-t,1))}
@@ -300,3 +301,8 @@
 :root[data-qbr-fs] .tr-mapper p{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] .tr-maprow{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] .tr-prev{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] .tr-newgrid label{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .tr-kpi-v{font-size:calc(24px * var(--fs-h,1))}
+:root[data-qbr-fs] .tr-kpi-l{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .tr-kpi-s{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] .tr-bar-row{font-size:calc(12px * var(--fs-t,1))}

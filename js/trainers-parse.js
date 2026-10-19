@@ -13,7 +13,7 @@
 (function (root) {
   "use strict";
 
-  function norm(s) { return String(s == null ? "" : s).replace(/\s+/g, " ").trim(); }
+  function norm(s) { return String(s == null ? "" : s).replace(/[\u200b\u200c\ufeff]/g, "").replace(/\s+/g, " ").trim(); }
   function normKey(s) { return norm(s).toLowerCase(); }
 
   /* Excel serial (or a date-ish string) -> { date: Date|null, iso: "YYYY-MM-DD"|"" } */
@@ -75,7 +75,8 @@
     timeStart: ["time start", "start"],
     timeEnd: ["time end", "end"],
     nps: ["net promoter score", "nps"],
-    trainerScore: ["trainer score"]
+    trainerScore: ["trainer score"],
+    id: ["session id", "sessionid"]
   };
   function findCol(header, names) {
     for (var i = 0; i < header.length; i++) {
@@ -108,6 +109,7 @@
       out.push({
         rowIdx: r, // 0-based sheet row (header = 0); write-back uses this
         date: dt.date, dateISO: dt.iso,
+        id: col.id >= 0 ? norm(row[col.id]) : "",
         trainer: trainer, code: code,
         title: col.title >= 0 ? norm(row[col.title]) : "",
         client: col.client >= 0 ? norm(row[col.client]) : "",
@@ -290,8 +292,137 @@
              addTrainerCol: tsCol < 0 && edits.some(function (e) { return e.trainerScore != null; }) };
   }
 
+  /* ---- response-date detection -------------------------------------------
+   * The eval's own answer timestamps ("Start time") are ground truth for the
+   * session date — more reliable than the filename. Returns the modal
+   * YYYY-MM-DD, or null when no timestamp column is found. */
+  var TS_COLS = ["start time", "completion time", "submitted", "timestamp", "response time"];
+  function detectResponseDate(rows) {
+    if (!rows || rows.length < 2) return null;
+    var header = rows[0].map(normKey), ci = -1;
+    for (var i = 0; i < header.length && ci < 0; i++)
+      for (var k = 0; k < TS_COLS.length; k++)
+        if (header[i].indexOf(TS_COLS[k]) >= 0) { ci = i; break; }
+    if (ci < 0) return null;
+    var counts = {};
+    for (var r = 1; r < rows.length; r++) {
+      var v = rows[r] ? rows[r][ci] : null;
+      if (v == null || v === "") continue;
+      var iso = null;
+      if (typeof v === "number" && isFinite(v)) {
+        iso = excelDate(v).iso;
+      } else {
+        var m = /^(\d{1,4})[\/\-](\d{1,2})[\/\-](\d{1,4})/.exec(String(v).trim());
+        if (m) {
+          var a = +m[1], b = +m[2], cc = +m[3];
+          var ye = a > 31 ? a : cc, mo = a > 31 ? b : a, da = a > 31 ? cc : b;
+          if (ye < 100) ye += 2000;
+          iso = ye + "-" + String(mo).padStart(2, "0") + "-" + String(da).padStart(2, "0");
+        }
+      }
+      if (iso) counts[iso] = (counts[iso] || 0) + 1;
+    }
+    var best = null, bestN = 0;
+    Object.keys(counts).forEach(function (k) {
+      if (counts[k] > bestN) { bestN = counts[k]; best = k; }
+    });
+    return best;
+  }
+
+  var ACR_STOP = /^(of|de|del|la|the|and|for|inc\.?|corp\.?)$/i;
+  function acronymOf(name) {
+    return norm(name).split(/[^A-Za-z]+/).filter(function (w) { return w && !ACR_STOP.test(w); })
+      .map(function (w) { return w[0].toUpperCase(); }).join("");
+  }
+  function buildAcronymIndex(clients) {
+    var idx = {};
+    (clients || []).forEach(function (c) {
+      c = norm(c);
+      if (!c) return;
+      var a = acronymOf(c);
+      if (a && a.length >= 2 && !idx[a]) idx[a] = c;
+    });
+    return idx;
+  }
+  function nextSessionId(sessions, year) {
+    var max = 0;
+    (sessions || []).forEach(function (s) {
+      var m = /^SES-(\d{4})-(\d+)$/.exec(norm(s.id));
+      if (m && m[1] === year && +m[2] > max) max = +m[2];
+    });
+    var p = function (n) { return String(n).padStart(4, "0"); };
+    return "SES-" + year + "-" + p(max + 1);
+  }
+
+  function r1(n) { return Math.round(n * 10) / 10; }
+  function r2(n) { return Math.round(n * 100) / 100; }
+  function buildSummary(sessions) {
+    var total = sessions.length;
+    var hours = 0, npsSum = 0, npsN = 0, tsSum = 0, tsN = 0, respSum = 0, respN = 0;
+    var bySchool = {}, byCourse = {}, monthly = {};
+    function bucket(map, key) {
+      if (!map[key]) map[key] = { key: key, sessions: 0, npsSum: 0, npsN: 0, tsSum: 0, tsN: 0 };
+      return map[key];
+    }
+    (sessions || []).forEach(function (s) {
+      if (s.timeStart != null && s.timeEnd != null && s.timeEnd > s.timeStart)
+        hours += (s.timeEnd - s.timeStart) * 24;
+      if (s.nps != null) { npsSum += s.nps; npsN++; }
+      if (s.trainerScore != null) { tsSum += s.trainerScore; tsN++; }
+      if (s.n != null) { respSum += s.n; respN++; }
+      var b = bucket(bySchool, s.client || "(no school)");
+      b.sessions++;
+      if (s.nps != null) { b.npsSum += s.nps; b.npsN++; }
+      if (s.trainerScore != null) { b.tsSum += s.trainerScore; b.tsN++; }
+      var co = bucket(byCourse, s.code || "(no code)");
+      co.sessions++;
+      if (s.nps != null) { co.npsSum += s.nps; co.npsN++; }
+      if (s.trainerScore != null) { co.tsSum += s.trainerScore; co.tsN++; }
+      var m = bucket(monthly, s.dateISO ? s.dateISO.slice(0, 7) : "(no date)");
+      m.sessions++;
+      if (s.nps != null) { m.npsSum += s.nps; m.npsN++; }
+    });
+    function finish(map) {
+      return Object.keys(map).sort().map(function (k) {
+        var b = map[k];
+        b.avgNps = b.npsN ? r1(b.npsSum / b.npsN) : null;
+        b.avgScore = b.tsN ? r2(b.tsSum / b.tsN) : null;
+        return b;
+      });
+    }
+    var schools = finish(bySchool);
+    var repeatSessions = schools.filter(function (b) { return b.sessions > 1; })
+      .reduce(function (a, b) { return a + b.sessions; }, 0);
+    return {
+      total: total,
+      hours: r1(hours),
+      avgNps: npsN ? r1(npsSum / npsN) : null, scoredNps: npsN,
+      avgScore: tsN ? r2(tsSum / tsN) : null, scoredTs: tsN,
+      respondents: respSum, respSessions: respN,
+      repeatRate: total ? Math.round(repeatSessions / total * 100) : 0,
+      bySchool: schools, byCourse: finish(byCourse), monthly: finish(monthly)
+    };
+  }
+
+  function buildCourseMap(rows) {
+    var byCode = {}, byTitle = {};
+    (rows || []).slice(1).forEach(function (r) {
+      if (!r) return;
+      var code = norm(r[0]), title = norm(r[2]);
+      if (!code) return;
+      byCode[code] = { title: title, product: norm(r[1]),
+        duration: (r[3] === '' || r[3] == null) ? null : Number(r[3]) };
+      if (title && !byTitle[title]) byTitle[title] = code;
+    });
+    return { byCode: byCode, byTitle: byTitle };
+  }
+
   var api = {
     norm: norm, normKey: normKey, excelDate: excelDate, timeOf: timeOf,
+    detectResponseDate: detectResponseDate,
+    acronymOf: acronymOf, buildAcronymIndex: buildAcronymIndex, nextSessionId: nextSessionId,
+    buildSummary: buildSummary,
+    buildCourseMap: buildCourseMap,
     parseTrackerSheet: parseTrackerSheet, parseFilename: parseFilename,
     suggestSessions: suggestSessions, detectLayout: detectLayout,
     mapLikert: mapLikert, calcNPS: calcNPS, calcTrainerScore: calcTrainerScore,
