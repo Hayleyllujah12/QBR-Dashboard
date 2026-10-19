@@ -132,3 +132,33 @@ pdf("02 - Sample Academy/Exam 9002 Results 12B.pdf", [
     att(dict(name="Eve Tan Mock", email="eve.mock@example.com", cid="evemock05"), title=XL365, ref="90000006", date="September 9, 2025", score=0, areas=EXCEL, pcts=[0, 0, 0, 0, 0]),
 ])
 pdf("02 - Sample Academy/Exam 9002 Certificates.pdf", [], extra_text_pages=2)
+
+# ---- v1.41.0 certificate exports (one certificate per page, Certiport layout) ----
+# Every name and verification code is invented.
+def certs(rel, pages):
+    path = os.path.join(OUT, rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    c = canvas.Canvas(path, pagesize=(792, 612))
+    c.setTitle("Synthetic MOS certificate fixture")
+    c.setAuthor("QBR tests")
+    for p in pages:
+        c.setFont("Helvetica-Bold", 30); c.drawString(58, 283, p["name"])
+        c.setFont("Helvetica", 20); c.drawString(59, 221, p["cert"])
+        c.setFont("Helvetica", 14); c.drawString(58, 197, p.get("version", "Microsoft 365 Apps"))
+        c.setFont("Helvetica", 11); c.drawString(190, 100, p["date"])
+        c.setFont("Helvetica", 9); c.drawString(190, 84, p["code"])
+        c.showPage()
+    c.save()
+    print("wrote", os.path.relpath(path, HERE))
+
+
+# 4 folders below the fixture root: the folder scan must go deeper than the workbook scan (3)
+certs("01 - Demo High School/Archive Files/Exam Results and Certificates SY 25-26/Certificates SY 25-26/Exam 9001 Excel Certificates 03MAR2026.pdf", [
+    dict(name="Alex Cruz Demo", cert="Excel Associate", date="March 3, 2026", code="a1b2-C3d4"),
+    dict(name="Bea Lopez Sample", cert="Excel Associate", date="April 14, 2026", code="b2c3D-4e5f"),   # passed on the retake
+    dict(name="Zed Ghost Sample", cert="Excel Associate", date="March 3, 2026", code="z9y8-X7w6"),    # no matching pass
+    dict(name="Alex Cruz Demo", cert="Excel Associate", date="March 3, 2026", code="a1b2-C3d4"),     # same certificate again
+])
+certs("02 - Sample Academy/Certificates/Exam 9002 Excel Certificates.pdf", [
+    dict(name="Dana Uy Fixture", cert="Excel Associate", date="September 9, 2025", code="d4e5-F6g7"),
+])

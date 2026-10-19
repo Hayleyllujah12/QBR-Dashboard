@@ -6,6 +6,24 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.41.0 [PREVIEW feature/mos-certificates] MOS › Certificates: generated → printed tracker
+  - Certificate PDFs exported from Certiport (one certificate per page: name, certification, version, date,
+    verification code) are read like score reports — drop them, pick them, or "📁 Load from folder", which scans the
+    linked folder up to 6 levels deep for folders / files named "Certificate…" (image and video folders are skipped;
+    very large folders stop early and say so).
+  - Each certificate is keyed by its verification code: the same certificate in another or renamed file is counted
+    once. It is linked to the student's passing exam result by name + certification + date (same school and Exam
+    No.); unclear ones show "Needs checking" with a picker ("No matching result" is an answer too).
+  - New view MOS › Certificates: Passed · Generated · Printed · Pending print · Passed, no certificate (not generated
+    yet) · Needs checking; filters by school, Exam No., certification, status, name / code; Export (.xlsx).
+  - "Mark printed" per certificate, for the ticked ones, or for a whole certificate file; "Reprint" counts again
+    and asks for a reason. Everything is recorded in ONE log workbook, "MOS Certificate Log.xlsx", in the linked folder
+    (created on first use; one row per verification code: name, certification, date, school, Exam No., source file,
+    page, first seen, linked Exam ref #, printed, first / last printed, printed by, print count, remarks). The log is
+    re-read before every save (format-safe), so edits made in Excel meanwhile are kept. A new session shows the
+    printed / pending status from the log alone. No student data is stored in the browser.
+  - Not in this version: printing the selected certificates from the tab and the pending-print checklist PDF (next).
+
 UPDATE — 2026-10-19 — v1.40.0 [PREVIEW feature/co-trainers] Trainers: co-trained sessions + duplicate-session warning
   - Co-trained sessions = ONE tracker row with every trainer in the Trainer cell, e.g.
     "DOE, John / ROE, Jane" (separators: /  ;  &  +  line break  " and " — never a comma, names are
