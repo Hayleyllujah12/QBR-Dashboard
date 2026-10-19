@@ -153,7 +153,7 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
   {
     const FAKE = `(function(){var h={},u=localStorage.getItem("fakeUser");function f(e,x){(h[e]||[]).forEach(function(c){c(x)})}
       window.netlifyIdentity={on:function(e,c){(h[e]=h[e]||[]).push(c)},init:function(){setTimeout(function(){f("init",u?{email:u}:null)},10)},
-      open:function(){window.__opened=1;localStorage.setItem("fakeUser","pedro@example.com");f("login",{email:"pedro@example.com"})},
+      open:function(){window.__opened=1;localStorage.setItem("fakeUser","tester@example.com");f("login",{email:"tester@example.com"})},
       currentUser:function(){var x=localStorage.getItem("fakeUser");return x?{email:x}:null},close:function(){},logout:function(){localStorage.removeItem("fakeUser");f("logout")}};})();`;
     const mk = async (blockWidget) => {
       const ctx = await b.newContext(); const reqs = [];

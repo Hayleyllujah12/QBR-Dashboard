@@ -25,8 +25,8 @@ if (!XLSXP) { console.error("Could not locate vendored xlsx.full.min.js next to 
 const XLSX = require(path.resolve(XLSXP));
 
 // A school name mis-decoded as Latin-1 (the classic "Ã±" for "ñ"). fixMojibake
-// in the loader must turn this back into "…- Dasmariñas".
-const MOJI = "St. Vincent University - DasmariÃ±as";
+// in the loader must turn this back into "…- Villa Señora".
+const MOJI = "Northfield University - Villa SeÃ±ora";
 
 const risky = [
   ["Month", "School_Rakso", "Organization", "Total Risky Users", "Domain_Health", "Error Cause"],

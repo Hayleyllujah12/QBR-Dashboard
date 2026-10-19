@@ -23,7 +23,7 @@
  * deep link / stray click can't reopen a disabled feature), and each render
  * function checks QBR.adminIsOn(key) before drawing its section.
  *
- * Publishing (Admin panel → Remote flags section, Pedro's machine only):
+ * Publishing (Admin panel → Remote flags section, the owner's machine only):
  * main / develop → a pull request (branch flags/<stamp>) that a person merges on GitHub;
  * preview branches → a direct commit. Uses a fine-grained GitHub token kept per tab (sessionStorage,
  * 30-min idle lock) or encrypted with a passphrase ("Remember") — see "token security" below.
@@ -35,7 +35,7 @@
   var REMOTE_URL = "config/features.json";
   var CACHE_KEY = "qbr-remote-flags";   // last-known-good remote copy
   var LOCAL_KEY = "qbr-feature-flags";  // existing per-browser module flags
-  var PAT_KEY = "qbr-gh-pat";           // GitHub token — Pedro's machine only
+  var PAT_KEY = "qbr-gh-pat";           // GitHub token — the owner's machine only
   var REPO_KEY = "qbr-gh-repo";          // { owner, repo, branch }
   // Review fix: the default publish branch follows the host the admin is on, so a flag flip on a
   // beta/preview site never edits production by accident. "<branch>--site.netlify.app" -> that
@@ -214,7 +214,7 @@
     } catch (err) {}
   }
 
-  /* ---------------- GitHub publish (token = Pedro's machine only) ---------------- */
+  /* ---------------- GitHub publish (token = the owner's machine only) ---------------- */
   function b64(s) {
     // btoa is Latin-1 only; round-trip through UTF-8 first.
     return btoa(unescape(encodeURIComponent(s)));

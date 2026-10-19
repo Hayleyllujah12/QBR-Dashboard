@@ -42,9 +42,9 @@ const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail
   ok(d.shown === null || d.shown === d.want, `Ticket 360 edit shows the stored date in UTC+8 (${d.shown} = ${d.want})`);
 
   console.log("== audit paste");
-  const a = await p.evaluate(() => [QBR.auditParsePaste("Diocese A\t\tHealthy\thttps://x/ev"), QBR.auditParsePaste('"Paco Catholic School, Inc.",12,Healthy'), QBR.auditParsePaste("\t\t")]);
+  const a = await p.evaluate(() => [QBR.auditParsePaste("Diocese A\t\tHealthy\thttps://x/ev"), QBR.auditParsePaste('"Pinewood Catholic School, Inc.",12,Healthy'), QBR.auditParsePaste("\t\t")]);
   ok(JSON.stringify(a[0].values) === JSON.stringify(["Diocese A", "", "Healthy", "https://x/ev"]), "blank Risky cell keeps Health in its column");
-  ok(a[1].values && a[1].values[0] === "Paco Catholic School, Inc." && a[1].values[1] === "12", "quoted comma in a CSV name stays one value");
+  ok(a[1].values && a[1].values[0] === "Pinewood Catholic School, Inc." && a[1].values[1] === "12", "quoted comma in a CSV name stays one value");
   ok(a[2].error === "empty", "all-blank paste is refused");
 
   console.log("== To-Do / General tickets");

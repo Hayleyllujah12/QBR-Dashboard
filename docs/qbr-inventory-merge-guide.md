@@ -279,7 +279,7 @@ Run: `cd ~/workspace/qbr-inventory-dev && node --test tests/`
 - Merge = §2 checklist (new files + index.html blocks + app.js integration points + CSS).
   The Inventory module is self-contained behind `window.QBR` and the four panel ids; it does
   not modify host data logic (host v1.9.0 `js/app.js` except the listed integration points).
-- Pedro's decision (2026-10-04): **the SharePoint part will not be implemented** — the app
+- the owner's decision (2026-10-04): **the SharePoint part will not be implemented** — the app
   stays local/browser-based (Excel loading, local persistence, direct file save, export).
 
 ---
@@ -297,6 +297,6 @@ Run: `cd ~/workspace/qbr-inventory-dev && node --test tests/`
 ## 9. Excluded from this guide (not working / superseded — do not merge)
 - Per-model Lenovo warranty deep URLs (removed in v1.17.0; they failed to resolve).
 - v1.17.1's `change`-listener search fix (superseded by the v1.17.2 root-cause fix).
-- Preserved-but-untouched files per Pedro's constraint: his original scanner/OCR files
+- Preserved-but-untouched files per the owner's constraint: his original scanner/OCR files
   (`~/workspace/user/files/Working_SCANNER_qbr-app_0_qtvi.zip`, `qbr-app/js/scan.js`,
   `qbr-app/libs/tesseract/offline/*.js`) — kept unless he approves replacement.

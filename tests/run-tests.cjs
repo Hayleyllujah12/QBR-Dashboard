@@ -69,8 +69,8 @@ let mojiCount = 0;
 ["risky", "security", "storage", "usage", "canva", "postmaster", "pmVerify"].forEach(sh =>
   (model[sh] || []).forEach(r => { if (r.schoolRaw && MOJI.test(r.schoolRaw)) mojiCount++; }));
 ok(mojiCount === 0, "INV", "no mojibake left in any display name (schoolRaw)", "found " + mojiCount);
-const dasmar = [...model.master.values()].find(m => /dasmar/i.test(m.name) && /- Dasmar/i.test(m.name));
-ok(!!dasmar && /ñ/.test(dasmar.name), "INV", 'accented name repaired ("Dasmariñas")', dasmar && dasmar.name);
+const dasmar = [...model.master.values()].find(m => /se[ñn]ora/i.test(m.name) && /- Villa Se/i.test(m.name));
+ok(!!dasmar && /ñ/.test(dasmar.name), "INV", 'accented name repaired ("Villa Señora")', dasmar && dasmar.name);
 
 /* ---- null vs 0 kept distinct (missing data never becomes 0) ---- */
 const rNull = model.risky.some(r => r.risky === null), rZero = model.risky.some(r => r.risky === 0), rPos = model.risky.some(r => r.risky > 0);

@@ -9,7 +9,7 @@
  * snoopers — not real security (client-side, bypassable via devtools).
  * Each module can be toggled on/off; hidden modules keep all their data.
  * Flags persist in localStorage ("qbr-feature-flags").
- * Appearance (from Mars's patch 4/4, reworked at merge): light/dark mode, page
+ * Appearance (from the contributor's patch 4/4, reworked at merge): light/dark mode, page
  * background, card, accent and heading colours, body-text and heading size
  * (90–150 %). Stored in localStorage ("qbr-theme-custom"), applied on <body>
  * so it works in both themes; text sizes use css/type-scale.css (generated).
@@ -330,7 +330,7 @@
     if (keepScripts) host.appendChild(keepScripts); else renderScriptsSection(host);
   }
 
-  // 2026-10-09 patch (Pedro, 2026-10-09; Mars's feature-admin-scripts): the script inventory lives in the
+  // 2026-10-09 patch (owner, 2026-10-09; the contributor's feature-admin-scripts): the script inventory lives in the
   // Admin panel. The wizard keeps its contextual "Copy … Extraction Script" / "Copy Tenant ID".
   function renderScriptsSection(host) {
     const sec = document.createElement("div");
@@ -409,7 +409,7 @@
    * UI control for the hosted app's feature flags. Toggles edit a working
    * copy; Publish commits config/features.json to the repo via the GitHub
    * Contents API. The personal access token lives ONLY in this browser's
-   * localStorage ("qbr-gh-pat") — Pedro's machine. No token here → the
+   * localStorage ("qbr-gh-pat") — the owner's machine. No token here → the
    * toggles are read-only and Publish is unavailable.
    * ------------------------------------------------------------------------ */
   QBR._rfUI = QBR._rfUI || {};

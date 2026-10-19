@@ -25,7 +25,7 @@ var QBR = window.QBR = window.QBR || {};
 QBR.INV_VERSION = "1.26.0"; // v1.34.0 beta: remaining-stock quick tiles
 
 /* ---------- Lenovo warranty lookup ---------------------------------------
- * Generic lookup page (per Pedro): paste any serial number. Deep per-unit
+ * Generic lookup page (per the owner): paste any serial number. Deep per-unit
  * URLs were tried but Lenovo's product paths don't resolve reliably, so every
  * warranty link goes here. */
 QBR.WARRANTY_LOOKUP_URL = "https://pcsupport.lenovo.com/us/en/warranty-lookup#/";

@@ -50,6 +50,8 @@ const F = [
   ["GDAP .xlsx picker (v1.39.0)", "js/scripts.js", ["accept=\".xlsx,.xlsm,.csv\"", "gdapParseWorkbook"]],
   ["Folder API for tabs (v1.39.0)", "js/fsfolder.js", ["QBR.fsFolderList", "QBR.fsFolderBooks", "QBR.fsFolderPickOnly", "qbr:folder-linked"]],
   ["Trainers response counts (v1.39.0)", "js/trainers.js", ["pendingFills", "scoreTwin", "fillCount", "addRespCol"]],
+  ["Trainers co-trainers (v1.40.0)", "js/trainers-parse.js", ["splitTrainers", "hasTrainer", "duplicateSessions", "byTrainer"]],
+  ["Trainers co-trainer UI (v1.40.0)", "js/trainers.js", ["trns-cotrainer", "tr-dupwarn", "co-trained"]],
   ["Trainers from folder (v1.39.0)", "js/trainers.js", ["readFolder", "autoFolder", "data-traction=\"folder\"", "qbr:folder-linked"]],
   ["Scan save all images", "js/scan.js", ["scanDownloadAll", "dupOf"]],
   ["New sections wired", "index.html", ["dash-soc", "um-generator", "js/soc.js", "js/usergen.js", "js/scripts.js", "js/gdap.js"]],

@@ -156,7 +156,7 @@ function walk(d) { let o = []; for (const f of fs.readdirSync(d)) { const p = pa
   ok(M.filterAttempts(mx.rows, { examNo: "DEN-20261008-01" }).length === 2, "filter by auto batch code");
   ok(M.groupRate(mx.rows, r => r.proctor).some(g => g.key === "Proctor Two" && g.attempts === 1), "group rates skip in-progress rows");
   ok(M.buildModel(xa, [], {}, { acronyms: { "Demo Education Network": "dnet" } }).rows.every(r => !r.date || r.batch.indexOf("DNET-") === 0), "profile acronym overrides the automatic one");
-  ok(M.acronym("Sisters of St Paul of Chartres Education Ministry") === "SSPCEM" && M.acronym("Our Lady of Peace School (OLPS)") === "OLPS", "school acronyms");
+  ok(M.acronym("Sisters of Silver Pine of Crestview Learning Ministry") === "SSPCLM" && M.acronym("Riverside Peace School (RPS)") === "RPS", "school acronyms");
   ok(M.parseAnyDate("10/8/2026 1:05 PM").date === "2026-10-08" && M.parseAnyDate("10/8/2026 1:05 PM").time === "13:05" && M.parseAnyDate(new Date(2026, 9, 8, 11, 40)).time === "11:40", "date formats (text, US, Date object)");
 
   _log("\n" + pass + " passed, " + fail + " failed");

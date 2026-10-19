@@ -4,7 +4,7 @@
  * Each user gets their own data namespace (todos, tickets, history);
  * inventory and audits stay shared, exactly as before.
  *
- * Design (Pedro, 2026-10-12): per-user WORKBOOKS, not sheets in a shared
+ * Design (owner, 2026-10-12): per-user WORKBOOKS, not sheets in a shared
  * file — each user exports their own file, so concurrent edits can never
  * collide. No per-user PIN (a locally-checked PIN is security theater when
  * anyone holding the file can bypass it); the admin gate is unchanged.
@@ -88,7 +88,7 @@
     return true;
   }
 
-  /* Ensure at least one user exists (first run -> "Pedro" is NOT assumed;
+  /* Ensure at least one user exists (first run -> no default user is assumed;
    * the user picks or registers their own name). */
   function ensureUser() {
     var u = currentUser();
