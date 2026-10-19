@@ -2,7 +2,7 @@
  * QBR — Audit editing module (js/audit.js)
  * v1.26.0 — Report 1: Risky Sign-ins (RISKY_USERS_AND_DOMAIN.xlsx)
  *
- * Lets Robin edit his audit workbooks directly in the dashboard:
+ * Lets the owner edit their audit workbooks directly in the dashboard:
  *  - Month picker (defaults to the current month, cycle through all 12)
  *  - Editable school table: Total Risky Users (number/text), Domain Health
  *    (dropdown from the workbook's Drop-Down sheet)

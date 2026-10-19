@@ -27,7 +27,7 @@
   /* Tighten pass: capped tiles (TILE_LIMIT rows + "Show all"), jump chips,
    * clickable rows (deep links), manual tiles first. */
   var TILE_LIMIT = 10;
-  /* Urgency rules (2026-10-13, Kai): an open Lenovo ticket is HIGH after 30 days, MED after 14
+  /* Urgency rules (2026-10-13, ops lead): an open Lenovo ticket is HIGH after 30 days, MED after 14
    * (or HIGH when the sheet's Priority says High/Critical/Urgent); the monthly risky sign-in audit
    * is due on AUDIT_DUE_DAY, so a missing audit is LOW before the last week, MED in it, HIGH after. */
   var TICKET_HIGH_DAYS = 30, TICKET_MED_DAYS = 14, AUDIT_DUE_DAY = 25;

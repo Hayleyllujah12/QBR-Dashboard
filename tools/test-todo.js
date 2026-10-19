@@ -31,23 +31,23 @@ t("safeName caps at 31 chars",
   vm.runInContext('QBR.users.safeName("12345678901234567890123456789012345")', sb).length <= 31);
 t("safeName trims", eq(vm.runInContext('QBR.users.safeName("  Ana  ")', sb), "Ana"));
 
-let r = vm.runInContext('QBR.users.register("Robin")', sb);
-t("register ok", r.ok === true && r.user.name === "Robin");
+let r = vm.runInContext('QBR.users.register("Tester")', sb);
+t("register ok", r.ok === true && r.user.name === "Tester");
 t("register duplicate rejected",
-  vm.runInContext('QBR.users.register("robin")', sb).ok === false);
+  vm.runInContext('QBR.users.register("tester")', sb).ok === false);
 t("register blank rejected",
   vm.runInContext('QBR.users.register("   ")', sb).ok === false);
-t("current user set", eq(vm.runInContext('QBR.users.current().name', sb), "Robin"));
+t("current user set", eq(vm.runInContext('QBR.users.current().name', sb), "Tester"));
 
 r = vm.runInContext('QBR.users.register("Ana")', sb);
 t("second user ok", r.ok === true);
 t("two users listed", eq(vm.runInContext('QBR.users.list().length', sb), 2));
 vm.runInContext('QBR.users.switch(QBR.users.list()[0].id)', sb);
-t("switch back", eq(vm.runInContext('QBR.users.current().name', sb), "Robin"));
+t("switch back", eq(vm.runInContext('QBR.users.current().name', sb), "Tester"));
 
 /* per-user data isolation */
 vm.runInContext('var _d=QBR.users.myData();_d.todos.push({id:"x",title:"t",product:"general"});QBR.users.saveMyData(_d)', sb);
-t("robin has todo", eq(vm.runInContext('QBR.users.myData().todos.length', sb), 1));
+t("tester has todo", eq(vm.runInContext('QBR.users.myData().todos.length', sb), 1));
 vm.runInContext('QBR.users.switch(QBR.users.list()[1].id)', sb);
 t("ana isolated", eq(vm.runInContext('QBR.users.myData().todos.length', sb), 0));
 vm.runInContext('QBR.users.switch(QBR.users.list()[0].id)', sb);
@@ -104,7 +104,7 @@ const hostStub = {
 sb2.document.getElementById = (id) => id === "dash-todo" ? hostStub : null;
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "js", "users.js"), "utf8"), sb2, { filename: "users.js" });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "js", "todo.js"), "utf8"), sb2, { filename: "todo.js" });
-vm.runInContext('QBR.users.register("Robin")', sb2);
+vm.runInContext('QBR.users.register("Tester")', sb2);
 for (let i = 0; i < 12; i++) {
   vm.runInContext(`QBR.todo.add({title:"G task ${i}",product:"general"})`, sb2);
 }

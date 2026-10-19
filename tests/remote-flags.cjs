@@ -309,7 +309,7 @@ function ghMock(o) {
   const { QBR } = freshEnv({ fetch: async () => { throw new Error("offline"); } });
   await settled(QBR);
   const repo = QBR.remoteFlagsRepo.get();
-  ok(repo.owner === "Hayleyllujah12" && repo.repo === "QBR-Dashboard" && repo.branch === "main", "repo defaults to Robin's repo/main on the live host");
+  ok(repo.owner === "Hayleyllujah12" && repo.repo === "QBR-Dashboard" && repo.branch === "main", "repo defaults to the owner's repo/main on the live host");
   const cases = [["rmt--qbr-dashboard-development.netlify.app", "rmt"], ["develop--qbr-dashboard-development.netlify.app", "develop"],
     ["qbr-dashboard-development.netlify.app", "develop"], ["hayleyllujah12.github.io", "main"], ["x.azurestaticapps.net", "develop"]];
   let good = true, bad = "";
