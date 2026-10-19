@@ -46,6 +46,8 @@
     var m = /^([a-z0-9-]+)--[a-z0-9-]+\.netlify\.app$/.exec(h);
     if (m) return m[1];
     if (/\.netlify\.app$/.test(h)) return "develop";
+    // 2026-10-19: the Azure Static Web App now deploys the develop branch (beta) → publish to develop from there
+    if (/\.azurestaticapps\.net$/.test(h)) return "develop";
     return "main";
   }
   var REPO_DEFAULTS = { owner: "Hayleyllujah12", repo: "QBR-Dashboard", branch: hostBranch() };
