@@ -294,7 +294,7 @@
       if (e.key !== "Enter" && e.key !== " ") return;
       var tr = e.target.closest("tr[data-sk]"); if (!tr) return;
       e.preventDefault(); var k = tr.getAttribute("data-sk"); S.open[k] = !S.open[k]; renderResults(rows());
-      var again = $("mos-res").querySelector('tr[data-sk="' + k.replace(/"/g, '\\"') + '"]'); if (again) again.focus();
+      var again = $("mos-res").querySelector('tr[data-sk="' + (window.CSS && CSS.escape ? CSS.escape(k) : k.replace(/["\\]/g, "\\$&")) + '"]'); if (again) again.focus();
     });
     $("mos-more").addEventListener("click", function (e) { if (e.target.closest("button")) { S.limit += 500; renderResults(rows()); } });
     $("mos-check-body").addEventListener("change", onCheckEdit);
@@ -357,7 +357,7 @@
     var inSchool = f.school ? all.filter(function (r) { return r.school === f.school; }) : all;
     f.section = setOpts("mos-f-section", uniq(inSchool.map(function (r) { return r.section || "(none)"; })), f.section, "All sections");
     f.exam = setOpts("mos-f-exam", uniq(inSchool.map(function (r) { return r.exam; })), f.exam, "All exams");
-    var nos = uniq(inSchool.map(function (r) { return r.batch; })).sort(function (a, b) { return (+b || 0) - (+a || 0) || b.localeCompare(a); });
+    var nos = uniq(inSchool.map(function (r) { return r.batch || "(none)"; })).sort(function (a, b) { return (+b || 0) - (+a || 0) || b.localeCompare(a); });
     f.examNo = setOpts("mos-f-examno", nos, f.examNo, "All exam numbers / batches", function (n) { return /^\d+$/.test(n) ? "Exam " + n : n; });
     var pr = uniq(inSchool.map(function (r) { return r.proctor || "(none)"; }));
     f.proctor = setOpts("mos-f-proctor", pr, f.proctor, "All proctors");
@@ -608,7 +608,7 @@
         histDone[r.studentKey] = 1;
         var hist = all.filter(function (x) { return x.studentKey === r.studentKey; }).sort(function (a, b) { return (a.date || "").localeCompare(b.date || ""); });
         html += '<tr class="mos-hist"><td colspan="11"><div class="small"><b>All attempts</b> · ' + esc(r.email || "") + (r.certiportId ? " · Certiport ID " + esc(r.certiportId) : "") + "</div>" +
-          '<table class="table table-sm mb-0"><tbody>' + hist.map(function (h) {
+          '<table class="table table-sm mb-0" data-resizable="static"><tbody>' + hist.map(function (h) {
             return "<tr><td>" + fmtDate(h.date) + "</td><td>" + esc(h.exam) + (h.examVersion ? ' <span class="small text-muted">' + esc(h.examVersion) + "</span>" : "") + "</td><td>" + esc(h.examNo ? "Exam " + h.examNo : (h.batch || "—")) + '</td><td class="num"><b>' + (h.score == null ? "—" : h.score) + "</b></td>" + outcomeCell(h) +
               '<td class="small">' + esc([h.proctor ? "Proctor " + h.proctor : "", h.station ? "Station " + h.station : "", h.timeUsed != null ? mins(h.timeUsed) : ""].filter(Boolean).join(" · ")) + "</td>" +
               "<td>" + (h.skills || []).map(function (s) { return '<span class="mos-sk' + (s.pct < 50 ? " mos-sk-low" : "") + '">' + esc(s.area) + " " + s.pct + "%</span>"; }).join(" ") + "</td></tr>";
@@ -635,10 +635,12 @@
     var html = "";
     if (!S.roster.length) html += '<div class="small mb-2">No roster loaded — sections come from the file name (e.g. <i>“… 11A …”</i>) when present. Add the school roster to map every student to a section.</div>';
     else {
+      if (S.rosterFiles.some(function (r) { return r.students && r.school === "Unassigned school"; }))
+        html += '<div class="small mb-1 text-danger">A roster was added without a school, so its students cannot be matched. Pick or type the school, then add the roster again.</div>';
       html += '<div class="small mb-1">Rosters: ' + S.rosterFiles.map(function (r) { return esc(r.name) + (r.err ? " — could not read: " + esc(r.err) : r.students ? " → " + esc(r.school) + " (" + r.students + " students)" : " — no section sheets (11A, 11B…), ignored"); }).join("; ") + "</div>";
       if (needs.length) {
         html += '<div class="small mb-1"><b>' + needs.length + " attempt" + (needs.length === 1 ? "" : "s") + "</b> could not be matched to the roster. Pick the student or type a section.</div>" +
-          '<div class="table-responsive mos-check-tbl"><table class="table table-sm"><thead><tr><th>Name on score report</th><th>School</th><th>Exam / date</th><th>Roster student</th><th>Section</th></tr></thead><tbody>' +
+          '<div class="table-responsive mos-check-tbl"><table class="table table-sm" data-resizable="static"><thead><tr><th>Name on score report</th><th>School</th><th>Exam / date</th><th>Roster student</th><th>Section</th></tr></thead><tbody>' +
           needs.slice(0, 300).map(function (r) {
             var pool = r.schoolFromCenter ? S.roster : S.roster.filter(function (s) { return s.school === r.school; });
             var cands = r.candidates || [];
@@ -658,7 +660,7 @@
       return esc(x.name) + " (" + esc(x.sheets.join(", ")) + ": " + num(x.attempts) + " rows" + (x.skipped ? ", " + x.skipped + " footer lines ignored" : "") + ")";
     }).join("; ") + (m.merged ? " · " + num(m.merged) + " matched to PDF pages by Exam reference #" : "") + ". Date of birth and voucher codes are not read.</div>";
     html += '<details class="mt-2"><summary class="small">Files read (' + S.files.length + ")</summary>" +
-      '<div class="table-responsive"><table class="table table-sm small"><thead><tr><th>File</th><th>School</th><th class="num">Pages</th><th class="num">Score pages</th><th>Note</th></tr></thead><tbody>' +
+      '<div class="table-responsive"><table class="table table-sm small" data-resizable="static"><thead><tr><th>File</th><th>School</th><th class="num">Pages</th><th class="num">Score pages</th><th>Note</th></tr></thead><tbody>' +
       S.files.map(function (f) {
         var note = f.err ? "Could not read: " + f.err : !f.attempts ? "No score-report pages (certificate or summary?) — skipped" : (f.skipped ? f.skipped + " other page(s) skipped" : "") + (f.bad ? " · " + f.bad + " page(s) without a score" : "");
         return "<tr" + (!f.attempts ? ' class="table-warning"' : "") + "><td>" + esc(f.file) + "</td><td>" + esc(f.school) + '</td><td class="num">' + f.pages + '</td><td class="num">' + f.attempts + "</td><td>" + esc(note) + "</td></tr>";
@@ -719,7 +721,7 @@
     if (f.school) p.push("School: " + f.school); if (f.section) p.push("Section: " + f.section);
     if (f.exam) p.push("Exam: " + f.exam); if (f.examNo) p.push("Exam No. / batch: " + f.examNo); if (f.proctor) p.push("Proctor: " + f.proctor);
     if (f.outcome) p.push("Result: " + f.outcome); if (f.min !== "" || f.max !== "") p.push("Score: " + (f.min || 0) + "–" + (f.max || 1000));
-    if (f.pmode !== "all" && f.pval) p.push(f.pmode + ": " + f.pval); if (f.q) p.push("Search: " + f.q); if (f.firstOnly) p.push("First attempts only");
+    if (f.pmode !== "all" && f.pval) p.push(f.pmode + ": " + f.pval); if (f.q) p.push("Search: " + (/@/.test(f.q) ? "(email)" : f.q)); if (f.firstOnly) p.push("First attempts only");
     return p.join(" · ") || "None";
   }
 
@@ -764,14 +766,14 @@
         '<div class="d-flex gap-2 mb-2"><label class="mos-fl"><span>Acronym (batch codes)</span><input id="mos-pf-acr" class="form-control form-control-sm" maxlength="8" value="' + esc(work.acronym) + '" placeholder="' + esc(P().acronym(school)) + '"></label>' +
         '<label class="mos-fl flex-grow-1"><span>Address line (optional)</span><input id="mos-pf-addr" class="form-control form-control-sm" value="' + esc(work.address) + '"></label></div>' +
         '<div class="mos-pf-imgs">' +
-          '<div><div class="small fw-bold">Logo</div><div class="mos-pf-prev">' + (work.logo ? '<img id="mos-pf-logo-img" alt="School logo" src="' + work.logo + '">' : '<span class="small text-muted">None</span>') + '</div>' +
+          '<div><div class="small fw-bold">Logo</div><div class="mos-pf-prev">' + (work.logo ? '<img id="mos-pf-logo-img" alt="School logo" src="' + esc(work.logo) + '">' : '<span class="small text-muted">None</span>') + '</div>' +
           '<label class="btn btn-outline-primary btn-sm mb-0">Upload logo…<input id="mos-pf-logo" type="file" accept="image/*" hidden></label> ' +
           (work.logo ? '<button type="button" class="btn btn-link btn-sm" data-pf-clear="logo">Remove</button>' : "") + '<div class="small text-muted">PNG/JPG/SVG, ≤ 512 KB</div></div>' +
           '<div><div class="small fw-bold">Company logos (every school)</div>' +
             '<div class="mos-pf-co"><div><div class="mos-pf-prev">' + '<img id="mos-pf-left-img" alt="Left company logo" src="' + esc(bw.left || RAKSO_DEFAULT) + '">' + '</div>' +
               '<label class="btn btn-outline-secondary btn-sm mb-0">Left logo…<input id="mos-pf-left" type="file" accept="image/*" hidden></label>' +
               (bw.left ? ' <button type="button" class="btn btn-link btn-sm" data-pf-coclear="left">Use Rakso CT</button>' : '<div class="small text-muted">Rakso CT (built in)</div>') + '</div>' +
-            '<div><div class="mos-pf-prev">' + (bw.right ? '<img id="mos-pf-right-img" alt="Right partner logo" src="' + bw.right + '">' : '<span class="small text-muted">None</span>') + '</div>' +
+            '<div><div class="mos-pf-prev">' + (bw.right ? '<img id="mos-pf-right-img" alt="Right partner logo" src="' + esc(bw.right) + '">' : '<span class="small text-muted">None</span>') + '</div>' +
               '<label class="btn btn-outline-primary btn-sm mb-0">Right logo (GTP)…<input id="mos-pf-right" type="file" accept="image/*" hidden></label>' +
               (bw.right ? ' <button type="button" class="btn btn-link btn-sm" data-pf-coclear="right">Remove</button>' : "") + '</div></div>' +
             '<div class="small text-muted">≤ 512 KB each.</div>' +
@@ -783,7 +785,7 @@
                 '<option value="spread"' + (bw.align === "spread" ? " selected" : "") + '>Left and right edges</option></select></label>' +
               '<button type="button" class="btn btn-link btn-sm p-0" id="mos-pf-hdr-reset">Default size</button>' +
               '<div class="mos-pf-brandprev mos-al-' + bw.align + '" id="mos-pf-brandprev" style="--logo-h:' + Math.round(bw.logoH * 0.6) + 'px" aria-hidden="true">' +
-                '<img src="' + esc(bw.left || RAKSO_DEFAULT) + '" alt="">' + (bw.right ? '<img src="' + bw.right + '" alt="">' : "") + '</div>' +
+                '<img src="' + esc(bw.left || RAKSO_DEFAULT) + '" alt="">' + (bw.right ? '<img src="' + esc(bw.right) + '" alt="">' : "") + '</div>' +
             '</div></div>' +
         '</div>' +
         '<div id="mos-pf-msg" class="small text-danger mt-1" role="alert">' + esc(msg || "") + '</div>' +
@@ -863,7 +865,7 @@
     var f = S.f, p = [];
     if (f.outcome) p.push("Result: " + (f.outcome === "PASS" ? "Pass" : f.outcome === "FAIL" ? "Fail" : "In progress"));
     if (f.min !== "" || f.max !== "") p.push("Score " + (f.min || 0) + "–" + (f.max || 1000));
-    if (f.q) p.push("Search: " + f.q);
+    if (f.q) p.push("Search: " + (/@/.test(f.q) ? "(email)" : f.q));
     if (f.firstOnly) p.push("First attempts only");
     return p;
   }
@@ -879,7 +881,8 @@
     var dates = uniq(rows.map(function (r) { return r.date; }));
     var batches = uniq(rows.map(function (r) { return r.examNo || r.batch; }));
     var s = P().summarize(rows);
-    var eligible = rows.filter(function (r) { return r.retakeEligible; }).length;
+    // eligible = failed first takes that have NOT been retaken yet (a student who already retook is not counted)
+    var eligible = rows.filter(function (r) { return r.retakeEligible && !r.retakeUsed; }).length;
     // skill columns I–V: the objectives most rows share (one exam family). Rows from another exam version with the
     // same number of objectives are filled by position and marked †, with their own legend line; others show —.
     var areas = [], altSigs = {}, sigOf = function (r) { return (r.skills || []).map(function (k) { return k.area; }).join("|"); };
@@ -911,7 +914,7 @@
           '<td class="c3"><div class="dt">' + esc(upper(dateTxt || "—")) + '</div><div class="no">' + esc(batchTxt) + "</div>" + (batchList ? '<div class="ad bl">' + esc(batchList) + "</div>" : "") + "</td>" +
         "</tr><tr>" +
           '<td class="c1"><div class="mos-sum-counts">' +
-            '<div><b>' + num(s.attempts) + "</b><span>TOTAL<br>STUDENTS</span></div>" +
+            '<div><b>' + num(s.attempts) + "</b><span>TOTAL<br>EXAMINEES</span>" + (s.students < s.attempts ? '<i class="st">' + num(s.students) + " students</i>" : "") + "</div>" +
             '<div class="ok"><b>' + num(s.passed) + "</b><span>STUDENTS<br>PASSED</span></div>" +
             '<div class="bad"><b>' + num(s.failed) + "</b><span>STUDENTS<br>FAILED</span></div>" +
             '<div><b>' + num(eligible) + "</b><span>ELIGIBLE<br>FOR RETAKE</span></div>" +

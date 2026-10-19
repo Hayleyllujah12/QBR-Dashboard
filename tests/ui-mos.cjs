@@ -203,8 +203,8 @@ async function run(b, url, label, full) {
     ok(await p.evaluate(() => { const d = document.querySelector("#mos-print .mos-sum-doc"), br = document.querySelector("#mos-print .mos-sum-brand");
       return d.style.getPropertyValue("--logo-h") === "30px" && d.style.getPropertyValue("--hs") === "0.7" && br.classList.contains("mos-al-center"); }), "summary uses the saved header size and centred logos");
     ok(sm && sm.co === 2 && sm.school === "DEMO HIGH SCHOOL OF EXAMPLE CITY" && sm.logo && /^Microsoft Office Specialist — Excel, PowerPoint$/.test(sm.sub), "header: company logos row, school logo + name, exam title");
-    ok(sm && sm.rows === 4 && /^4TOTAL/.test(sm.counts) && /3STUDENTSPASSED/.test(sm.counts) && /1STUDENTSFAILED/.test(sm.counts) && /1ELIGIBLEFOR RETAKE/.test(sm.counts) && sm.rate === "75%",
-      "summary row: total / passed / failed / eligible for retake + passing rate (Demo High School: 4 attempts, 75%)  [" + (sm && sm.counts) + "]");
+    ok(sm && sm.rows === 4 && /^4TOTAL/.test(sm.counts) && /3STUDENTSPASSED/.test(sm.counts) && /1STUDENTSFAILED/.test(sm.counts) && /0ELIGIBLEFOR RETAKE/.test(sm.counts) && /3 students/.test(sm.counts) && sm.rate === "75%",
+      "summary row: 4 examinees (3 students) / 3 passed / 1 failed / 0 still eligible (Bea already retook) + 75%  [" + (sm && sm.counts) + "]");
     ok(sm && /Failed · retook/.test(sm.txt) && /2nd take/.test(sm.txt), "first-time fail who retook is marked; 2nd take marked");
     ok(sm && !/@|example\.com|alexdemo01/.test(sm.txt), "no emails / Certiport IDs printed");
     ok(sm && /^MOS Exam Summary - DHS - \d{4}-\d\d-\d\d$/.test(sm.title), "document title = PDF file name  [" + (sm && sm.title) + "]");
