@@ -2377,6 +2377,7 @@ body.identity-gated:not(.identity-authed) :is(.app-header,#app-sidebar,main,#det
 #dash-mos .mos-out{display:inline-block;padding:0 8px;border-radius:999px;font-size:12px;font-weight:600}
 #dash-mos .mos-out-pass{background:var(--ok-bg);color:var(--ok-fg)}
 #dash-mos .mos-out-fail{background:var(--bad-bg);color:var(--bad-fg)}
+#dash-mos .mos-out-wait{background:var(--caution-bg);color:var(--caution-fg)}
 #dash-mos .mos-retake{display:inline-block;font-size:10px;font-weight:700;padding:0 4px;border-radius:3px;background:var(--warn-bg);color:var(--warn-fg)}
 #dash-mos .mos-sk{display:inline-block;font-size:11px;padding:0 5px;margin:1px 2px 1px 0;border-radius:3px;background:var(--tab-bg);color:var(--ink);border:1px solid var(--line)}
 #dash-mos .mos-sk-low{background:var(--bad-bg);color:var(--bad-fg);border-color:transparent;font-weight:600}

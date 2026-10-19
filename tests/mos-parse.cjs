@@ -108,6 +108,39 @@ function walk(d) { let o = []; for (const f of fs.readdirSync(d)) { const p = pa
   ok(sk[0].avg <= sk[sk.length - 1].avg && sk[0].exam === "Excel", "weakest skill areas sorted ascending");
   ok(M.bandOf(699) === "<700" && M.bandOf(700) === "700–799" && M.bandOf(1000) === "900–1000", "score bands");
 
+  console.log("== Certiport results export (.xlsx)");
+  const XLSX = require(path.join(ROOT, "libs/xlsx.full.min.js"));
+  const xb = require("./mos-export-fixture.cjs")(XLSX);
+  const xwb = XLSX.read(xb, { type: "buffer", cellDates: true });
+  const xrows = XLSX.utils.sheet_to_json(xwb.Sheets[xwb.SheetNames[0]], { header: 1, defval: "", raw: true });
+  ok(M.parseExportRows([["NAME", "Email"], ["X, Y", ""]]) === null, "a roster sheet is not taken for an export");
+  const ex = M.parseExportRows(xrows, "results.xlsx");
+  ok(ex && ex.attempts.length === 4 && ex.header >= 2 && ex.skipped === 3, "4 rows read; title + 3 footer lines skipped", ex && [ex.attempts.length, ex.header, ex.skipped]);
+  const xs = JSON.stringify(ex.attempts);
+  ok(!xs.includes("2011-01-01") && !xs.includes("TEST-VOUC"), "date of birth and voucher codes are never read");
+  const xa = ex.attempts;
+  ok(xa[0].name === "Alex Demo" && xa[0].certiportId === "alexdemo01" && xa[0].studentIdExport === "", "ALL-CAPS name title-cased; '{invalid or no ID}' dropped");
+  ok(xa[1].email === "gina.ong@example.com" && xa[1].studentIdExport === "26-0099" && xa[1].proctor === "Proctor One" && xa[1].station === "LAB-2", "email / student ID / proctor / station");
+  ok(xa[1].date === "2026-10-08" && xa[1].time === "11:40" && xa[1].timeUsed === 1818 && xa[1].exam === "Word" && xa[1].score === 940 && xa[1].outcome === "PASS", "date, time, time used, exam, score, result");
+  ok(xa[3].outcome === "IN PROGRESS" && xa[3].score === null, "'In Progress' kept without a score");
+  ok(xa[1].school === "Demo Education Network" && xa[1].schoolFromCenter, "school defaults to the Test Center");
+  const roster2 = roster.concat(M.parseRosterRows("11C", [["NAME", "Email"], ["ONG, Gina, Reyes", "g.ong@school.example"]]).map(st => Object.assign(st, { school: "Demo High School" })));
+  const mx = M.buildModel(attempts.concat(xa), roster2);
+  const bx = {}; mx.rows.forEach(r => { bx[r.ref] = r; });
+  ok(mx.rows.length === 9 && mx.merged === 1 && mx.duplicates === 1, "PDF page + export row with the same Exam reference # → one attempt", [mx.rows.length, mx.merged, mx.duplicates]);
+  ok(bx["90000001"].source === "pdf+export" && bx["90000001"].proctor === "Proctor One" && bx["90000001"].skills.length === 5 && bx["90000001"].school === "Demo High School" && bx["90000001"].time === "09:15",
+    "merged attempt: proctor + time from the export, skill areas + school folder from the PDF");
+  ok(bx["91000001"].school === "Demo High School" && bx["91000001"].section === "11C" && bx["91000001"].match === "name", "export row: roster school + section win over the Test Center");
+  ok(bx["91000002"].school === "Demo Education Network" && bx["91000002"].batch === "DEN-20261008-01", "no roster match → Test Center school; auto batch ACR-YYYYMMDD-01");
+  ok(bx["90000001"].batch === "9001", "PDF Exam No. stays the batch when known");
+  const sx = M.summarize(mx.rows);
+  ok(sx.pending === 1 && sx.attempts === 8, "in-progress row excluded from scored attempts", sx);
+  ok(M.filterAttempts(mx.rows, { proctor: "Proctor Two" }).length === 2 && M.filterAttempts(mx.rows, { outcome: "IN PROGRESS" }).length === 1, "filters: proctor, in progress");
+  ok(M.filterAttempts(mx.rows, { examNo: "DEN-20261008-01" }).length === 2, "filter by auto batch code");
+  ok(M.groupRate(mx.rows, r => r.proctor).some(g => g.key === "Proctor Two" && g.attempts === 1), "group rates skip in-progress rows");
+  ok(M.acronym("Sisters of St Pine of Crestview Education Ministry") === "SSPCEM" && M.acronym("Our Lady of Pine School (OLPS)") === "OLPS", "school acronyms");
+  ok(M.parseAnyDate("10/8/2026 1:05 PM").date === "2026-10-08" && M.parseAnyDate("10/8/2026 1:05 PM").time === "13:05" && M.parseAnyDate(new Date(2026, 9, 8, 11, 40)).time === "11:40", "date formats (text, US, Date object)");
+
   _log("\n" + pass + " passed, " + fail + " failed");
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error("HARNESS ERROR:", e); process.exit(2); });

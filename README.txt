@@ -6,6 +6,22 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: import the Certiport results export (.xlsx)
+  - "Add export / roster (.xlsx)…" now also takes the Certiport "Results … Plus" export (every exam taker
+    with exam, certification, date and time, score, result, proctor, station, time used). The app tells an
+    export from a roster by its header row; title and footer lines are ignored.
+  - School = the export's Test Center at first; when the student is found in a loaded roster (email, then
+    name), the roster's school and section are used instead. Roster names: "SURNAME, First, Middle".
+  - Export + PDFs together: a row and a PDF page with the same Exam reference # are one attempt — the
+    export adds proctor / station / time, the PDF adds the skill areas and the Exam No. from its file name.
+  - Batch: the Exam No. from the PDF file name when there is one, otherwise an automatic code per school and
+    exam day, e.g. SSPCEM-20261015-01 (school acronym + date). Filter "Exam No. / batch".
+  - New: Proctor filter, "Group by" for the summary table and the comparison chart (section, school,
+    proctor, exam, batch), Proctor column, proctor / station / time used in the student history and export.
+  - "In Progress" rows (no score yet) are shown with their own status and are NOT counted as fails or in
+    pass rates; they are listed under Check & fix.
+  - Date of birth, voucher / license codes and payment type in the export are never read.
+
 UPDATE — 2026-10-18 — v1.37.0 [PREVIEW feature/mos] NEW: Certification › MOS results
   - New sidebar section "Certification" with "MOS results": Microsoft Office Specialist score reports
     exported from Certiport, summarised School › Section › Student.

@@ -280,7 +280,8 @@
     if (att.email && idx.byEmail[att.email]) return { st: idx.byEmail[att.email], how: "email" };
     var set = {}; tokens(att.name).forEach(function (t) { set[t] = 1; });
     var hits = roster.filter(function (st) {
-      if (st.school && att.school && st.school !== att.school) return false;
+      // export rows carry the Certiport Test Center as school (a group of schools) → match any roster
+      if (!att.schoolFromCenter && st.school && att.school && st.school !== att.school) return false;
       var k = st._key || (st._key = rosterKey(st));
       if (!k.sur.length || !k.first.length) return false;
       return k.sur.every(function (t) { return set[t]; }) && set[k.first[0]];
@@ -288,6 +289,102 @@
     if (hits.length === 1) return { st: hits[0], how: "name" };
     if (hits.length > 1) return { st: null, how: "ambiguous", candidates: hits };
     return null;
+  }
+
+  /* ---- Certiport "Results … Plus" export (.xlsx) ------------------------------ */
+  // Sheet layout: title row ("Results (264) Plus"), header row with "Exam Reference Number", data, footer
+  // ("User: 0", "Execution Time: …", "© … Pearson"). Date of Birth, Voucher / License and Payment Type are
+  // NEVER read (minors' PII / voucher codes).
+  var EXPORT_COLS = {
+    centerId: /^test\s*center\s*id$/, center: /^test\s*center\s*name$/, first: /^first\s*name$/, last: /^last\s*name$/,
+    alt: /^alternate\s*name$/, studentId: /^student\s*\/?\s*employee\s*id$/, username: /^user\s*name$/,
+    ref: /^exam\s*reference\s*(number|no\.?|#)$/, exam: /^exam$/, program: /^program\s*name$/, level: /^exam\s*level$/,
+    cert: /^certification\s*name$/, date: /^exam\s*date$/, score: /^score$/, result: /^result$/, timeUsed: /^time\s*used$/,
+    proctor: /^proctor\s*name$/, station: /^station$/, group: /^exam\s*group$/, teacher: /^teacher$/
+  };
+  function exportHeader(rows) {
+    for (var r = 0; r < Math.min(rows.length, 15); r++) {
+      var c = {}, row = rows[r] || [];
+      row.forEach(function (v, j) {
+        var h = norm(v).toLowerCase();
+        Object.keys(EXPORT_COLS).forEach(function (k) { if (c[k] == null && EXPORT_COLS[k].test(h)) c[k] = j; });
+      });
+      if (c.ref != null && c.score != null && c.result != null) return { row: r, cols: c };
+    }
+    return null;
+  }
+  function pad2(n) { return String(n).padStart(2, "0"); }
+  // Date object | Excel serial | "2026-10-08 11:40:00" | "10/8/2026 11:40 AM" → {date:"YYYY-MM-DD", time:"HH:MM"}
+  function parseAnyDate(v) {
+    if (v == null || v === "") return { date: "", time: "" };
+    if (v instanceof Date && !isNaN(v)) return { date: v.getFullYear() + "-" + pad2(v.getMonth() + 1) + "-" + pad2(v.getDate()), time: pad2(v.getHours()) + ":" + pad2(v.getMinutes()) };
+    if (typeof v === "number" && isFinite(v) && v > 20000 && v < 80000) {
+      var ms = Math.round((v - 25569) * 86400000), d = new Date(ms);
+      return { date: d.getUTCFullYear() + "-" + pad2(d.getUTCMonth() + 1) + "-" + pad2(d.getUTCDate()), time: pad2(d.getUTCHours()) + ":" + pad2(d.getUTCMinutes()) };
+    }
+    var t = norm(v), m;
+    if ((m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/))) return { date: m[1] + "-" + pad2(m[2]) + "-" + pad2(m[3]), time: m[4] ? pad2(m[4]) + ":" + m[5] : "" };
+    if ((m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*([AP]M)?)?/i))) {
+      var y = +m[3] < 100 ? 2000 + +m[3] : +m[3], h = m[4] ? +m[4] : null;
+      if (h != null && m[6]) { if (/pm/i.test(m[6]) && h < 12) h += 12; if (/am/i.test(m[6]) && h === 12) h = 0; }
+      return { date: y + "-" + pad2(m[1]) + "-" + pad2(m[2]), time: h != null ? pad2(h) + ":" + m[5] : "" };
+    }
+    var iso = parseDate(t);
+    return { date: iso, time: "" };
+  }
+  // ALL-CAPS names from the export → "Title Case" for display (mixed-case names are left as typed)
+  function nameCase(s) {
+    s = norm(s);
+    if (!s || s !== s.toUpperCase() || !/[A-Z]/.test(s)) return s;
+    return s.toLowerCase().replace(/(^|[\s\-'’.])([a-zñ])/g, function (x, a, b) { return a + b.toUpperCase(); });
+  }
+  function parseExportRows(rows, fileName) {
+    var h = exportHeader(rows);
+    if (!h) return null;
+    var c = h.cols, out = [], skipped = 0;
+    function g(row, k) { return c[k] == null ? "" : row[c[k]]; }
+    for (var i = h.row + 1; i < rows.length; i++) {
+      var row = rows[i] || [];
+      var ref = norm(g(row, "ref"));
+      if (!/^\d{5,}$/.test(ref)) { if (row.some(function (v) { return norm(v); })) skipped++; continue; }   // footer / blank
+      var first = nameCase(g(row, "first")), last = nameCase(g(row, "last"));
+      var user = norm(g(row, "username"));
+      var sid = norm(g(row, "studentId"));
+      if (/invalid|no id/i.test(sid)) sid = "";
+      var dt = parseAnyDate(g(row, "date"));
+      var res = norm(g(row, "result")).toLowerCase();
+      var sc = norm(g(row, "score")), score = /^\d{1,4}$/.test(sc) ? +sc : null;
+      var title = cleanTitle(g(row, "exam"));
+      var tu = norm(g(row, "timeUsed"));
+      var center = norm(g(row, "center"));
+      out.push({
+        source: "export", ref: ref,
+        name: norm(first + " " + last), firstName: first, lastName: last, altName: norm(g(row, "alt")),
+        email: /@/.test(user) ? user.toLowerCase() : "", certiportId: user, studentIdExport: sid,
+        examTitle: title, exam: examFamily(title), examVersion: examVersion(title), certName: norm(g(row, "cert")),
+        program: norm(g(row, "program")), level: norm(g(row, "level")),
+        date: dt.date, time: dt.time, dateText: norm(g(row, "date")),
+        score: score, required: 700,
+        outcome: /^pass/.test(res) ? "PASS" : /^fail/.test(res) ? "FAIL" : res ? "IN PROGRESS" : (score != null ? (score >= 700 ? "PASS" : "FAIL") : "IN PROGRESS"),
+        timeUsed: /^\d+$/.test(tu) ? +tu : null,
+        proctor: norm(g(row, "proctor")), station: norm(g(row, "station")),
+        examGroup: norm(g(row, "group")), teacher: norm(g(row, "teacher")),
+        testCenterId: norm(g(row, "centerId")), testCenter: center,
+        school: center || "Unassigned school", schoolFromCenter: true,
+        examNo: "", examBase: "", retakeFile: false, sectionHint: "", gradeHint: "",
+        skills: [], file: fileName || "", fileName: fileName || ""
+      });
+    }
+    return { attempts: out, skipped: skipped, header: h.row };
+  }
+  // "Sisters of St Pine of Crestview Education Ministry" → "SSPCEM" (Phase 2: editable per school profile)
+  var ACR_SKIP = { of: 1, the: 1, and: 1, "&": 1, de: 1, la: 1, del: 1, for: 1, "-": 1, inc: 1 };
+  function acronym(name) {
+    var p = String(name || "").replace(/\(([A-Z0-9]{2,})\)/, " $1 ").split(/[\s,.]+/).filter(Boolean);
+    var paren = String(name || "").match(/\(([A-Z0-9]{2,8})\)/);
+    if (paren) return paren[1];
+    var a = p.filter(function (w) { return !ACR_SKIP[w.toLowerCase()]; }).map(function (w) { return /^[A-Z0-9]{2,5}$/.test(w) ? w : w.charAt(0).toUpperCase(); }).join("");
+    return (a || "SCH").replace(/[^A-Z0-9]/g, "").slice(0, 8) || "SCH";
   }
 
   /* ---- model ---------------------------------------------------------------- */
@@ -307,13 +404,30 @@
     roster = roster || [];
     var idx = { byEmail: {} };
     roster.forEach(function (st) { if (st.email) idx.byEmail[st.email] = st; });
-    var seen = {}, dupes = 0, rows = [];
+    var seen = {}, dupes = 0, merged = 0, rows = [], byKey = {};
+    // Same Exam reference # from a PDF page and an export row → one attempt: the export gives proctor /
+    // station / time / test center; the PDF gives skill areas, Exam No. and the school folder.
+    var EXPORT_ONLY = ["proctor", "station", "timeUsed", "examGroup", "teacher", "testCenter", "testCenterId", "certName", "time",
+      "studentIdExport", "firstName", "lastName", "altName", "program", "level"];
+    var bucket = [];
     attempts.forEach(function (a) {
       var key = a.ref || (a.file + "#" + a.page);
-      if (seen[key]) { dupes++; return; }
-      seen[key] = 1;
-      var r = {};
-      for (var p in a) if (Object.prototype.hasOwnProperty.call(a, p)) r[p] = a[p];
+      var prev = byKey[key];
+      if (!prev) { byKey[key] = { pdf: a.source === "export" ? null : a, exp: a.source === "export" ? a : null }; bucket.push(key); return; }
+      if (a.source === "export" ? prev.exp : prev.pdf) { dupes++; return; }
+      if (a.source === "export") prev.exp = a; else prev.pdf = a;
+      merged++;
+    });
+    bucket.forEach(function (key) {
+      var e = byKey[key], a = e.pdf || e.exp, r = {}, p;
+      for (p in a) if (Object.prototype.hasOwnProperty.call(a, p)) r[p] = a[p];
+      if (e.pdf && e.exp) {
+        EXPORT_ONLY.forEach(function (k) { if (e.exp[k] != null && e.exp[k] !== "") r[k] = e.exp[k]; });
+        if (!r.email && e.exp.email) r.email = e.exp.email;
+        if (r.school === "Unassigned school") { r.school = e.exp.school; r.schoolFromCenter = true; } else r.schoolFromCenter = false;
+        if (e.exp.score != null) { r.score = e.exp.score; r.outcome = e.exp.outcome; }
+        r.source = "pdf+export";
+      }
       r.key = key;
       var m = matchRoster(r, roster, idx);
       r.match = m ? m.how : "none";
@@ -321,7 +435,8 @@
       var st = m && m.st;
       var ov = overrides[key];
       if (ov && ov.student) { st = ov.student; r.match = "manual"; }
-      r.studentNo = st ? st.studentNo : "";
+      r.studentNo = st ? st.studentNo : (r.studentIdExport || "");
+      if (st && st.school && r.schoolFromCenter) r.school = st.school;     // roster school beats the Test Center
       r.rosterName = st ? st.name : "";
       r.section = (ov && ov.section) || (st ? st.section : "") || a.sectionHint || "";
       r.grade = r.section ? r.section.slice(0, 2) : (a.gradeHint || "");
@@ -329,10 +444,17 @@
       r.year = r.date ? r.date.slice(0, 4) : "";
       r.sy = schoolYear(r.date);
       r.band = bandOf(r.score);
+      r.pending = r.score == null;                                         // "In Progress" in the export
       r.pass = r.outcome === "PASS";
       r.studentKey = st ? ("roster:" + (st.studentNo || st.email || st.name) + "|" + (st.school || r.school))
         : (r.certiportId ? "cid:" + r.certiportId.toLowerCase() : "name:" + tokens(r.name).sort().join(" ") + "|" + r.school);
       rows.push(r);
+    });
+    // batch: Exam No. from the PDF file name when known, else auto code per school + exam day (ACR-YYYYMMDD-NN)
+    rows.forEach(function (r) {
+      var acr = acronym(r.school);
+      r.batchAuto = r.date ? acr + "-" + r.date.replace(/-/g, "") + "-01" : "";
+      r.batch = r.examBase || r.batchAuto;
     });
     // attempt # per student + exam family, ordered by date then ref
     var groups = {};
@@ -345,7 +467,8 @@
       return a.school.localeCompare(b.school) || (a.section || "~").localeCompare(b.section || "~") ||
         String(a.rosterName || a.name).localeCompare(String(b.rosterName || b.name)) || (a.date || "").localeCompare(b.date || "");
     });
-    return { rows: rows, duplicates: dupes, rosterCount: roster.length };
+    return { rows: rows, duplicates: dupes, merged: merged, rosterCount: roster.length,
+      pending: rows.filter(function (r) { return r.pending; }).length };
   }
 
   /* ---- filters + summaries ----------------------------------------------- */
@@ -357,10 +480,11 @@
       if (f.school && r.school !== f.school) return false;
       if (f.section && (r.section || "(none)") !== f.section) return false;
       if (f.exam && r.exam !== f.exam) return false;
-      if (f.examNo && r.examBase !== f.examNo && r.examNo !== f.examNo) return false;
+      if (f.examNo && r.examBase !== f.examNo && r.examNo !== f.examNo && r.batch !== f.examNo) return false;
+      if (f.proctor && (r.proctor || "(none)") !== f.proctor) return false;
       if (f.outcome && r.outcome !== f.outcome) return false;
-      if (f.min != null && f.min !== "" && r.score < +f.min) return false;
-      if (f.max != null && f.max !== "" && r.score > +f.max) return false;
+      if (f.min != null && f.min !== "" && (r.score == null || r.score < +f.min)) return false;
+      if (f.max != null && f.max !== "" && (r.score == null || r.score > +f.max)) return false;
       if (f.year && r.year !== f.year) return false;
       if (f.month && r.month !== f.month) return false;
       if (f.sy && r.sy !== f.sy) return false;
@@ -369,7 +493,9 @@
       return true;
     });
   }
-  function summarize(rows) {
+  // "In Progress" rows (no score yet) are counted in `pending` only — never as a fail or a 0.
+  function summarize(all) {
+    var rows = all.filter(function (r) { return r.score != null; });
     var n = rows.length, passed = 0, sum = 0, hi = null, lo = null, first = 0, firstPass = 0;
     rows.forEach(function (r) {
       if (r.pass) passed++;
@@ -384,13 +510,15 @@
       passRate: n ? passed / n : null,
       firstAttempts: first, firstPassRate: first ? firstPass / first : null,
       avg: n ? sum / n : null, high: hi, low: lo,
-      students: Object.keys(students).length
+      students: Object.keys(students).length,
+      pending: all.length - rows.length
     };
   }
   // group → [{key, attempts, passed, passRate}] sorted by key
   function groupRate(rows, keyFn) {
     var g = {};
     rows.forEach(function (r) {
+      if (r.score == null) return;
       var k = keyFn(r); if (k == null || k === "") return;
       var o = g[k] || (g[k] = { key: k, attempts: 0, passed: 0, sum: 0 });
       o.attempts++; if (r.pass) o.passed++; o.sum += r.score;
@@ -418,7 +546,8 @@
     toItems: toItems, toLines: toLines, cleanTitle: cleanTitle, examFamily: examFamily, examVersion: examVersion,
     parseDate: parseDate, schoolYear: schoolYear, parseScorePage: parseScorePage, fileMeta: fileMeta,
     parseRosterRows: parseRosterRows, tokens: tokens, matchRoster: matchRoster, buildModel: buildModel,
-    filterAttempts: filterAttempts, summarize: summarize, groupRate: groupRate, skillAreas: skillAreas,
+    filterAttempts: filterAttempts, parseExportRows: parseExportRows, exportHeader: exportHeader,
+    parseAnyDate: parseAnyDate, nameCase: nameCase, acronym: acronym, summarize: summarize, groupRate: groupRate, skillAreas: skillAreas,
     bandOf: bandOf, BANDS: BANDS, displayName: displayName
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

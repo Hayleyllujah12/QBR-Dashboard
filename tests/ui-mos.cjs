@@ -140,6 +140,37 @@ async function run(b, url, label, full) {
     p.once("dialog", d => d.accept());
     await p.click("#mos-clear"); await p.waitForTimeout(200);
     ok(await p.evaluate(() => QBR.mos._state().attempts.length === 0) && await vis(p, "#mos-empty"), "Clear empties the tab");
+
+    // Certiport results export (.xlsx) + PDFs + roster
+    console.log("== Certiport export");
+    await p.fill("#mos-school-in", "Demo High School");
+    await p.setInputFiles("#mos-pdf", pdfs(path.join(FX, "01 - Demo High School")));
+    await p.waitForFunction(() => QBR.mos._state().model && !QBR.mos._state().busy, null, { timeout: 30000 });
+    await p.setInputFiles("#mos-roster", [
+      { name: "roster.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: rosterBuffer() },
+      { name: "Results (4) Plus.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: require("./mos-export-fixture.cjs")(XLSX) }]);
+    await p.waitForFunction(() => QBR.mos._state().exports.length === 1 && QBR.mos._state().roster.length === 4, null, { timeout: 10000 });
+    await p.waitForTimeout(300);
+    const st = await p.textContent("#mos-status");
+    ok(/1 Certiport export \(4 rows\)/.test(st) && /1 matched PDF ↔ export/.test(st) && /1 in progress/.test(st), "status: export rows, PDF match, in progress  [" + st + "]");
+    ok(await p.evaluate(() => QBR.mos._state().rosterFiles.length === 1), "the export is not mistaken for a roster");
+    ok(await kpiVal(p, "Attempts") === "6", "4 PDF attempts + 3 new scored export rows − 1 merged = 6 scored");
+    ok(await p.$$eval("#mos-f-proctor option", o => o.map(x => x.value).join(",")) === ",(none),Proctor One,Proctor Two", "proctor filter lists the proctors");
+    await p.selectOption("#mos-f-proctor", "Proctor One"); await p.waitForTimeout(150);
+    ok(await kpiVal(p, "Attempts") === "2", "proctor filter");
+    await p.click("#mos-reset");
+    await p.selectOption("#mos-groupby", "proctor"); await p.waitForTimeout(150);
+    ok(/Summary by proctor/.test(await p.textContent("#mos-sum-h")) && /Pass rate by proctor/.test(await p.textContent("#mos-ch-group-h")), "group by proctor (summary + chart)");
+    await p.selectOption("#mos-f-outcome", "IN PROGRESS"); await p.waitForTimeout(150);
+    ok(/In progress/.test(await p.textContent("#mos-res tbody")) && await p.$$eval("#mos-res tbody tr.mos-row", x => x.length) === 1, "in-progress row shown with its own status");
+    await p.click("#mos-reset");
+    ok(await p.evaluate(() => { const r = QBR.mos._state().model.rows.find(x => x.ref === "90000001"); return r.source === "pdf+export" && r.proctor === "Proctor One" && r.skills.length === 5; }), "PDF + export merged by Exam reference #");
+    const [dl2] = await Promise.all([p.waitForEvent("download"), p.click("#mos-export")]);
+    const fp2 = path.join(os.tmpdir(), "mos-export-test2.xlsx"); await dl2.saveAs(fp2);
+    const res2 = XLSX.utils.sheet_to_json(XLSX.read(fs.readFileSync(fp2), { type: "buffer" }).Sheets.Results);
+    ok(res2.length === 7 && res2.some(r => r.Proctor === "Proctor Two" && r.Batch === "DEN-20261008-01") && !JSON.stringify(res2).includes("TEST-VOUC") && !JSON.stringify(res2).includes("2011-01-01"),
+      "export: proctor + batch columns, no voucher / date of birth");
+    fs.unlinkSync(fp2);
   }
   ok(errs.length === 0, "no page errors" + (errs.length ? " (" + errs.join("; ") + ")" : ""));
   await ctx.close();
