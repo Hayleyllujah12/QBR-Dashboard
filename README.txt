@@ -6,6 +6,19 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: session feedback report, Add session, PDF, new look
+  - New look, same as the other tabs: KPI tiles, cards, Chart.js charts and the app's buttons (light and dark theme).
+  - Session feedback report (replaces the separate Feedback Generator page, now built into the tab and offline):
+    NPS chart, rating per item, satisfaction, participants by school, themes, recommendations and comments.
+    Works for a tracker session or for an eval file on its own. "Session report (PDF)" prints it.
+  - Summary view (by month, school and course) with "Summary report (PDF)" — the print button now works;
+    charts print as images in light colours.
+  - Add session (manual, or "add this eval as a new session"): the new row — real Excel date, trainer, course,
+    school, times, Session ID — is written to the tracker together with the scores. A not-yet-written session
+    can be removed. "Not written yet" bar shows what Write to tracker will save.
+  - Tracker opened with Chrome/Edge's file picker saves in place, but only if the file did not change in
+    Excel/OneDrive since it was opened (otherwise a -scored copy is downloaded so no edits are lost).
+
 UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Training › Trainers (trainer evaluations)
   - New Training › Trainers tab: upload the training tracker (sessions from the "trial" sheet) and an
     MS Forms eval export (one file = one session). The eval filename (MMDDYYYY · AM/PM · school) suggests

@@ -417,12 +417,210 @@
     return { byCode: byCode, byTitle: byTitle };
   }
 
+  /* ---- per-session feedback report (ported from the v7 standalone Feedback
+   * Generator, now offline + in-tab). Pure: returns data, the UI escapes it. */
+  var TRIVIAL = /^(?:n\.?\s*\/?\s*a\.?|none|nothing|no|no comment|nil|wala|wla|-+|\.+|x)$/i;
+  function isTrivial(s) { var t = norm(s).replace(/[.\s]+$/, ""); return !t || TRIVIAL.test(t); }
+  var STOP = {};
+  ("a an the and or but if of at by for with about to from in on is are was were be been being have has had do does did " +
+   "will would should could can may might must shall i me my we our us you your he she it they them their this that these " +
+   "those what when where who why how all any both each few more most other some such no nor not only own same so than " +
+   "too very just also as am one its really well get got give make made help useful informative great good nice na none " +
+   "nothing session training topic topics able because everything found enjoyed liked learned sessions far time today etc " +
+   "since much many thank thanks lot").split(" ").forEach(function (w) { STOP[w] = 1; });
+  function topKeywords(texts, k) {
+    var counts = {};
+    (texts || []).forEach(function (t) {
+      if (isTrivial(t)) return;
+      var seen = {};
+      (String(t).toLowerCase().match(/[a-z][a-z'-]+/g) || []).forEach(function (w) {
+        w = w.replace(/^['-]+|['-]+$/g, "");
+        if (w.length < 4 || STOP[w] || seen[w]) return;
+        seen[w] = 1; counts[w] = (counts[w] || 0) + 1;
+      });
+    });
+    return Object.keys(counts).map(function (w) { return { word: w, count: counts[w] }; })
+      .sort(function (a, b) { return b.count - a.count || (a.word < b.word ? -1 : 1); }).slice(0, k || 8);
+  }
+  var RATING_GROUPS = [
+    ["Facilitator", /knowledge.*mastery|communication.*presentation|ability to engage|facilitator|presenter/i],
+    ["Session content", /scope.*coverage|relevance|applicab|clarity.*organi|learning aids|materials|virtual campus|\blms\b/i],
+    ["Learning experience", /helped increase|relevant.*professional|pace|learning experience|understanding/i],
+    ["Overall satisfaction", /overall|satisf/i]
+  ];
+  function ratingGroup(header) {
+    for (var i = 0; i < RATING_GROUPS.length; i++) if (RATING_GROUPS[i][1].test(header)) return RATING_GROUPS[i][0];
+    return "Other";
+  }
+  /* A rating column: at most 8 distinct answers, >= half of them text Likert labels. */
+  function ratingColumns(rows, skip) {
+    var header = (rows[0] || []).map(norm), data = rows.slice(1), out = [];
+    header.forEach(function (h, c) {
+      if (!h || skip[c]) return;
+      var distinct = {}, nd = 0, dist = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, labels = {}, n = 0, sum = 0;
+      data.forEach(function (r) {
+        var v = norm(r && r[c]);
+        if (!v) return;
+        if (!distinct[v]) { distinct[v] = 1; nd++; }
+      });
+      if (!nd || nd > 8) return;
+      var textual = Object.keys(distinct).filter(function (v) { return /[a-z]/i.test(v) && mapLikert(v) != null; }).length;
+      if (textual / nd < 0.5) return;
+      data.forEach(function (r) {
+        var raw = norm(r && r[c]), s = mapLikert(raw);
+        if (s == null) return;
+        dist[s]++; n++; sum += s;
+        var lb = raw.replace(/^\d+\s*[-–—.)]\s*/, "");
+        (labels[s] = labels[s] || {})[lb] = (labels[s][lb] || 0) + 1;
+      });
+      if (!n) return;
+      var lab = {};
+      Object.keys(labels).forEach(function (s) {
+        lab[s] = Object.keys(labels[s]).sort(function (a, b) { return labels[s][b] - labels[s][a]; })[0];
+      });
+      out.push({ col: c, header: h, group: ratingGroup(h), n: n, avg: Math.round(sum / n * 100) / 100,
+                 top2: Math.round((dist[4] + dist[5]) / n * 1000) / 10, dist: dist, labels: lab });
+    });
+    return out;
+  }
+  function orgKey(s) {
+    var k = normKey(s).replace(/\s*\([^)]*\)\s*/g, " ").replace(/[.,]/g, " ").replace(/\s*[-‐-―]\s*/g, " ")
+      .replace(/\b(inc|incorporated)\b/g, " ").replace(/\s+/g, " ").trim();
+    return /^(school|shool|-|na|n\/a)?$/.test(k) ? "" : k;
+  }
+  function schoolBreakdown(data, ci) {
+    if (ci == null || ci < 0) return [];
+    var g = {};
+    data.forEach(function (r) {
+      var raw = norm(r[ci]), k = orgKey(raw);
+      if (!k) return;
+      var o = g[k] || (g[k] = { count: 0, sp: {}, acr: {} });
+      o.count++; o.sp[raw] = (o.sp[raw] || 0) + 1;
+      o.acr[first(normKey(raw).replace(/[^a-z ]+/g, " "))] = 1;
+      o.acr[acronymOf(raw).toLowerCase()] = 1;
+    });
+    // "HCCCI" + "Holy Cross College of Carigara, Inc." in the same file: merge the acronym into the long name.
+    function first(k) { return k.split(/\s+/).filter(function (t) { return t.length > 2; }).map(function (t) { return t[0]; }).join(""); }
+    Object.keys(g).forEach(function (sk) {
+      if (!/^[a-z]{2,6}$/.test(sk)) return;
+      var lk = Object.keys(g).filter(function (k) { return k !== sk && k.indexOf(" ") > 0 && g[k].acr[sk]; })[0];
+      if (!lk) return;
+      g[lk].count += g[sk].count;
+      Object.keys(g[sk].sp).forEach(function (s) { g[lk].sp[s] = (g[lk].sp[s] || 0) + g[sk].sp[s]; });
+      delete g[sk];
+    });
+    var total = 0; Object.keys(g).forEach(function (k) { total += g[k].count; });
+    return Object.keys(g).map(function (k) {
+      var sp = Object.keys(g[k].sp).sort(function (a, b) { return b.length - a.length || g[k].sp[b] - g[k].sp[a]; });
+      return { name: sp[0], count: g[k].count, pct: total ? Math.round(g[k].count / total * 1000) / 10 : 0 };
+    }).sort(function (a, b) { return b.count - a.count; });
+  }
+  function firstQuote(texts, words) {
+    var list = (texts || []).map(norm).filter(function (t) { return !isTrivial(t) && t.length >= 12 && t.length <= 220; });
+    for (var i = 0; i < (words || []).length; i++) {
+      var re = new RegExp("\\b" + words[i].word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
+      for (var j = 0; j < list.length; j++) if (re.test(list[j])) return list[j];
+    }
+    return list[0] || null;
+  }
+  var ACTIONS = {
+    internet: "Run a 15-minute connectivity check before the session and share a dial-in fallback.",
+    connect: "Test the meeting link with participants 15 minutes before the session; share a dial-in fallback.",
+    hands: "Make at least 25% of the session hands-on: pair every demo with an immediate practice exercise.",
+    practice: "Add a practice block every 20 minutes and a take-home exercise sheet.",
+    time: "Reserve 25–30% of the time for practice and add short breaks every 20–25 minutes.",
+    pace: "Add a mid-session pace check and adjust the second half; break every 25 minutes.",
+    engage: "Open with a short icebreaker tied to the topic and run a mid-session poll or Q&A.",
+    example: "Use plain-language, school-specific examples before introducing technical terms.",
+    material: "Share the materials 24 hours before and a one-page summary after the session.",
+    longer: "Review the session length: split dense topics into a follow-up session."
+  };
+  function actionFor(words) {
+    for (var i = 0; i < words.length; i++)
+      for (var k in ACTIONS) if (words[i].word.indexOf(k) >= 0) return ACTIONS[k];
+    return null;
+  }
+  function analyzeEval(rows, roles) {
+    roles = roles || {};
+    var data = (rows || []).slice(1).filter(function (r) { return r && r.some(function (v) { return norm(v) !== ""; }); });
+    var col = function (k) { var c = roles[k]; return c == null || c < 0 ? null : c; };
+    var texts = function (k) { var c = col(k); return c == null ? [] : data.map(function (r) { return norm(r[c]); }).filter(function (t) { return !isTrivial(t); }); };
+    var nps = calcNPS(col("nps") == null ? [] : data.map(function (r) { return r[col("nps")]; }));
+    var ts = calcTrainerScore(data, roles);
+    var skip = {};
+    ["nps", "school", "c1", "c2", "c3", "cnps"].forEach(function (k) { if (col(k) != null) skip[col(k)] = 1; });
+    var ratings = ratingColumns([rows[0] || []].concat(data), skip);
+    var overall = ratings.length ? Math.round(ratings.reduce(function (a, r) { return a + r.avg; }, 0) / ratings.length * 100) / 100 : null;
+    var satCol = ratings.filter(function (r) { return r.col === col("sat"); })[0] || ratings.filter(function (r) { return r.group === "Overall satisfaction"; })[0];
+    var c = { best: texts("c1"), insight: texts("c2"), suggest: texts("c3"), why: texts("cnps") };
+    var detrWhy = col("nps") == null || col("cnps") == null ? [] : data.filter(function (r) {
+      var t = norm(r[col("nps")]); return t !== "" && isFinite(+t) && +t <= 6;
+    }).map(function (r) { return norm(r[col("cnps")]); }).filter(function (t) { return !isTrivial(t); });
+    var kwBest = topKeywords(c.best, 6), kwSuggest = topKeywords(c.suggest, 6);
+    var sorted = ratings.slice().sort(function (a, b) { return b.avg - a.avg; });
+    var best = sorted[0], worst = sorted[sorted.length - 1];
+    var summary = { verdict: null, wins: [], watches: [] };
+    if (overall != null) summary.verdict = overall >= 4.5 ? "overwhelmingly positive" : overall >= 4 ? "highly positive" :
+      overall >= 3.5 ? "positive" : overall >= 3 ? "mixed" : "below expectations";
+    if (best && worst && best !== worst) {
+      summary.wins.push("Highest rated: " + best.header + " (" + best.avg.toFixed(2) + ")");
+      if (worst.avg < 4.3) summary.watches.push("Lowest rated: " + worst.header + " (" + worst.avg.toFixed(2) + ")");
+    }
+    if (nps.n && nps.detractors) summary.watches.push(nps.detractors + " detractor" + (nps.detractors === 1 ? "" : "s") + " (scored 0–6)");
+    if (c.suggest.length) summary.watches.push(c.suggest.length + " improvement suggestion" + (c.suggest.length === 1 ? "" : "s"));
+    else summary.wins.push("No improvement suggestions raised");
+    var recs = [];
+    if (c.suggest.length && kwSuggest.length) {
+      var top = kwSuggest[0];
+      recs.push({ priority: top.count >= 5 ? "high" : top.count >= 2 ? "medium" : "low", effort: "Quick win", owner: "Facilitator",
+        title: "Address the top improvement theme: “" + top.word + "”",
+        evidence: c.suggest.length + " of " + data.length + " participants left suggestions; “" + top.word + "” is mentioned " + top.count + " time" + (top.count === 1 ? "" : "s") +
+          (kwSuggest.length > 1 ? ", then " + kwSuggest.slice(1, 3).map(function (k) { return "“" + k.word + "” (" + k.count + ")"; }).join(", ") : "") + ".",
+        quote: firstQuote(c.suggest, kwSuggest),
+        action: actionFor(kwSuggest.slice(0, 5)) || "Track the suggestions and address the top three before the next session.",
+        metric: "Fewer than 2 mentions of “" + top.word + "” next session" });
+    }
+    if (worst && worst.avg < 4.3 && ratings.length > 1) {
+      recs.push({ priority: worst.avg < 4 ? "high" : "medium", effort: "Strategic", owner: "Program lead",
+        title: "Strengthen “" + worst.header + "”",
+        evidence: "Scored " + worst.avg.toFixed(2) + " / 5 — the lowest of " + ratings.length + " rated items.",
+        quote: null, action: /pace/i.test(worst.header) ? ACTIONS.pace : "Refresh the materials or sequencing for this item and pilot the change with a small group.",
+        metric: "4.5+ on this item next cycle" });
+    }
+    if (nps.n && nps.detractors) {
+      var pct = nps.detractors / nps.n * 100;
+      recs.push({ priority: pct >= 10 ? "high" : "medium", effort: "Quick win", owner: "Program lead",
+        title: "Follow up with detractors",
+        evidence: nps.detractors + " of " + nps.n + " respondents (" + pct.toFixed(1) + "%) scored 0–6 on the recommendation question.",
+        quote: detrWhy.filter(function (t) { return t.length >= 8 && t.length <= 220; })[0] || null,
+        action: "Within a week, ask what disappointed them and what would have made it a 9 or 10; share what changes.",
+        metric: "Half of detractors move to passive or promoter next cycle" });
+    }
+    if (c.best.length >= 5 && kwBest.length >= 2) {
+      recs.push({ priority: "low", effort: "Ongoing", owner: "Program lead",
+        title: "Keep what participants praised",
+        evidence: "Most praised: " + kwBest.slice(0, 3).map(function (k) { return "“" + k.word + "” (" + k.count + ")"; }).join(", ") + ".",
+        quote: firstQuote(c.best, kwBest.slice(0, 3)),
+        action: "Anchor the next session on these themes and reuse the techniques that earned the praise.",
+        metric: "Same or more positive mentions next cycle" });
+    }
+    var ord = { high: 0, medium: 1, low: 2 };
+    recs.sort(function (a, b) { return ord[a.priority] - ord[b.priority]; });
+    return {
+      responses: data.length, nps: nps, trainer: ts, ratings: ratings, overall: overall,
+      satisfaction: satCol ? satCol.top2 : null, schools: schoolBreakdown(data, col("school")),
+      comments: c, detractorReasons: detrWhy, keywords: { best: kwBest, suggest: kwSuggest },
+      summary: summary, recommendations: recs.slice(0, 5), responseDate: detectResponseDate(rows)
+    };
+  }
+
   var api = {
     norm: norm, normKey: normKey, excelDate: excelDate, timeOf: timeOf,
     detectResponseDate: detectResponseDate,
     acronymOf: acronymOf, buildAcronymIndex: buildAcronymIndex, nextSessionId: nextSessionId,
     buildSummary: buildSummary,
     buildCourseMap: buildCourseMap,
+    analyzeEval: analyzeEval, ratingColumns: ratingColumns, topKeywords: topKeywords, isTrivial: isTrivial,
     parseTrackerSheet: parseTrackerSheet, parseFilename: parseFilename,
     suggestSessions: suggestSessions, detectLayout: detectLayout,
     mapLikert: mapLikert, calcNPS: calcNPS, calcTrainerScore: calcTrainerScore,
