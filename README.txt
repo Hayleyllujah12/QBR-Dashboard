@@ -6,6 +6,16 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: add many eval files at once
+  - "Add eval exports (.xlsx)…" now takes one or many files (Ctrl/Shift-click), or drop them on the card.
+    They go to an "Eval files" list; each file is matched to its session from the filename (date · AM/PM ·
+    school, school acronyms like SPC → St. Pine College) or its answer dates. Unclear files are left for you:
+    pick from the list, "Pick in the session list…", or "Add as a new session…".
+  - "Generate N matched files" scores them all; two files on one session are held back. Then one
+    "Write to tracker" writes every session. Each file shows Generated / Written with a View link.
+  - Fixed: "Add another eval…" put the new file on whatever session was open, so it looked like nothing
+    happened. It no longer touches the open session ("Add eval for this session" still does that).
+
 UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: session feedback report, Add session, PDF, new look
   - New look, same as the other tabs: KPI tiles, cards, Chart.js charts and the app's buttons (light and dark theme).
   - Session feedback report (replaces the separate Feedback Generator page, now built into the tab and offline):
