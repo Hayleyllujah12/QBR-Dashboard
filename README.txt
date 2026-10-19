@@ -6,6 +6,14 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: smaller summary header, adjustable size
+  - The Exam Summary header is smaller by default: company logos 40 px high and centered side by side,
+    results box at 85% (smaller text and padding), and the date column no longer wraps one word per line:
+    "OCTOBER 8 – 15, 2026"; several batches show as "2 batches" with the codes in small text.
+  - School profile… › Summary header size: Logo height (24–80 px), Results box size (60–120%), Logo
+    position (centered side by side, or left and right edges), with a live preview; "Default size" resets.
+    Saved in this browser for every school.
+
 UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: Exam Summary redesign + resizable tables
   - Exam Summary now follows the 2021 report layout: company logos on top (Rakso CT left — built in —,
     partner / GTP logo right, same height and aligned), then a results box: school logo + name + address |

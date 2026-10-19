@@ -184,6 +184,12 @@ async function run(b, url, label, full) {
     await p.setInputFiles("#mos-pf-right", { name: "partner.png", mimeType: "image/png", buffer: PNG }); await p.waitForSelector("#mos-pf-right-img");
     await p.setInputFiles("#mos-pf-logo", { name: "big.png", mimeType: "image/png", buffer: Buffer.alloc(600 * 1024, 1) }); await p.waitForTimeout(200);
     ok(/too large/.test(await p.textContent("#mos-pf-msg")) && !!(await p.$("#mos-pf-logo-img")), "oversized logo refused, previous logo kept");
+    ok(await p.evaluate(() => document.getElementById("mos-pf-logoh").value === "40" && document.getElementById("mos-pf-scale").value === "85" && document.getElementById("mos-pf-align").value === "center"),
+      "header size defaults: logo 40 px, results box 85%, logos centered");
+    await p.$eval("#mos-pf-logoh", el => { el.value = "30"; el.dispatchEvent(new Event("input")); });
+    await p.$eval("#mos-pf-scale", el => { el.value = "70"; el.dispatchEvent(new Event("input")); });
+    ok(/30 px/.test(await p.textContent("#mos-pf-logoh-v")) && /70%/.test(await p.textContent("#mos-pf-scale-v")) &&
+      await p.evaluate(() => document.getElementById("mos-pf-brandprev").style.getPropertyValue("--logo-h") === "18px"), "sliders update their value and the live logo preview");
     await p.click("#mos-pf-save"); await p.waitForTimeout(200);
     ok(!(await p.$(".mos-ov")), "profile saved and dialog closed");
     const prof = await p.evaluate(() => (localStorage.getItem("qbr-mos-school-profiles-v1") || "") + (localStorage.getItem("qbr-mos-branding-v1") || ""));
@@ -194,6 +200,8 @@ async function run(b, url, label, full) {
       return { co: co.length, coTop: co.map(i => Math.round(i.getBoundingClientRect().top)), school: h.querySelector(".mos-sum-box .nm").textContent, logo: !!h.querySelector("img.mos-sum-logo"),
         sub: h.querySelector(".mos-sum-box .sub").textContent, counts: h.querySelector(".mos-sum-counts").textContent, rate: h.querySelector(".mos-sum-box .rate").textContent,
         rows: h.querySelectorAll(".mos-sum-tbl tbody tr").length, txt: h.textContent, title: document.title }; });
+    ok(await p.evaluate(() => { const d = document.querySelector("#mos-print .mos-sum-doc"), br = document.querySelector("#mos-print .mos-sum-brand");
+      return d.style.getPropertyValue("--logo-h") === "30px" && d.style.getPropertyValue("--hs") === "0.7" && br.classList.contains("mos-al-center"); }), "summary uses the saved header size and centred logos");
     ok(sm && sm.co === 2 && sm.school === "DEMO HIGH SCHOOL OF EXAMPLE CITY" && sm.logo && /^Microsoft Office Specialist — Excel, PowerPoint$/.test(sm.sub), "header: company logos row, school logo + name, exam title");
     ok(sm && sm.rows === 4 && /^4TOTAL/.test(sm.counts) && /3STUDENTSPASSED/.test(sm.counts) && /1STUDENTSFAILED/.test(sm.counts) && /1ELIGIBLEFOR RETAKE/.test(sm.counts) && sm.rate === "75%",
       "summary row: total / passed / failed / eligible for retake + passing rate (Demo High School: 4 attempts, 75%)  [" + (sm && sm.counts) + "]");
