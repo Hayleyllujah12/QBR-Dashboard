@@ -173,6 +173,8 @@ async function fresh(browser) {
   await page.click('[data-traction="print-session"]'); await page.waitForTimeout(800);
   ok(await page.evaluate(() => window.__printed === 2 && /Participant feedback summary/.test(window.__printHtml) && /Recommendations/.test(window.__printHtml)),
     "E5 Session report (PDF) prints the feedback report");
+  ok(await page.evaluate(() => /tr-p-(pair|stack)/.test(window.__printHtml) && /tr-p-(keep|flow)/.test(window.__printHtml) && /--tr-tiles: ?5/.test(window.__printHtml)),
+    "E6 print layout decided from content (pairs / stacked long tables, 5 tiles per row)");
   await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
   ok(page._errs.length === 0, "zero page errors" + (page._errs.length ? ": " + page._errs.join(" | ") : ""));
   await page.close();
