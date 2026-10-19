@@ -163,7 +163,7 @@ async function fresh(browser) {
   const pr = await page.evaluate(() => ({ n: window.__printed, imgs: (window.__printHtml.match(/<img[^>]+data:image\/png/g) || []).length, canv: /<canvas/.test(window.__printHtml),
     btn: /data-traction/.test(window.__printHtml), theme: window.__theme, cls: document.body.classList.contains("tr-printing") }));
   ok(pr.n === 1, "E1 Summary report (PDF) opens the print dialog (was a no-op)");
-  ok(pr.imgs === 2 && !pr.canv, "E2 print copy has both charts as images, no live canvases");
+  ok(pr.imgs === 3 && !pr.canv, "E2 print copy has all 3 charts as images, no live canvases");
   ok(!pr.btn && pr.theme === "light" && pr.cls, "E3 print copy has no buttons, prints in light theme");
   await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
   ok(await page.evaluate(() => !document.getElementById("tr-print") && !document.body.classList.contains("tr-printing") && document.body.getAttribute("data-theme") === "dark"),
@@ -261,6 +261,26 @@ async function fresh(browser) {
       ok([2, 3, 4, 5].every(r => ws["H" + r] && ws["H" + r].v === 66.7 && ws["I" + r] && typeof ws["I" + r].v === "number"), "Q9 all 4 rows written in one file (NPS + Trainer Score)");
     } else ok(false, "Q9 downloaded");
     ok(await page.evaluate(() => document.querySelectorAll(".tr-queue .risk-badge.risk-none").length === 4), "Q10 list shows Written per file");
+    // Summary report: trainer tiles, courses conducted, trainer table -> trainer profile
+    await page.click('[data-trview="summary"]'); await page.waitForTimeout(400);
+    const tile = (l) => page.evaluate((l) => { const k = [...document.querySelectorAll("#tr-report .kpi")].find(x => x.querySelector(".kpi-lbl").textContent.trim() === l); return k ? k.querySelector(".kpi-val").textContent.trim() : null; }, l);
+    ok(await tile("Trainers active") === "4" && await tile("Trainings conducted") === "4" && await tile("Courses delivered") === "3" && await tile("Schools served") === "3" && await tile("Eval coverage") === "100%",
+      "S1 summary tiles: trainers active, trainings conducted, courses delivered, schools served, eval coverage");
+    ok(await page.evaluate(() => { const r = [...document.querySelectorAll(".tr-courses tbody tr")]; return r.length === 3 && /Teams AM|Teams PM/.test(r[0].textContent) && r[0].querySelector("b").textContent === "2"; }),
+      "S2 courses conducted: times conducted per course, most first (MS-102A ×2)");
+    ok(await page.evaluate(() => document.querySelectorAll(".tr-trainers tbody tr").length === 4 && !!QBR.trainers._state.charts["tr-ch-course"]), "S3 trainer table (one row per trainer) + course chart");
+    await page.selectOption("#tr-rep-period", "2026-Q2"); await page.waitForTimeout(300);
+    ok(await page.evaluate(() => /vs previous/.test(document.querySelector(".tr-trainers thead").textContent)) && await tile("Trainings conducted") === "4", "S4 period filter (2026 Q2) adds the 'vs previous' column");
+    await page.click('[data-trtrainer="LANE, Jun"]'); await page.waitForTimeout(300);
+    ok(await page.evaluate(() => QBR.trainers._state.repTrainer === "LANE, Jun" && !document.querySelector(".tr-trainers") && /Facilitator items/.test(document.querySelector("#tr-report").textContent) &&
+        /Trainer profile \(PDF\)/.test(document.querySelector('[data-traction="print-report"]').textContent)) && await tile("Trainings conducted") === "1",
+      "S5 clicking a trainer opens their profile (tiles, facilitator items, Trainer profile (PDF))");
+    await page.evaluate(() => { window.print = () => { window.__ph = document.getElementById("tr-print").innerHTML; }; });
+    await page.click('[data-traction="print-report"]'); await page.waitForTimeout(700);
+    ok(await page.evaluate(() => /Trainer profile — LANE, Jun/.test(window.__ph) && /Courses conducted/.test(window.__ph) && !/click a name/.test(window.__ph)), "S6 trainer profile prints with its own title");
+    await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+    await page.click('[data-traction="rep-clear"]'); await page.waitForTimeout(300);
+    ok(await page.evaluate(() => !QBR.trainers._state.repTrainer && !QBR.trainers._state.repPeriod && !!document.querySelector(".tr-trainers")), "S7 Clear filters returns to all trainers");
     ok(page._errs.length === 0, "Q zero page errors" + (page._errs.length ? ": " + page._errs.join(" | ") : ""));
     await page.close();
   }

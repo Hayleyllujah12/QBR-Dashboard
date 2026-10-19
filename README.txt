@@ -6,6 +6,16 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: trainer tiles, courses conducted, trainer profile
+  - Summary report tiles: Trainers active · Trainings conducted · Training hours · Courses delivered (most conducted
+    course) · Schools served · Respondents · Avg NPS (change vs previous period) · Avg trainer score · Eval coverage.
+  - New "Courses conducted" table (times conducted, hours, schools, trainers, avg NPS) + "Most conducted courses" chart.
+  - New ranked "Trainers" table: trainings, hours, courses (top course ×count), schools, respondents, avg NPS,
+    avg score, change vs previous period, trainings without an eval, last session.
+  - Period filter (year or quarter). Click a trainer — or pick one in the Trainer filter — for their profile:
+    their tiles, facilitator items (strongest / to develop), courses conducted, monthly trend and trainings
+    still without an eval. "Trainer profile (PDF)" prints it.
+
 UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: add many eval files at once
   - "Add eval exports (.xlsx)…" now takes one or many files (Ctrl/Shift-click), or drop them on the card.
     They go to an "Eval files" list; each file is matched to its session from the filename (date · AM/PM ·

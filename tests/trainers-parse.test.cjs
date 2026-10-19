@@ -254,5 +254,25 @@ ok(P.matchEval(MS, { dateISO: "2026-05-07", session: "", school: "HCCCI" }).auto
 ok(P.matchEval(MS, { dateISO: "2026-01-01", session: "AM", school: "SPC" }, "2026-05-08").auto === MS[2], "matchEval: falls back to the answer date when the filename date has no session");
 ok(P.matchEval(MS, null, "2026-05-07").auto === null && P.matchEval(MS, null, "2026-05-07").candidates.length === 2, "matchEval: no filename hint -> candidates from answer date only");
 
+/* ---- trainer / course reporting ---- */
+const TS = [
+  { trainer: "ROE, R", code: "C1", title: "Teams", client: "X", dateISO: "2026-05-01", timeStart: 0.25, timeEnd: 0.5, nps: 50, trainerScore: 4.5, n: 10, itemAvgs: { t1: 4.8, t2: 4.2, t3: 4.5 } },
+  { trainer: "roe, r", code: "C1", title: "", client: "Y", dateISO: "2026-04-01", timeStart: 0.25, timeEnd: 0.5, nps: null, trainerScore: null, n: null },
+  { trainer: "ROE, R", code: "C2", title: "Excel", client: "X", dateISO: "2026-04-15", nps: -20, trainerScore: 3.5, n: 4 },
+  { trainer: "SANTOS, M", code: "C2", title: "Excel", client: "Z", dateISO: "2026-02-01", timeStart: 0.5, timeEnd: 0.625, nps: 10, trainerScore: 4, n: 5 }];
+const TT = P.trainerTable(TS, [{ trainer: "Roe, R", nps: 0 }, { trainer: "ROE, R", nps: 10 }]);
+eq(TT.map(r => [r.trainer, r.sessions, r.hours, r.courses, r.schools, r.respondents, r.avgNps, r.avgScore, r.noEval, r.last]),
+  [["ROE, R", 3, 12, 2, 2, 14, 15, 4, 1, "2026-05-01"], ["SANTOS, M", 1, 3, 1, 1, 5, 10, 4, 0, "2026-02-01"]],
+  "trainerTable: trainer names grouped case-insensitively; trainings, hours, courses, schools, respondents, averages, no-eval, last");
+eq([TT[0].topCourse.title, TT[0].topCourse.sessions, TT[0].npsChange, TT[1].npsChange], ["Teams", 2, 10, null], "trainerTable: top course + NPS change vs previous period (15 vs avg 5)");
+const CT = P.courseTable(TS);
+eq(CT.map(c => [c.code, c.title, c.sessions, c.hours, c.schools, c.trainers]), [["C1", "Teams", 2, 12, 2, 1], ["C2", "Excel", 2, 3, 2, 2]], "courseTable: times conducted per course, title from any session");
+eq(P.overview(TS), { trainers: 2, sessions: 4, hours: 15, courses: 2, schools: 3, evaluated: 3, coverage: 75 }, "overview: tiles (trainers, trainings, hours, courses, schools, eval coverage)");
+eq(P.itemAverages(TS), { n: 1, t1: 4.8, t2: 4.2, t3: 4.5 }, "itemAverages from sessions with eval reports only");
+eq(P.periodsOf(TS).map(p => p.key), ["2026", "2026-Q2", "2026-Q1"], "periodsOf: years then quarters, newest first");
+ok(P.inPeriod("2026-04-15", "2026-Q2") && !P.inPeriod("2026-03-31", "2026-Q2") && P.inPeriod("2026-03-31", "2026") && P.inPeriod("x", ""), "inPeriod boundaries");
+eq([P.prevPeriod("2026"), P.prevPeriod("2026-Q1"), P.prevPeriod("2026-Q3"), P.prevPeriod("")], ["2025", "2025-Q4", "2026-Q2", ""], "prevPeriod");
+eq(P.trainerTable([], []), [], "trainerTable: empty");
+
 console.log("\n" + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
