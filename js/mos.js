@@ -27,10 +27,10 @@
     QBR.features.register({ module: "certification", key: "mos", label: "MOS results", desc: "Certiport MOS score reports: pass rates by school, section and student" });
 
   var S = {
-    attempts: [], files: [], roster: [], rosterFiles: [], overrides: {},
+    attempts: [], files: [], exports: [], roster: [], rosterFiles: [], overrides: {},
     model: null, built: false, busy: false, progress: "",
-    f: { school: "", section: "", exam: "", examNo: "", outcome: "", min: "", max: "", pmode: "all", pval: "", q: "", firstOnly: false },
-    sort: "score-desc", limit: 200, trend: "month", open: {}, charts: {}
+    f: { school: "", section: "", exam: "", examNo: "", proctor: "", outcome: "", min: "", max: "", pmode: "all", pval: "", q: "", firstOnly: false },
+    sort: "score-desc", groupBy: "auto", limit: 200, trend: "month", open: {}, charts: {}
   };
 
   function $(id) { return document.getElementById(id); }
@@ -123,22 +123,34 @@
         var ks = Object.keys(sc);
         if (S.f.school) school = S.f.school; else if (ks.length === 1) school = ks[0];
       }
+      var id = (f.webkitRelativePath || f.name) + "|" + f.size;
+      if (S.exports.some(function (x) { return x.id === id; }) || S.rosterFiles.some(function (x) { return x.id === id; })) continue;
       try {
-        var wb = XLSX.read(new Uint8Array(await f.arrayBuffer()), { type: "array" });
-        var n = 0;
+        var wb = XLSX.read(new Uint8Array(await f.arrayBuffer()), { type: "array", cellDates: true });
+        var n = 0, exp = null;
         wb.SheetNames.forEach(function (sn) {
+          // v1.37.0: a Certiport "Results … Plus" export is recognised by its header row (Exam Reference Number + Score + Result)
+          var raw = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "", raw: true });
+          var ex = P().parseExportRows(raw, f.name);
+          if (ex) {
+            ex.attempts.forEach(function (a) { S.attempts.push(a); });
+            exp = exp || { id: id, name: f.name, sheets: [], attempts: 0, skipped: 0 };
+            exp.sheets.push(sn); exp.attempts += ex.attempts.length; exp.skipped += ex.skipped;
+            return;
+          }
           var rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "", raw: false });
           P().parseRosterRows(sn, rows).forEach(function (st) { st.school = school; S.roster.push(st); n++; });
         });
-        S.rosterFiles.push({ name: f.name, school: school, students: n });
-      } catch (e) { S.rosterFiles.push({ name: f.name, school: school, students: 0, err: String(e.message || e) }); }
+        if (exp) S.exports.push(exp);
+        if (!exp || n) S.rosterFiles.push({ id: id, name: f.name, school: school, students: n });
+      } catch (e) { S.rosterFiles.push({ id: id, name: f.name, school: school, students: 0, err: String(e.message || e) }); }
     }
     rebuild();
   }
 
   function clearAll() {
-    S.attempts = []; S.files = []; S.roster = []; S.rosterFiles = []; S.overrides = {}; S.model = null; S.open = {};
-    S.f = { school: "", section: "", exam: "", examNo: "", outcome: "", min: "", max: "", pmode: "all", pval: "", q: "", firstOnly: false };
+    S.attempts = []; S.files = []; S.exports = []; S.roster = []; S.rosterFiles = []; S.overrides = {}; S.model = null; S.open = {};
+    S.f = { school: "", section: "", exam: "", examNo: "", proctor: "", outcome: "", min: "", max: "", pmode: "all", pval: "", q: "", firstOnly: false };
     render();
   }
 
@@ -150,7 +162,7 @@
   /* ---------------- filtering ---------------- */
   function filterObj(extra) {
     var f = S.f, o = {
-      school: f.school, section: f.section, exam: f.exam, examNo: f.examNo, outcome: f.outcome,
+      school: f.school, section: f.section, exam: f.exam, examNo: f.examNo, proctor: f.proctor, outcome: f.outcome,
       min: f.min, max: f.max, q: f.q, firstOnly: f.firstOnly
     };
     if (f.pmode === "sy" && f.pval) o.sy = f.pval;
@@ -174,21 +186,21 @@
         '<div class="mos-load-row">' +
           '<label class="btn btn-primary btn-sm mb-0">Add score reports (PDF)…<input id="mos-pdf" type="file" accept=".pdf,application/pdf" multiple hidden></label>' +
           '<label class="btn btn-outline-primary btn-sm mb-0" title="Pick a school folder (or the whole MOS folder). Numbered folders like “01 - School name” become the school.">Add folder…<input id="mos-dir" type="file" webkitdirectory multiple hidden></label>' +
-          '<label class="btn btn-outline-secondary btn-sm mb-0" title="School roster workbook: one sheet per section (11A, 11B…) with NAME and Email columns">Add roster (.xlsx)…<input id="mos-roster" type="file" accept=".xlsx,.xlsm,.xls" multiple hidden></label>' +
+          '<label class="btn btn-outline-secondary btn-sm mb-0" title="Certiport results export (Results … Plus .xlsx: proctor, station, exam date) or a school roster (one sheet per section: 11A, 11B… with NAME and Email). The app tells them apart.">Add export / roster (.xlsx)…<input id="mos-roster" type="file" accept=".xlsx,.xlsm,.xls" multiple hidden></label>' +
           '<span class="mos-school-lbl small">School for files picked one by one</span>' +
           '<input id="mos-school-in" class="form-control form-control-sm" list="mos-dl-school" placeholder="e.g. Demo High School" autocomplete="off">' +
           '<datalist id="mos-dl-school"></datalist>' +
           '<button id="mos-clear" class="btn btn-outline-secondary btn-sm" type="button">Clear</button>' +
         '</div>' +
-        '<div id="mos-drop" class="mos-drop small text-muted">or drop PDFs / a roster workbook here</div>' +
+        '<div id="mos-drop" class="mos-drop small text-muted">or drop PDFs, a Certiport export or a roster workbook here</div>' +
         '<div id="mos-status" class="small mt-1" role="status" aria-live="polite"></div>' +
       '</div>' +
       '<div id="mos-empty" class="card-box mos-empty"></div>' +
       '<div id="mos-main" class="d-none">' +
         '<div class="card-box mos-filters" role="search" aria-label="MOS filters">' +
           '<div class="mos-frow">' +
-            fsel("mos-f-school", "School") + fsel("mos-f-section", "Section") + fsel("mos-f-exam", "Exam") + fsel("mos-f-examno", "Exam No. (batch)") +
-            '<label class="mos-fl"><span>Result</span><select id="mos-f-outcome" class="form-select form-select-sm"><option value="">Pass &amp; fail</option><option value="PASS">Pass</option><option value="FAIL">Fail</option></select></label>' +
+            fsel("mos-f-school", "School") + fsel("mos-f-section", "Section") + fsel("mos-f-exam", "Exam") + fsel("mos-f-examno", "Exam No. / batch") + fsel("mos-f-proctor", "Proctor") +
+            '<label class="mos-fl"><span>Result</span><select id="mos-f-outcome" class="form-select form-select-sm"><option value="">Pass &amp; fail</option><option value="PASS">Pass</option><option value="FAIL">Fail</option><option value="IN PROGRESS">In progress</option></select></label>' +
             '<label class="mos-fl mos-fl-score"><span>Score</span><span class="mos-range"><input id="mos-f-min" type="number" min="0" max="1000" step="1" class="form-control form-control-sm" placeholder="0" aria-label="Lowest score"> – <input id="mos-f-max" type="number" min="0" max="1000" step="1" class="form-control form-control-sm" placeholder="1000" aria-label="Highest score"></span></label>' +
           '</div><div class="mos-frow">' +
             '<label class="mos-fl"><span>Period</span><select id="mos-f-pmode" class="form-select form-select-sm"><option value="all">All time</option><option value="sy">School year</option><option value="year">Year</option><option value="month">Month</option></select></label>' +
@@ -214,7 +226,10 @@
           '<div class="col-lg-5"><div class="card-box"><h6>Score distribution</h6><div class="chart-wrap"><canvas id="mos-ch-bands"></canvas></div><div class="small text-muted mt-1">Passing score is 700 on every MOS exam.</div></div></div>' +
           '<div class="col-lg-7"><div class="card-box"><h6>Weakest skill areas</h6><div class="chart-wrap"><canvas id="mos-ch-skills"></canvas></div><div class="small text-muted mt-1">Average section-analysis score per exam objective (lowest first).</div></div></div>' +
         '</div>' +
-        '<div class="card-box mt-3"><h6 id="mos-sum-h">Summary by section</h6><div class="table-responsive"><table class="table table-sm mos-tbl" id="mos-sum"></table></div></div>' +
+        '<div class="card-box mt-3"><div class="mos-ch-head"><h6 class="mb-0" id="mos-sum-h">Summary by section</h6>' +
+          '<label class="small mb-0">Group by <select id="mos-groupby" class="form-select form-select-sm d-inline-block w-auto ms-1">' +
+          '<option value="auto">Section (or school)</option><option value="school">School</option><option value="section">Section</option>' +
+          '<option value="proctor">Proctor</option><option value="exam">Exam</option><option value="batch">Exam No. / batch</option></select></label></div><div class="table-responsive"><table class="table table-sm mos-tbl" id="mos-sum"></table></div></div>' +
         '<div class="card-box mt-3"><div class="mos-ch-head"><h6 class="mb-0" id="mos-res-h">Results</h6><span class="small text-muted">Click a student to see every attempt.</span></div>' +
           '<div class="table-responsive"><table class="table table-sm mos-tbl mos-res" id="mos-res"></table></div><div id="mos-more" class="mt-2"></div></div>' +
         '<details class="card-box mt-3 mos-check" id="mos-check"><summary><b>Check &amp; fix</b> <span id="mos-check-n" class="small"></span></summary><div id="mos-check-body" class="mt-2"></div></details>' +
@@ -252,16 +267,17 @@
       });
     }
     bind("mos-f-school", "school", null, function () { S.f.section = ""; S.f.examNo = ""; });
-    bind("mos-f-section", "section"); bind("mos-f-exam", "exam"); bind("mos-f-examno", "examNo");
+    bind("mos-f-section", "section"); bind("mos-f-exam", "exam"); bind("mos-f-examno", "examNo"); bind("mos-f-proctor", "proctor");
     bind("mos-f-outcome", "outcome"); bind("mos-f-min", "min", "input"); bind("mos-f-max", "max", "input");
     bind("mos-f-pmode", "pmode", null, function () { S.f.pval = ""; });
     bind("mos-f-pval", "pval"); bind("mos-f-q", "q", "input"); bind("mos-f-first", "firstOnly");
     $("mos-sort").addEventListener("change", function (e) { S.sort = e.target.value; S.limit = 200; renderResults(rows()); });
     $("mos-reset").addEventListener("click", function () {
-      S.f = { school: "", section: "", exam: "", examNo: "", outcome: "", min: "", max: "", pmode: "all", pval: "", q: "", firstOnly: false };
+      S.f = { school: "", section: "", exam: "", examNo: "", proctor: "", outcome: "", min: "", max: "", pmode: "all", pval: "", q: "", firstOnly: false };
       S.limit = 200; update();
     });
     $("mos-export").addEventListener("click", exportXlsx);
+    $("mos-groupby").addEventListener("change", function (e) { S.groupBy = e.target.value; update(); });
     host.querySelectorAll("[data-mos-trend]").forEach(function (b) {
       b.addEventListener("click", function () { S.trend = b.getAttribute("data-mos-trend"); update(); });
     });
@@ -282,10 +298,13 @@
   function status() {
     var el = $("mos-status"); if (!el) return;
     if (S.progress) { el.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>' + esc(S.progress); return; }
-    if (!S.files.length && !S.rosterFiles.length) { el.textContent = ""; return; }
+    if (!S.files.length && !S.rosterFiles.length && !S.exports.length) { el.textContent = ""; return; }
     var pages = 0, att = 0; S.files.forEach(function (f) { pages += f.pages; att += f.attempts; });
-    var t = S.files.length + " PDF" + (S.files.length === 1 ? "" : "s") + " · " + num(att) + " score pages";
+    var t = S.files.length ? S.files.length + " PDF" + (S.files.length === 1 ? "" : "s") + " · " + num(att) + " score pages" : "No PDFs";
     if (S.model) t += " · " + num(S.model.rows.length) + " unique attempts" + (S.model.duplicates ? " (" + num(S.model.duplicates) + " duplicate pages ignored)" : "");
+    if (S.exports.length) { var ea = 0; S.exports.forEach(function (x) { ea += x.attempts; }); t += " · " + S.exports.length + " Certiport export" + (S.exports.length === 1 ? "" : "s") + " (" + num(ea) + " rows)"; }
+    if (S.model && S.model.merged) t += " · " + num(S.model.merged) + " matched PDF ↔ export";
+    if (S.model && S.model.pending) t += " · " + num(S.model.pending) + " in progress (no score yet)";
     if (S.roster.length) t += " · roster: " + num(S.roster.length) + " students";
     el.textContent = t;
   }
@@ -310,6 +329,7 @@
     $("mos-empty").innerHTML =
       '<h6>How it works</h6><ol class="small mb-2">' +
       '<li><b>Add score reports</b> — the PDFs exported from Certiport (one page per candidate). Pick a school folder with <b>Add folder…</b> to read every PDF inside it; folders named like <i>“01 - School name”</i> become the school.</li>' +
+      '<li><b>Add the Certiport export</b> (Results … Plus .xlsx) — every exam taker with exam, date, score, proctor and station. Rows with the same Exam reference # as a PDF page are merged (the PDF adds the skill areas). Date of birth and voucher codes are never read.</li>' +
       '<li><b>Add the roster</b> (optional) — the school workbook with one sheet per section (11A, 11B…) and NAME / Email columns. Students are matched by email first, then by name.</li>' +
       '<li><b>Filter</b> by school, section, student, score, pass/fail, Exam No. and period, then export.</li></ol>' +
       '<div class="small text-muted">File names like <i>“Exam 1119 Results.pdf”</i> give the Exam No. (batch); <i>“Exam 1119.1”</i> or <i>“… Retake …”</i> marks a retake session. ' +
@@ -332,8 +352,11 @@
     var inSchool = f.school ? all.filter(function (r) { return r.school === f.school; }) : all;
     f.section = setOpts("mos-f-section", uniq(inSchool.map(function (r) { return r.section || "(none)"; })), f.section, "All sections");
     f.exam = setOpts("mos-f-exam", uniq(inSchool.map(function (r) { return r.exam; })), f.exam, "All exams");
-    var nos = uniq(inSchool.map(function (r) { return r.examBase; })).sort(function (a, b) { return (+b || 0) - (+a || 0); });
-    f.examNo = setOpts("mos-f-examno", nos, f.examNo, "All exam numbers", function (n) { return "Exam " + n; });
+    var nos = uniq(inSchool.map(function (r) { return r.batch; })).sort(function (a, b) { return (+b || 0) - (+a || 0) || b.localeCompare(a); });
+    f.examNo = setOpts("mos-f-examno", nos, f.examNo, "All exam numbers / batches", function (n) { return /^\d+$/.test(n) ? "Exam " + n : n; });
+    var pr = uniq(inSchool.map(function (r) { return r.proctor || "(none)"; }));
+    f.proctor = setOpts("mos-f-proctor", pr, f.proctor, "All proctors");
+    $("mos-f-proctor").closest(".mos-fl").classList.toggle("d-none", pr.length < 2 && !f.proctor && pr[0] === "(none)");
     var pv = [], pl = null;
     if (f.pmode === "sy") pv = uniq(inSchool.map(function (r) { return r.sy; })).reverse();
     else if (f.pmode === "year") pv = uniq(inSchool.map(function (r) { return r.year; })).reverse();
@@ -398,9 +421,9 @@
       }
     });
     // 2) by section (one school) or by school
-    var bySec = !!S.f.school;
-    $("mos-ch-group-h").textContent = bySec ? "Pass rate by section" : "Pass rate by school";
-    var gg = P_.groupRate(R, bySec ? function (r) { return r.section || "(none)"; } : function (r) { return r.school; });
+    var G = groupDef();
+    $("mos-ch-group-h").textContent = "Pass rate by " + G.label;
+    var gg = P_.groupRate(R, G.key);
     chart("mos-ch-group", {
       type: "bar",
       data: { labels: gg.map(function (g) { return g.key; }), datasets: [{ label: "Pass rate %", data: gg.map(function (g) { return +(g.passRate * 100).toFixed(1); }), backgroundColor: gg.map(function (g) { return g.passRate >= 0.75 ? ok : g.passRate >= 0.5 ? warn : bad; }) }] },
@@ -426,14 +449,26 @@
     });
   }
 
+  /* ---------------- group by (summary table + comparison chart) ---------------- */
+  var GROUPS = {
+    section: { label: "section", head: "Section", key: function (r) { return r.section || "(none)"; }, filter: "section" },
+    school: { label: "school", head: "School", key: function (r) { return r.school; }, filter: "school" },
+    proctor: { label: "proctor", head: "Proctor", key: function (r) { return r.proctor || "(none)"; }, filter: "proctor" },
+    exam: { label: "exam", head: "Exam", key: function (r) { return r.exam; }, filter: "exam" },
+    batch: { label: "Exam No. / batch", head: "Exam No. / batch", key: function (r) { return r.batch || "(none)"; }, filter: "examNo" }
+  };
+  function groupDef() { return GROUPS[S.groupBy] || (S.f.school ? GROUPS.section : GROUPS.school); }
+
   /* ---------------- tables ---------------- */
   function rateCell(v) { return '<td class="num"><span class="mos-rate mos-rate-' + rateTone(v) + '">' + pct(v) + "</span></td>"; }
   function renderSummary(R) {
-    var bySec = !!S.f.school;
-    $("mos-sum-h").textContent = bySec ? "Summary by section — " + S.f.school : "Summary by school";
+    var G = groupDef();
+    $("mos-sum-h").textContent = "Summary by " + G.label + (S.f.school ? " — " + S.f.school : "");
+    var gb = $("mos-groupby"); if (gb) gb.value = S.groupBy;
     var g = {};
     R.forEach(function (r) {
-      var k = bySec ? (r.section || "(none)") : r.school;
+      if (r.pending) return;
+      var k = G.key(r);
       var o = g[k] || (g[k] = { key: k, n: 0, pass: 0, sum: 0, hi: null, lo: null, st: {}, first: 0, firstPass: 0 });
       o.n++; if (r.pass) o.pass++; o.sum += r.score; o.st[r.studentKey] = 1;
       if (o.hi == null || r.score > o.hi) o.hi = r.score; if (o.lo == null || r.score < o.lo) o.lo = r.score;
@@ -441,7 +476,7 @@
     });
     var list = Object.keys(g).sort().map(function (k) { return g[k]; });
     var tot = P().summarize(R);
-    $("mos-sum").innerHTML = "<thead><tr><th>" + (bySec ? "Section" : "School") + '</th><th class="num">Students</th><th class="num">Attempts</th><th class="num">Passed</th><th class="num">Failed</th><th class="num">Pass rate</th><th class="num">First-attempt</th><th class="num">Average</th><th class="num">Highest</th><th class="num">Lowest</th></tr></thead><tbody>' +
+    $("mos-sum").innerHTML = "<thead><tr><th>" + esc(G.head) + '</th><th class="num">Students</th><th class="num">Attempts</th><th class="num">Passed</th><th class="num">Failed</th><th class="num">Pass rate</th><th class="num">First-attempt</th><th class="num">Average</th><th class="num">Highest</th><th class="num">Lowest</th></tr></thead><tbody>' +
       list.map(function (o) {
         return '<tr><td><button type="button" class="btn btn-link btn-sm p-0 mos-drill" data-k="' + esc(o.key) + '">' + esc(o.key) + "</button></td>" +
           '<td class="num">' + num(Object.keys(o.st).length) + '</td><td class="num">' + num(o.n) + '</td><td class="num">' + num(o.pass) + '</td><td class="num">' + num(o.n - o.pass) + "</td>" +
@@ -454,17 +489,19 @@
     $("mos-sum").querySelectorAll(".mos-drill").forEach(function (b) {
       b.addEventListener("click", function () {
         var k = b.getAttribute("data-k");
-        if (bySec) S.f.section = k; else { S.f.school = k; S.f.section = ""; S.f.examNo = ""; }
+        if (G.filter === "school") { S.f.school = k; S.f.section = ""; S.f.examNo = ""; S.f.proctor = ""; if (S.groupBy === "school") S.groupBy = "auto"; }
+        else S.f[G.filter] = k;
         S.limit = 200; update();
       });
     });
   }
 
+  function sc(r, dflt) { return r.score == null ? dflt : r.score; }   // in-progress rows sort last
   function sorted(R) {
     var a = R.slice(), nm = function (r) { return (r.rosterName || r.name || "").toLowerCase(); };
     var cmp = {
-      "score-desc": function (x, y) { return y.score - x.score || nm(x).localeCompare(nm(y)); },
-      "score-asc": function (x, y) { return x.score - y.score || nm(x).localeCompare(nm(y)); },
+      "score-desc": function (x, y) { return sc(y, -1) - sc(x, -1) || nm(x).localeCompare(nm(y)); },
+      "score-asc": function (x, y) { return sc(x, 9999) - sc(y, 9999) || nm(x).localeCompare(nm(y)); },
       "name": function (x, y) { return nm(x).localeCompare(nm(y)) || (x.date || "").localeCompare(y.date || ""); },
       "section": function (x, y) { return (x.section || "~").localeCompare(y.section || "~") || nm(x).localeCompare(nm(y)); },
       "date-desc": function (x, y) { return (y.date || "").localeCompare(x.date || "") || nm(x).localeCompare(nm(y)); }
@@ -476,32 +513,38 @@
       return '<span class="mos-sk' + (s.pct < 50 ? " mos-sk-low" : "") + '" title="' + esc(s.area) + '">' + s.pct + "%</span>";
     }).join("");
   }
-  function outcomeCell(r) { return '<td><span class="mos-out mos-out-' + (r.pass ? "pass" : "fail") + '">' + (r.pass ? "Pass" : "Fail") + "</span></td>"; }
+  function outcomeCell(r) {
+    if (r.pending) return '<td><span class="mos-out mos-out-wait">In progress</span></td>';
+    return '<td><span class="mos-out mos-out-' + (r.pass ? "pass" : "fail") + '">' + (r.pass ? "Pass" : "Fail") + "</span></td>";
+  }
+  function mins(sec) { return sec == null ? "" : Math.floor(sec / 60) + "m " + String(sec % 60).padStart(2, "0") + "s"; }
   function renderResults(R) {
     var list = sorted(R), shown = list.slice(0, S.limit);
     $("mos-res-h").textContent = "Results (" + num(list.length) + (list.length === 1 ? " attempt" : " attempts") + ")";
     var all = S.model ? S.model.rows : [];
-    var html = '<thead><tr><th>Student</th><th>School</th><th>Section</th><th>Exam</th><th>Exam No.</th><th>Date</th><th class="num">Score</th><th>Result</th><th class="num">Attempt</th><th>Skill areas</th></tr></thead><tbody>';
+    var html = '<thead><tr><th>Student</th><th>School</th><th>Section</th><th>Exam</th><th>Exam No. / batch</th><th>Date</th><th class="num">Score</th><th>Result</th><th class="num">Attempt</th><th>Proctor</th><th>Skill areas</th></tr></thead><tbody>';
     var histDone = {};
     shown.forEach(function (r) {
       var open = !!S.open[r.studentKey];
       html += '<tr data-sk="' + esc(r.studentKey) + '" tabindex="0" aria-expanded="' + open + '" class="mos-row' + (open ? " mos-open" : "") + '">' +
         '<td><span class="mos-name">' + esc(r.rosterName || r.name) + "</span>" + (r.studentNo ? ' <span class="small text-muted">' + esc(r.studentNo) + "</span>" : "") + "</td>" +
-        "<td>" + esc(r.school) + "</td><td>" + esc(r.section || "—") + "</td><td>" + esc(r.exam) + "</td><td>" + esc(r.examNo || "—") + "</td>" +
-        "<td>" + fmtDate(r.date) + '</td><td class="num"><b>' + r.score + "</b></td>" + outcomeCell(r) +
+        "<td>" + esc(r.school) + "</td><td>" + esc(r.section || "—") + "</td><td>" + esc(r.exam) + "</td><td>" + esc(r.examNo || r.batch || "—") + "</td>" +
+        "<td>" + fmtDate(r.date) + '</td><td class="num"><b>' + (r.score == null ? "—" : r.score) + "</b></td>" + outcomeCell(r) +
         '<td class="num">' + r.attemptNo + (r.isRetake ? ' <span class="mos-retake" title="Retake">R</span>' : "") + "</td>" +
+        "<td>" + esc(r.proctor || "—") + "</td>" +
         '<td class="mos-sks">' + skillChips(r) + "</td></tr>";
       if (open && !histDone[r.studentKey]) {
         histDone[r.studentKey] = 1;
         var hist = all.filter(function (x) { return x.studentKey === r.studentKey; }).sort(function (a, b) { return (a.date || "").localeCompare(b.date || ""); });
-        html += '<tr class="mos-hist"><td colspan="10"><div class="small"><b>All attempts</b> · ' + esc(r.email || "") + (r.certiportId ? " · Certiport ID " + esc(r.certiportId) : "") + "</div>" +
+        html += '<tr class="mos-hist"><td colspan="11"><div class="small"><b>All attempts</b> · ' + esc(r.email || "") + (r.certiportId ? " · Certiport ID " + esc(r.certiportId) : "") + "</div>" +
           '<table class="table table-sm mb-0"><tbody>' + hist.map(function (h) {
-            return "<tr><td>" + fmtDate(h.date) + "</td><td>" + esc(h.exam) + (h.examVersion ? ' <span class="small text-muted">' + esc(h.examVersion) + "</span>" : "") + "</td><td>Exam " + esc(h.examNo || "—") + '</td><td class="num"><b>' + h.score + "</b></td>" + outcomeCell(h) +
+            return "<tr><td>" + fmtDate(h.date) + "</td><td>" + esc(h.exam) + (h.examVersion ? ' <span class="small text-muted">' + esc(h.examVersion) + "</span>" : "") + "</td><td>" + esc(h.examNo ? "Exam " + h.examNo : (h.batch || "—")) + '</td><td class="num"><b>' + (h.score == null ? "—" : h.score) + "</b></td>" + outcomeCell(h) +
+              '<td class="small">' + esc([h.proctor ? "Proctor " + h.proctor : "", h.station ? "Station " + h.station : "", h.timeUsed != null ? mins(h.timeUsed) : ""].filter(Boolean).join(" · ")) + "</td>" +
               "<td>" + (h.skills || []).map(function (s) { return '<span class="mos-sk' + (s.pct < 50 ? " mos-sk-low" : "") + '">' + esc(s.area) + " " + s.pct + "%</span>"; }).join(" ") + "</td></tr>";
           }).join("") + "</tbody></table></td></tr>";
       }
     });
-    if (!shown.length) html += '<tr><td colspan="10" class="text-muted small">No attempts match these filters.</td></tr>';
+    if (!shown.length) html += '<tr><td colspan="11" class="text-muted small">No attempts match these filters.</td></tr>';
     $("mos-res").innerHTML = html + "</tbody>";
     $("mos-more").innerHTML = list.length > shown.length
       ? '<button type="button" class="btn btn-outline-secondary btn-sm">Show more (' + num(list.length - shown.length) + " not shown)</button>" : "";
@@ -511,9 +554,12 @@
   function renderCheck() {
     var m = S.model; if (!m) return;
     var rs = {}; S.roster.forEach(function (st) { rs[st.school] = 1; });   // only schools that have a roster need mapping
-    var needs = m.rows.filter(function (r) { return rs[r.school] && (r.match === "none" || r.match === "ambiguous"); });
+    // export rows still on the Test Center (no roster match yet) can belong to any loaded roster
+    var needs = m.rows.filter(function (r) { return (rs[r.school] || (r.schoolFromCenter && S.roster.length)) && (r.match === "none" || r.match === "ambiguous"); });
     var noScore = S.files.filter(function (f) { return !f.attempts; });
-    $("mos-check-n").textContent = "(" + (needs.length ? needs.length + " to map · " : "") + noScore.length + " file" + (noScore.length === 1 ? "" : "s") + " without score pages)";
+    var chk = [needs.length ? needs.length + " to map" : "", m.pending ? m.pending + " in progress" : "",
+      noScore.length ? noScore.length + " file" + (noScore.length === 1 ? "" : "s") + " without score pages" : ""].filter(Boolean).join(" · ");
+    $("mos-check-n").textContent = chk ? "(" + chk + ")" : "";
     var html = "";
     if (!S.roster.length) html += '<div class="small mb-2">No roster loaded — sections come from the file name (e.g. <i>“… 11A …”</i>) when present. Add the school roster to map every student to a section.</div>';
     else {
@@ -522,7 +568,7 @@
         html += '<div class="small mb-1"><b>' + needs.length + " attempt" + (needs.length === 1 ? "" : "s") + "</b> could not be matched to the roster. Pick the student or type a section.</div>" +
           '<div class="table-responsive mos-check-tbl"><table class="table table-sm"><thead><tr><th>Name on score report</th><th>School</th><th>Exam / date</th><th>Roster student</th><th>Section</th></tr></thead><tbody>' +
           needs.slice(0, 300).map(function (r) {
-            var pool = S.roster.filter(function (s) { return s.school === r.school; });
+            var pool = r.schoolFromCenter ? S.roster : S.roster.filter(function (s) { return s.school === r.school; });
             var cands = r.candidates || [];
             var opts = '<option value="">— not in roster —</option>' +
               (cands.length ? '<optgroup label="Possible matches">' + cands.map(function (s) { return '<option value="' + esc(rid(s)) + '">' + esc(s.name + " · " + s.section) + "</option>"; }).join("") + "</optgroup>" : "") +
@@ -533,6 +579,12 @@
           }).join("") + "</tbody></table></div>" + (needs.length > 300 ? '<div class="small text-muted">Showing the first 300.</div>' : "");
       } else html += '<div class="small mb-2 text-success">Every attempt is matched to a roster student.</div>';
     }
+    var pend = m.rows.filter(function (r) { return r.pending; });
+    if (pend.length) html += '<div class="small mt-2"><b>' + pend.length + " in progress</b> (no score yet — not counted in pass rates): " +
+      pend.slice(0, 20).map(function (r) { return esc(r.name) + " · " + esc(r.exam) + " · " + fmtDate(r.date); }).join("; ") + "</div>";
+    if (S.exports.length) html += '<div class="small mt-2">Certiport exports: ' + S.exports.map(function (x) {
+      return esc(x.name) + " (" + esc(x.sheets.join(", ")) + ": " + num(x.attempts) + " rows" + (x.skipped ? ", " + x.skipped + " footer lines ignored" : "") + ")";
+    }).join("; ") + (m.merged ? " · " + num(m.merged) + " matched to PDF pages by Exam reference #" : "") + ". Date of birth and voucher codes are not read.</div>";
     html += '<details class="mt-2"><summary class="small">Files read (' + S.files.length + ")</summary>" +
       '<div class="table-responsive"><table class="table table-sm small"><thead><tr><th>File</th><th>School</th><th class="num">Pages</th><th class="num">Score pages</th><th>Note</th></tr></thead><tbody>' +
       S.files.map(function (f) {
@@ -561,16 +613,19 @@
     var data = R.map(function (r) {
       var o = {
         School: r.school, Section: r.section, "Student no.": r.studentNo, Student: r.rosterName || r.name,
-        "Name on report": r.name, Exam: r.exam, "Exam version": r.examVersion, "Exam No.": r.examNo,
-        Date: r.date, "School year": r.sy, Score: r.score, Required: r.required, Result: r.pass ? "Pass" : "Fail",
-        Attempt: r.attemptNo, Retake: r.isRetake ? "Yes" : "", "Exam reference #": r.ref
+        "Name on report": r.name, Exam: r.exam, "Exam version": r.examVersion, Certification: r.certName || "",
+        "Exam No.": r.examNo, Batch: r.batch, Date: r.date, Time: r.time || "", "School year": r.sy,
+        Score: r.score == null ? "" : r.score, Required: r.required, Result: r.pending ? "In progress" : r.pass ? "Pass" : "Fail",
+        Attempt: r.attemptNo, Retake: r.isRetake ? "Yes" : "", Proctor: r.proctor || "", Station: r.station || "",
+        "Time used (min)": r.timeUsed == null ? "" : +(r.timeUsed / 60).toFixed(1), "Test center": r.testCenter || "",
+        Source: r.source || "pdf", "Exam reference #": r.ref
       };
       (r.skills || []).forEach(function (s, i) { o["Skill " + (i + 1)] = s.area + " — " + s.pct + "%"; });
       return o;
     });
     var s = P().summarize(R);
     var sum = [
-      { Metric: "Attempts", Value: s.attempts }, { Metric: "Students", Value: s.students },
+      { Metric: "Attempts (scored)", Value: s.attempts }, { Metric: "In progress", Value: s.pending }, { Metric: "Students", Value: s.students },
       { Metric: "Passed", Value: s.passed }, { Metric: "Failed", Value: s.failed },
       { Metric: "Pass rate", Value: s.passRate == null ? "" : +(s.passRate * 100).toFixed(1) + "%" },
       { Metric: "First-attempt pass rate", Value: s.firstPassRate == null ? "" : +(s.firstPassRate * 100).toFixed(1) + "%" },
@@ -590,7 +645,7 @@
   function describeFilters() {
     var f = S.f, p = [];
     if (f.school) p.push("School: " + f.school); if (f.section) p.push("Section: " + f.section);
-    if (f.exam) p.push("Exam: " + f.exam); if (f.examNo) p.push("Exam No.: " + f.examNo);
+    if (f.exam) p.push("Exam: " + f.exam); if (f.examNo) p.push("Exam No. / batch: " + f.examNo); if (f.proctor) p.push("Proctor: " + f.proctor);
     if (f.outcome) p.push("Result: " + f.outcome); if (f.min !== "" || f.max !== "") p.push("Score: " + (f.min || 0) + "–" + (f.max || 1000));
     if (f.pmode !== "all" && f.pval) p.push(f.pmode + ": " + f.pval); if (f.q) p.push("Search: " + f.q); if (f.firstOnly) p.push("First attempts only");
     return p.join(" · ") || "None";

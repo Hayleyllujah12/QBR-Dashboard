@@ -53,7 +53,7 @@ const F = [
   ["ZXing barcode library file", "libs/zxing/zxing.min.js", [""]],
   ["Tesseract offline OCR files", "libs/tesseract/offline/worker.js", [""]],
   ["MOS results tab (v1.37.0)", "js/mos.js", ["QBR.mos", "key: \"mos\"", "libs/pdfjs/pdf.min.js", "pdfjsWorker", "exportXlsx"]],
-  ["MOS score-report parser", "js/mos-parse.js", ["parseScorePage", "parseRosterRows", "buildModel", "filterAttempts"]],
+  ["MOS score-report parser", "js/mos-parse.js", ["parseScorePage", "parseRosterRows", "buildModel", "filterAttempts", "parseExportRows", "acronym"]],
   ["MOS wired", "index.html", ["dash-mos", "mos-body", "sbg-cert", "js/mos-parse.js", "js/mos.js", "data-feature=\"mos\""]],
   ["pdf.js offline files", "libs/pdfjs/pdf.worker.min.js", [""]],
 ];
