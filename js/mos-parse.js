@@ -463,17 +463,29 @@
       r.batch = r.examBase || r.batchAuto;
     });
     // attempt # per student + exam family, ordered by date then ref
+    // review fix: a take matched to the roster by name and another take of the same student that only has the
+    // email must pair up → rows whose email belongs to a roster-matched row adopt that roster key
+    var emailKey = {};
+    rows.forEach(function (r) { if (r.email && r.studentKey.indexOf("roster:") === 0) emailKey[r.email] = r.studentKey; });
+    rows.forEach(function (r) { if (r.email && r.studentKey.indexOf("roster:") !== 0 && emailKey[r.email]) r.studentKey = emailKey[r.email]; });
     var groups = {};
     rows.forEach(function (r) { var g = r.studentKey + "|" + r.exam; (groups[g] = groups[g] || []).push(r); });
     Object.keys(groups).forEach(function (g) {
-      groups[g].sort(function (a, b) { return (a.date || "").localeCompare(b.date || "") || String(a.ref).localeCompare(String(b.ref)); });
-      groups[g].forEach(function (r, i) {
-        r.attemptNo = i + 1; r.isRetake = i > 0 || !!r.retakeFile; r.attempts = groups[g].length;
+      // review fix: only SCORED takes are numbered (an "In Progress" row with no date used to become take #1);
+      // undated scored rows sort last
+      var scored = groups[g].filter(function (r) { return !r.pending; }), pend = groups[g].filter(function (r) { return r.pending; });
+      scored.sort(function (a, b) { return ((a.date || "9999") + (a.time || "")).localeCompare((b.date || "9999") + (b.time || "")) || String(a.ref).localeCompare(String(b.ref)); });
+      scored.forEach(function (r, i) {
+        r.attemptNo = i + 1; r.isRetake = i > 0 || !!r.retakeFile; r.attempts = scored.length;
         // retake rule (up to 2 takes per exam): a first-time taker who failed may retake once
-        r.retakeEligible = r.attemptNo === 1 && !r.pending && !r.pass;
+        r.retakeEligible = r.attemptNo === 1 && !r.pass;
         r.retakeUsed = r.retakeEligible && r.attempts > 1;
-        r.noRetakesLeft = r.attemptNo >= 2 && !r.pending && !r.pass;
+        r.noRetakesLeft = r.attemptNo >= 2 && !r.pass;
         r.overLimit = r.attemptNo > 2;
+      });
+      pend.forEach(function (r, i) {
+        r.attemptNo = scored.length + i + 1; r.isRetake = r.attemptNo > 1; r.attempts = scored.length;
+        r.retakeEligible = false; r.retakeUsed = false; r.noRetakesLeft = false; r.overLimit = r.attemptNo > 2;
       });
     });
     rows.sort(function (a, b) {
@@ -493,7 +505,7 @@
       if (f.school && r.school !== f.school) return false;
       if (f.section && (r.section || "(none)") !== f.section) return false;
       if (f.exam && r.exam !== f.exam) return false;
-      if (f.examNo && r.examBase !== f.examNo && r.examNo !== f.examNo && r.batch !== f.examNo) return false;
+      if (f.examNo && r.examBase !== f.examNo && r.examNo !== f.examNo && (r.batch || "(none)") !== f.examNo) return false;
       if (f.proctor && (r.proctor || "(none)") !== f.proctor) return false;
       if (f.outcome && r.outcome !== f.outcome) return false;
       if (f.min != null && f.min !== "" && (r.score == null || r.score < +f.min)) return false;

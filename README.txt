@@ -6,6 +6,17 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.37.0 [BETA] MOS review fixes before the develop merge
+  - An "In Progress" row (no score yet) no longer counts as the student's first take, so the real first
+    take keeps its retake eligibility and the first-attempt pass rate.
+  - Exam Summary: the first number is "TOTAL EXAMINEES" (all takes in the filter, so it adds up with passed +
+    failed and the passing rate), with the number of different students under it when a retake session is
+    included. "ELIGIBLE FOR RETAKE" no longer counts students who already retook.
+  - A take matched to the roster by name and another take with only the same email are now the same student.
+  - The "(none)" Exam No. / batch row can be clicked and filtered; emails typed in the Student search are not
+    printed or exported (shown as "(email)"); a roster added without a school is flagged in Check & fix;
+    the Check & fix and history tables no longer pick up the app-wide fixed column layout.
+
 UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: smaller summary header, adjustable size
   - The Exam Summary header is smaller by default: company logos 40 px high and centered side by side,
     results box at 85% (smaller text and padding), and the date column no longer wraps one word per line:

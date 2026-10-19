@@ -86,6 +86,20 @@ function walk(d) { let o = []; for (const f of fs.readdirSync(d)) { const p = pa
   ok(byRef["90000002"].retakeEligible && byRef["90000002"].retakeUsed && !byRef["90000004"].retakeEligible && byRef["90000006"].retakeEligible && !byRef["90000006"].retakeUsed,
     "retake rule: first-time fail = eligible (Bea retook, Eve not yet); 2nd take is not eligible again");
   ok(M.buildModel([{ ref: "1", name: "A B", email: "a@x.example", exam: "Excel", date: "2026-01-01", score: 700, outcome: "FAIL", school: "S" }], []).rows[0].pass, "exactly 700 passes (score wins over a stray outcome)");
+  {
+    const pm = M.buildModel([
+      { ref: "11111", name: "P Q", email: "pq@x.example", exam: "Word", date: "", score: null, outcome: "IN PROGRESS", school: "S" },
+      { ref: "22222", name: "P Q", email: "pq@x.example", exam: "Word", date: "2026-10-01", score: 650, outcome: "FAIL", school: "S" }], []);
+    const sc = pm.rows.find(r => r.ref === "22222"), pd = pm.rows.find(r => r.ref === "11111");
+    ok(sc.attemptNo === 1 && sc.retakeEligible && !sc.isRetake && pd.attemptNo === 2 && !pd.retakeEligible, "review fix: an In Progress row never becomes take #1");
+    const rst = M.parseRosterRows("11A", [["NAME", "Email"], ["QUE, Pia, X", "pia@school.example"]]).map(st => Object.assign(st, { school: "S" }));
+    const em = M.buildModel([
+      { ref: "33333", name: "Pia X Que", email: "pia.home@x.example", exam: "Excel", date: "2026-01-05", score: 600, outcome: "FAIL", school: "S" },
+      { ref: "44444", name: "P. Que", email: "pia.home@x.example", exam: "Excel", date: "2026-02-05", score: 800, outcome: "PASS", school: "S" }], rst);
+    ok(em.rows.every(r => r.studentKey === em.rows[0].studentKey) && em.rows.find(r => r.ref === "44444").attemptNo === 2 && em.rows.find(r => r.ref === "33333").retakeUsed,
+      "review fix: a take matched by name and a take with only the same email pair up as one student");
+  }
+  ok(M.filterAttempts(M.buildModel([{ ref: "55555", name: "N", exam: "Excel", date: "", score: 800, school: "S" }], []).rows, { examNo: "(none)" }).length === 1, "review fix: '(none)' batch can be filtered");
   const m2 = M.buildModel(attempts, roster, { "90000005": { section: "12C" } });
   ok(m2.rows.find(r => r.ref === "90000005").section === "12C", "manual section override");
 

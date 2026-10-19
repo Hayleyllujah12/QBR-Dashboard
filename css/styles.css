@@ -2431,6 +2431,7 @@ body.identity-gated:not(.identity-authed) :is(.app-header,#app-sidebar,main,#det
 #mos-print .mos-sum-counts{display:flex;gap:calc(16px * var(--hs,1))}
 #mos-print .mos-sum-counts b{display:block;font-size:calc(18pt * var(--hs,1));line-height:1.05;color:#333}
 #mos-print .mos-sum-counts span{font-size:calc(7pt * var(--hs,1));font-weight:700;color:#888;line-height:1.25}
+#mos-print .mos-sum-counts i.st{display:block;font-style:normal;font-size:calc(6.5pt * var(--hs,1));color:#888;margin-top:1px}
 #mos-print .mos-sum-counts .ok b{color:#2B9BD8}
 #mos-print .mos-sum-counts .bad b{color:#E8542A}
 #mos-print .mos-sum-box .c23{white-space:nowrap}
