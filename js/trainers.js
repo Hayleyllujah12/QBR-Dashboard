@@ -31,7 +31,7 @@
 
   var S = {
     built: false,
-    tracker: null,   // { name, wb, sheetName, headerRow, sessions[], roster[] }
+    tracker: null,   // { name, bytes, wb, sheetName, origin, headerRow, sessions[], roster[] }
     eval: null,      // { name, rows, header, roles, sig, attachedTo, suggested[] }
     selected: -1,    // index into sessions
     filter: "all",   // all | needs | scored
@@ -58,7 +58,7 @@
     return new Promise(function (res, rej) {
       var fr = new FileReader();
       fr.onload = function () {
-        try { res(XLSX.read(fr.result, { type: "array" })); }
+        try { var wb = XLSX.read(fr.result, { type: "array" }); wb.__bytes = new Uint8Array(fr.result); res(wb); }
         catch (e) { rej(e); }
       };
       fr.onerror = function () { rej(new Error("Could not read " + file.name)); };
@@ -68,8 +68,15 @@
   function sheetRows(wb, name) {
     var ws = wb.Sheets[name];
     if (!ws) return [];
-    return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+    // blankrows: row i of the result is sheet row origin.r + i (write-back relies on it)
+    return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: true });
   }
+  function sheetOrigin(wb, name) {
+    var ws = wb.Sheets[name];
+    return ws && ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]).s : { r: 0, c: 0 };
+  }
+  // 1-based Excel row of a session (header = first used row of the sheet)
+  function excelRow(s) { return s.rowIdx + 1 + ((S.tracker && S.tracker.origin) ? S.tracker.origin.r : 0); }
 
   /* ---------------- tracker ---------------- */
   function openTracker(file) {
@@ -88,7 +95,7 @@
       }
       if (!sessions.length) throw new Error("No session log found in " + file.name);
       S.tracker = {
-        name: file.name, wb: wb, sheetName: pick,
+        name: file.name, bytes: wb.__bytes, wb: wb, sheetName: pick, origin: sheetOrigin(wb, pick),
         headerRow: sheetRows(wb, pick)[0] || [],
         sessions: sessions, roster: P().buildRoster(sessions)
       };
@@ -125,7 +132,7 @@
     var roles = ev.roles;
     if (roles.nps == null || roles.nps < 0) return { error: "Map the NPS (0–10) column first." };
     var data = ev.rows.slice(1);
-    var scores = data.map(function (r) { return Number(r[roles.nps]); });
+    var scores = data.map(function (r) { return r[roles.nps]; }); // raw: calcNPS skips blanks
     var nps = P().calcNPS(scores);
     var teff = P().calcTrainerScore(data, roles);
     var session = t.sessions[idx];
@@ -137,46 +144,81 @@
       prevLabel: prev ? (prev.dateISO || "") + " · " + prev.client : ""
     };
     session.computed = computed;
-    session.status = "ready";
+    // Empty result (no valid answers): show — and offer no write-back.
+    if (computed.nps != null || computed.trainerScore != null) session.status = "ready";
     return computed;
   }
 
   /* ---------------- write-back ---------------- */
-  function writeback() {
-    var t = S.tracker;
-    if (!t) return;
-    var plan = P().planWriteback(t.headerRow, t.sessions);
-    if (!plan.edits.length) return;
-    var ws = t.wb.Sheets[t.sheetName];
-    var npsCol = plan.npsCol, tsCol = plan.trainerCol;
-    if (plan.addTrainerCol) {
-      tsCol = t.headerRow.length;
-      t.headerRow.push("Trainer Score");
-      XLSX.utils.sheet_add_aoa(ws, [["Trainer Score"]], { origin: { r: 0, c: tsCol } });
-    }
+  /* Apply the plan to a parsed workbook. Offsets: rows/cols are relative to
+   * the sheet's used range (sheet_to_json), so add its start cell. */
+  function applyPlan(wb, t, plan) {
+    var ws = wb.Sheets[t.sheetName], o = t.origin || { r: 0, c: 0 };
+    var npsCol = plan.npsCol, tsCol = plan.trainerCol, next = t.headerRow.length;
+    var put = function (r, c, v) { XLSX.utils.sheet_add_aoa(ws, [[v]], { origin: { r: o.r + r, c: o.c + c } }); };
+    if (plan.addNpsCol) { npsCol = next++; put(0, npsCol, "Net Promoter Score"); }
+    if (plan.addTrainerCol) { tsCol = next++; put(0, tsCol, "Trainer Score"); }
     plan.edits.forEach(function (e) {
-      // rowIdx is 0-based with header at 0 -> Excel row = rowIdx + 1
-      if (npsCol >= 0 && e.nps != null)
-        XLSX.utils.sheet_add_aoa(ws, [[e.nps]], { origin: { r: e.row, c: npsCol } });
-      if (tsCol >= 0 && e.trainerScore != null)
-        XLSX.utils.sheet_add_aoa(ws, [[e.trainerScore]], { origin: { r: e.row, c: tsCol } });
+      if (npsCol >= 0 && e.nps != null) put(e.row, npsCol, e.nps);
+      if (tsCol >= 0 && e.trainerScore != null) put(e.row, tsCol, e.trainerScore);
     });
-    t.sessions.forEach(function (s) {
-      if (s.computed) {
-        if (s.computed.nps != null) s.nps = s.computed.nps;
-        if (s.computed.trainerScore != null) s.trainerScore = s.computed.trainerScore;
-        s.status = "scored";
-        delete s.computed;
-      }
-    });
-    var out = XLSX.write(t.wb, { bookType: "xlsx", type: "array" });
-    var blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  }
+  function download(bytes, name) {
+    var blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = t.name.replace(/\.xlsx?$/i, "") + "-scored.xlsx";
+    a.download = name;
     document.body.appendChild(a); a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
-    render();
+  }
+  /* Format-safe: only the written cells change (QBR.xlsxSurgical, same engine
+   * as Save to Excel). Plain SheetJS rewrite only as a confirmed fallback. */
+  function writeback() {
+    var t = S.tracker;
+    if (!t) return Promise.resolve();
+    var plan = P().planWriteback(t.headerRow, t.sessions);
+    if (!plan.edits.length) return Promise.resolve();
+    var SG = QBR.xlsxSurgical, bytes = t.bytes, base = null, work = t.wb;
+    try {
+      if (SG && bytes) {
+        base = XLSX.read(bytes, { type: "array", cellStyles: true });
+        work = XLSX.read(bytes, { type: "array", cellStyles: true });
+      }
+    } catch (e) { base = null; work = t.wb; }
+    applyPlan(work, t, plan);
+    var stem = t.name.replace(/\.(xlsx|xlsm|xls)$/i, "");
+    function finish(out, ext) { // ext null: tracker already holds these values, nothing to download
+      t.bytes = new Uint8Array(out);
+      t.wb = XLSX.read(t.bytes, { type: "array" });
+      t.headerRow = sheetRows(t.wb, t.sheetName)[0] || [];
+      t.origin = sheetOrigin(t.wb, t.sheetName);
+      t.sessions.forEach(function (s) {
+        if (s.computed && s.status === "ready") {
+          if (s.computed.nps != null) s.nps = s.computed.nps;
+          if (s.computed.trainerScore != null) s.trainerScore = s.computed.trainerScore;
+          s.status = "scored";
+          delete s.computed;
+        }
+      });
+      if (ext) download(t.bytes, stem + "-scored" + ext);
+      else window.alert("The tracker already has these values — nothing new to download.");
+      render();
+    }
+    function legacy(why) {
+      if (why && !window.confirm("Format-safe write-back isn't possible for this file (" + why + ").\n\n" +
+          "Download a plain copy instead? Cell formatting, conditional formatting and tables in the tracker may be lost.")) return;
+      finish(XLSX.write(work, { bookType: "xlsx", type: "array" }), ".xlsx");
+    }
+    if (!base) { legacy(SG ? "file bytes unavailable" : null); return Promise.resolve(); }
+    var ext = /\.xlsm$/i.test(t.name) ? ".xlsm" : ".xlsx";
+    return Promise.resolve(SG.surgicalSave(bytes, base, work)).then(function (res) {
+      if (!res || !res.ok) return legacy((res && res.reason) || "unsupported file");
+      if (res.noChanges) return finish(bytes, null);
+      return Promise.resolve(SG.verifySurgical(bytes, res.bytes, work)).then(function (why) {
+        if (why) return legacy(why);
+        finish(res.bytes, ext);
+      });
+    }).catch(function (e) { legacy(e && e.message || String(e)); });
   }
 
   /* ---------------- results export ---------------- */
@@ -225,7 +267,10 @@
       return { trainer: a.trainer, sessions: a.n, last: a.last,
                avgNps: a.npsN ? Math.round((a.npsSum / a.npsN) * 10) / 10 : null,
                avgScore: a.tsN ? Math.round((a.tsSum / a.tsN) * 100) / 100 : null };
-    }).sort(function (a, b) { return (b.avgNps || -999) - (a.avgNps || -999); });
+    }).sort(function (a, b) {
+      var x = a.avgNps == null ? -Infinity : a.avgNps, y = b.avgNps == null ? -Infinity : b.avgNps;
+      return y === x ? 0 : (y > x ? 1 : -1); // NPS 0 / negative are real values
+    });
   }
 
   /* ---------------- rendering ---------------- */
@@ -280,7 +325,7 @@
     if (S.view === "board") return h + boardHTML();
     h += '<div class="tr-count">' + rows.length + ' session' + (rows.length === 1 ? "" : "s") +
          (rows.length > 400 ? ' (showing 400 — refine search)' : '') + '</div>';
-    h += '<table class="table table-sm tr-table"><thead><tr><th>Date</th><th>Trainer</th><th>Course</th><th>School</th>' +
+    h += '<table class="table table-sm tr-table" data-resizable="static"><thead><tr><th>Date</th><th>Trainer</th><th>Course</th><th>School</th>' +
          '<th class="num">n</th><th class="num">NPS</th><th class="num">T-score</th><th>Status</th></tr></thead><tbody>';
     shown.forEach(function (s) {
       var c = s.computed || {};
@@ -299,7 +344,7 @@
   function boardHTML() {
     var rows = leaderboard();
     if (!rows.length) return '<div class="tr-empty">No scored sessions yet.</div>';
-    var h = '<table class="table table-sm tr-table"><thead><tr><th>Trainer</th><th class="num">Sessions</th>' +
+    var h = '<table class="table table-sm tr-table" data-resizable="static"><thead><tr><th>Trainer</th><th class="num">Sessions</th>' +
             '<th class="num">Avg NPS</th><th class="num">Avg T-score</th><th>Last session</th></tr></thead><tbody>';
     rows.forEach(function (r) {
       h += '<tr><td>' + esc(r.trainer) + '</td><td class="num">' + r.sessions + '</td>' +
@@ -402,7 +447,7 @@
     if (s.status === "ready") {
       h += '<div class="tr-writeback"><div class="tr-wb-preview">Write back: NPS <b>' + num(c.nps, 1) +
            '</b> → “Net Promoter Score”, T-score <b>' + num(c.trainerScore, 2) +
-           '</b> → “Trainer Score” (new column) on row ' + (s.rowIdx + 1) + ' of ' + esc(S.tracker.name) + '.</div>' +
+           '</b> → “Trainer Score” on row ' + excelRow(s) + ' of ' + esc(S.tracker.name) + '.</div>' +
            '<button type="button" class="tr-btn primary" data-traction="writeback">Preview &amp; write to tracker</button></div>';
     } else if (s.status === "scored") {
       h += '<div class="tr-evalok">Written back to the tracker.</div>';
@@ -527,10 +572,16 @@
       return;
     }
     if (name === "writeback") {
-      var s = S.tracker.sessions[S.selected], c = s.computed || {};
-      var msg = "Write to " + S.tracker.name + "?\n\nRow " + (s.rowIdx + 1) +
-                ": Net Promoter Score = " + c.nps + ", Trainer Score = " + c.trainerScore +
-                ".\n\nThis downloads an updated copy (-scored.xlsx).";
+      // List EVERY pending session: write-back writes all "Needs verifying" rows.
+      var pend = S.tracker.sessions.filter(function (x) { return x.computed && x.status === "ready"; });
+      if (!pend.length) return;
+      var lines = pend.slice(0, 12).map(function (x) {
+        return "Row " + excelRow(x) + " (" + (x.dateISO || "—") + " · " + x.trainer + " · " + x.client + "): NPS = " +
+               num(x.computed.nps, 1) + ", Trainer Score = " + num(x.computed.trainerScore, 2);
+      });
+      if (pend.length > 12) lines.push("…and " + (pend.length - 12) + " more");
+      var msg = "Write " + pend.length + " session" + (pend.length === 1 ? "" : "s") + " to " + S.tracker.name + "?\n\n" +
+                lines.join("\n") + "\n\nThis downloads an updated copy (-scored).";
       if (window.confirm(msg)) writeback();
       return;
     }

@@ -112,5 +112,40 @@ eq(plan.addTrainerCol, true, "trainer score col added when missing");
 const plan2 = P.planWriteback(["Date", "Net Promoter Score", "Trainer Score"], wss);
 eq(plan2.addTrainerCol, false, "no new column when present");
 
+/* ---- regressions (v1.38.0 review) ---- */
+// Serial dates must not shift with the viewer's time zone (UTC getters)
+eq(P.excelDate(46149).iso, "2026-05-07", "serial 46149 -> 2026-05-07 in any TZ");
+// Text dates: M/D/Y (en-US, like the MMDDYYYY filenames); D/M/Y only when day > 12
+eq(P.excelDate("05/07/2026").iso, "2026-05-07", "text 05/07/2026 is May 7 (M/D/Y)");
+eq(P.excelDate("25/07/2026").iso, "2026-07-25", "text 25/07/2026 -> day-first when first part > 12");
+eq(P.excelDate("May 07, 2026").iso, "2026-05-07", "\"May 07, 2026\" (form Event Date) parsed");
+eq(P.excelDate("13/13/2026").iso, "", "impossible date -> empty");
+// Text times feed the AM/PM tiebreak
+eq(P.timeOf("8:00 AM"), 8 / 24, "\"8:00 AM\" -> 0.333");
+eq(P.timeOf("1:30 pm"), 13.5 / 24, "\"1:30 pm\" -> afternoon");
+eq(P.timeOf("12:15 AM") < 0.5 && P.timeOf("12:15 PM") >= 0.5, true, "12 AM / 12 PM edge");
+eq(P.timeOf(""), null, "blank time -> null");
+const tt = P.parseTrackerSheet([["Date", "Trainer", "Client", "Time Start"],
+  ["05/07/2026", "A", "HCCCI", "1:00 PM"], ["05/07/2026", "B", "HCCCI", "8:00 AM"]]);
+eq(P.suggestSessions(tt, { dateISO: "2026-05-07", session: "AM", school: "HCCCI" })[0].trainer, "B",
+  "AM/PM tiebreak works with text times");
+// Underscored school names (MS Forms filenames)
+eq(P.parseFilename("Training_Feedback_Form_-_05072026_-_PM_-_St._Example_Parish_School_1-44.xlsx").school,
+  "St. Example Parish School", "underscored school name -> spaces, _1-44 suffix dropped");
+eq(P.parseFilename("Form_-_05072026_-_am_-_A&B_College.xlsx").school, "A&B College", "lowercase am + & + trailing name");
+// Same-day fallback ranked below school matches
+const fb = P.suggestSessions([{ dateISO: "2026-05-07", client: "Hill Crest College", timeStart: 0.3 },
+  { dateISO: "2026-05-07", client: "HCCCI", timeStart: 0.6 }, { dateISO: "2026-05-08", client: "X" }],
+  { dateISO: "2026-05-07", session: "AM", school: "HCCCI" });
+eq(fb.map(s => s.client), ["HCCCI", "Hill Crest College"], "school match first, same-day fallback next, other days excluded");
+// Likert neutral
+eq(P.mapLikert("Neither agree nor disagree"), 3, "\"Neither agree nor disagree\" = 3 (not 2)");
+eq(P.mapLikert("Neither satisfied nor dissatisfied"), 3, "\"Neither satisfied nor dissatisfied\" = 3");
+// Missing NPS column is added, not silently skipped
+const p3 = P.planWriteback(["Date", "Trainer"], [{ rowIdx: 1, computed: { nps: 50, trainerScore: 4.2 } }]);
+eq([p3.npsCol, p3.addNpsCol, p3.addTrainerCol], [-1, true, true], "no NPS column -> addNpsCol");
+const p4 = P.planWriteback(["Net Promoter Score"], [{ rowIdx: 1, computed: { nps: null, trainerScore: null } }]);
+eq([p4.edits.length, p4.addTrainerCol], [0, false], "empty result -> no edits, no new column");
+
 console.log("\n" + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

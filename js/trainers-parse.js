@@ -23,19 +23,42 @@
       return { date: v, iso: isoOf(v) };
     }
     if (typeof v === "number" && isFinite(v) && v > 20000 && v < 80000) {
-      var d = new Date(Math.round((v - 25569) * 86400 * 1000));
+      // Serials are calendar days: read with UTC getters so the ISO date
+      // never shifts by the viewer's time zone.
+      var u = new Date(Math.round((v - 25569) * 86400 * 1000));
+      var d = new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate());
       return { date: d, iso: isoOf(d) };
     }
     var s = norm(v);
     var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/) || s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    var mn = !m && s.match(/^([A-Za-z]{3,})\.? (\d{1,2}),? (\d{4})/); // "May 07, 2026"
+    if (mn) {
+      var mi = MONTHS.indexOf(mn[1].slice(0, 3).toLowerCase());
+      if (mi >= 0) m = [s, String(mn[3]), String(mi + 1), mn[2]];
+    }
     if (m) {
       var y, mo, da;
       if (m[1].length === 4) { y = +m[1]; mo = +m[2]; da = +m[3]; }
-      else { da = +m[1]; mo = +m[2]; y = +m[3]; }
+      // Text dates are M/D/Y (en-US, matches the MMDDYYYY eval filenames)
+      // unless the first part can only be a day.
+      else if (+m[1] > 12) { da = +m[1]; mo = +m[2]; y = +m[3]; }
+      else { mo = +m[1]; da = +m[2]; y = +m[3]; }
+      if (mo < 1 || mo > 12 || da < 1 || da > 31) return { date: null, iso: "" };
       var dd = new Date(y, mo - 1, da);
       if (!isNaN(dd)) return { date: dd, iso: isoOf(dd) };
     }
     return { date: null, iso: "" };
+  }
+  var MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  /* Time cell -> day fraction (0..1). Accepts Excel fractions and "8:00 AM" text. */
+  function timeOf(v) {
+    var n = numOrNull(v);
+    if (n != null) return n;
+    var m = norm(v).match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap])\.?m?\.?$/i) || norm(v).match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (!m) return null;
+    var h = +m[1] % (m[3] ? 12 : 24);
+    if (m[3] && /p/i.test(m[3])) h += 12;
+    return (h * 60 + +m[2]) / 1440;
   }
   function isoOf(d) {
     var p = function (n) { return (n < 10 ? "0" : "") + n; };
@@ -88,8 +111,8 @@
         trainer: trainer, code: code,
         title: col.title >= 0 ? norm(row[col.title]) : "",
         client: col.client >= 0 ? norm(row[col.client]) : "",
-        timeStart: col.timeStart >= 0 ? numOrNull(row[col.timeStart]) : null,
-        timeEnd: col.timeEnd >= 0 ? numOrNull(row[col.timeEnd]) : null,
+        timeStart: col.timeStart >= 0 ? timeOf(row[col.timeStart]) : null,
+        timeEnd: col.timeEnd >= 0 ? timeOf(row[col.timeEnd]) : null,
         nps: nps, trainerScore: tsc,
         status: (nps != null ? "scored" : "unscored")
       });
@@ -103,12 +126,12 @@
    * The trainer is NEVER in the filename. */
   function parseFilename(name) {
     var base = norm(name).replace(/\.[a-z0-9]+$/i, "");
-    var m = base.match(/(\d{2})(\d{2})(\d{4})[\s\-_]+(AM|PM)[\s\-_]+([A-Za-z0-9][A-Za-z0-9 .&'\-]*?)(?=[\s\-_]+(?:\d|$)|$)/i);
+    var m = base.match(/(\d{2})(\d{2})(\d{4})[\s\-_]+(AM|PM)[\s\-_]+([A-Za-z0-9][A-Za-z0-9 _.&'\-]*?)(?=[\s\-_]+(?:\d|$)|$)/i);
     if (!m) return null;
     var da = +m[2], mo = +m[1], ye = +m[3];
     if (mo < 1 || mo > 12 || da < 1 || da > 31) return null;
     var p = function (n) { return (n < 10 ? "0" : "") + n; };
-    return { dateISO: ye + "-" + p(mo) + "-" + p(da), session: m[4].toUpperCase(), school: norm(m[5]) };
+    return { dateISO: ye + "-" + p(mo) + "-" + p(da), session: m[4].toUpperCase(), school: norm(m[5].replace(/_/g, " ")) };
   }
 
   /* ---- filename hint -> ranked tracker sessions ---------------------------- */
@@ -124,7 +147,8 @@
         if (c === hs) schoolScore = 2;
         else if (c.indexOf(hs) >= 0 || hs.indexOf(c) >= 0) schoolScore = 1;
       }
-      if (!schoolScore) return;
+      // No school match: still offer same-day sessions, ranked below matches
+      // (tracker client names and filename acronyms often differ).
       var sessScore = 0;
       if (hint.session && s.timeStart != null) {
         var isAM = s.timeStart < 0.5;
@@ -168,12 +192,12 @@
 
   /* ---- text Likert -> 1..5 -------------------------------------------------- */
   var LIKERT = [
+    [/neutral/, 3], [/neither/, 3], // before /disagree/: "Neither agree nor disagree" = 3
     [/strongly disagree/, 1], [/somewhat disagree/, 2], [/disagree/, 2],
     [/strongly agree/, 5], [/somewhat agree/, 4], [/^agree$/, 4], [/agree/, 4],
     [/strongly dissatisfied/, 1], [/very dissatisfied/, 1], [/dissatisfied/, 2],
     [/strongly satisfied/, 5], [/very satisfied/, 5], [/^satisfied$/, 4], [/satisfied/, 4],
-    [/excellent/, 5], [/very good/, 4], [/^good$/, 3], [/fair/, 2], [/poor/, 1],
-    [/neutral/, 3], [/neither/, 3]
+    [/excellent/, 5], [/very good/, 4], [/^good$/, 3], [/fair/, 2], [/poor/, 1]
   ];
   function mapLikert(text) {
     var t = normKey(text);
@@ -261,11 +285,13 @@
         edits.push({ row: s.rowIdx, nps: s.computed.nps, trainerScore: s.computed.trainerScore });
       }
     });
-    return { edits: edits, npsCol: npsCol, trainerCol: tsCol, addTrainerCol: tsCol < 0 && edits.length > 0 };
+    return { edits: edits, npsCol: npsCol, trainerCol: tsCol,
+             addNpsCol: npsCol < 0 && edits.some(function (e) { return e.nps != null; }),
+             addTrainerCol: tsCol < 0 && edits.some(function (e) { return e.trainerScore != null; }) };
   }
 
   var api = {
-    norm: norm, normKey: normKey, excelDate: excelDate,
+    norm: norm, normKey: normKey, excelDate: excelDate, timeOf: timeOf,
     parseTrackerSheet: parseTrackerSheet, parseFilename: parseFilename,
     suggestSessions: suggestSessions, detectLayout: detectLayout,
     mapLikert: mapLikert, calcNPS: calcNPS, calcTrainerScore: calcTrainerScore,
