@@ -31,7 +31,7 @@ function walk(d) { let o = []; for (const f of fs.readdirSync(d)) { const p = pa
   ok(M.examFamily("SC-900: Microsoft Security, Compliance, and Identity Fundamentals") === "SC-900", "family by exam code");
   ok(M.parseDate("September 9, 2025") === "2025-09-09", "date parse");
   ok(M.schoolYear("2025-06-01") === "SY 2025-2026" && M.schoolYear("2026-05-31") === "SY 2025-2026", "school year June–May");
-  const fm = M.fileMeta("Course 400/03 - St. Example/SY 25-26/Exam 1234.2 Retake GR11 11B.pdf");
+  const fm = M.fileMeta("MOS Courses/03 - St. Example/SY 25-26/Exam 1234.2 Retake GR11 11B.pdf");
   ok(fm.school === "St. Example" && fm.examNo === "1234.2" && fm.examBase === "1234" && fm.retakeFile && fm.sectionHint === "11B" && fm.gradeHint === "11", "fileMeta hints", fm);
   ok(M.fileMeta("Exam 1119 Results.pdf", "Typed School").school === "Typed School", "school from the input when the path has no school folder");
   ok(M.fileMeta("Exam 1119 Results.pdf").school === "Unassigned school", "unassigned fallback");
