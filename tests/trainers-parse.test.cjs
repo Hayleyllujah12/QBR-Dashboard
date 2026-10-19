@@ -274,5 +274,28 @@ ok(P.inPeriod("2026-04-15", "2026-Q2") && !P.inPeriod("2026-03-31", "2026-Q2") &
 eq([P.prevPeriod("2026"), P.prevPeriod("2026-Q1"), P.prevPeriod("2026-Q3"), P.prevPeriod("")], ["2025", "2025-Q4", "2026-Q2", ""], "prevPeriod");
 eq(P.trainerTable([], []), [], "trainerTable: empty");
 
+/* ---- duplicate protection + real filename formats ---- */
+eq(P.parseFilename("Training Feedback Form - 05072026 - AM - HCCCI(1-44).xlsx"), { dateISO: "2026-05-07", session: "AM", school: "HCCCI" }, "filename: 'MMDDYYYY - AM - SCHOOL(1-44)'");
+eq(P.parseFilename("Training Feedback Form - Nov. 28, 2025 [SGA] - Microsoft 36.xlsx"), { dateISO: "2025-11-28", session: "", school: "SGA" }, "filename: 'Nov. 28, 2025 [SGA]' (36 is not a date)");
+eq(P.parseFilename("Feedback - Sept. 3rd, 2025 - PM [ASVF].xlsx"), { dateISO: "2025-09-03", session: "PM", school: "ASVF" }, "filename: 'Sept. 3rd, 2025 - PM [ASVF]'");
+eq(P.parseFilename("Microsoft 36.xlsx"), null, "filename without a date -> null");
+const A1 = [["ID", "Start time", "Q"], [1, 45946.49, 9], [2, 45946.5, 10]];
+const A2 = [["ID", "Start time", "Q"], [1, 45946.49, 9], [2, 45946.5, 10]];
+const A3 = [["ID", "Start time", "Q"], [1, 45946.49, 9], [3, 45946.5, 10]];
+ok(P.evalFingerprint(A1) === P.evalFingerprint(A2) && P.evalFingerprint(A1) !== P.evalFingerprint(A3) && /^[0-9a-f]{8}$/.test(P.evalFingerprint(A1)), "evalFingerprint: same answers -> same id; different -> different");
+eq(P.fpOf(P.evalSourceText("a.xlsx", "0a1b2c3d")), "0a1b2c3d", "eval source text carries the fingerprint");
+eq([P.detectResponseSession([["Start time"], [45946.49], [45946.5]]), P.detectResponseSession([["Completion time"], ["10/16/2025 4:50 PM"]]), P.detectResponseSession([["x"], [1]])], ["AM", "PM", ""], "detectResponseSession: AM/PM from answer times");
+const TR2 = P.parseTrackerSheet([["Date", "Trainer", "Client", "Eval Source"], [45946, "A", "S", "x.xlsx · fp:0a1b2c3d"], [45946, "B", "S", ""]]);
+eq([TR2[0].evalFp, TR2[1].evalFp], ["0a1b2c3d", ""], "tracker 'Eval Source' read back as a fingerprint");
+const PW2 = P.planWriteback(["Net Promoter Score"], [{ rowIdx: 1, computed: { nps: 5, trainerScore: 4, evalSource: "x · fp:0a1b2c3d" } }]);
+eq([PW2.addSourceCol, PW2.edits[0].evalSource], [true, "x · fp:0a1b2c3d"], "planWriteback adds 'Eval Source'");
+const SD = [{ dateISO: "2025-10-16", client: "Academia de San Vicente Ferrer", timeStart: 0.33 }, { dateISO: "2025-10-16", client: "Academia de San Vicente Ferrer", timeStart: 0.54 },
+            { dateISO: "2026-05-07", client: "Holy Cross College of Carigara", timeStart: 0.33 }, { dateISO: "2025-11-28", client: "Saint Gregory Academy", timeStart: 0.33 }];
+ok(P.matchEval(SD, { dateISO: "2025-10-16", session: "", school: "ASVF" }, "2025-10-16", { session: "PM" }).auto === SD[1], "matchEval: answer-time AM/PM splits same-day sessions");
+ok(P.matchEval(SD, { dateISO: "2025-10-16", session: "", school: "ASVF" }, "2025-10-16").auto === null, "matchEval: same-day twins without AM/PM -> user picks");
+ok(P.matchEval(SD, { dateISO: "2026-05-07", session: "AM", school: "HCCCI" }).auto === SD[2], "matchEval: HCCCI = Holy Cross College of Carigara (trailing Inc. letter)");
+ok(P.matchEval(SD, { dateISO: "2025-11-28", session: "", school: "SGA" }, "2025-11-29").auto === SD[3], "matchEval: filename date (Nov 28) wins over the answer date (Nov 29)");
+ok(P.matchEval([{ dateISO: "2025-12-01", client: "Paco Catholic School" }], { dateISO: "2025-12-01", school: "PACO-HS" }, null, { aliases: { pacohs: "paco catholic school" } }).auto !== null, "matchEval: learned alias");
+
 console.log("\n" + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
