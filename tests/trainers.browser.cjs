@@ -15,8 +15,8 @@ const ok = (c, n) => { if (c) { pass++; console.log("ok - " + n); } else { fail+
 function makeTracker() {
   const rows = [
     ["Date", "Trainer", "New Code", "New Description", "Client", "Time Start", "Time End", "Net Promoter Score"],
-    [45000, "RICO, Reneeson III", "MS-102A", "Teams Workshop", "HCCCI", 0.333, 0.5, ""],
-    [45000, "SANTOS, Maria", "MS-103A", "Workshop P1", "SPC", 0.54, 0.62, ""]
+    [45000, "ROE, Sample III", "MS-102A", "Teams Workshop", "MRCWI", 0.333, 0.5, ""],
+    [45000, "SMITH, Pat", "MS-103A", "Workshop P1", "SPC", 0.54, 0.62, ""]
   ];
   const wb = XLSX.utils.book_new();
   // Used range starts at B3 (regression: write-back must add the sheet offset)
@@ -40,11 +40,11 @@ function makeEval() {
   const t1 = ["Strongly Agree", "Agree", "Strongly Agree", "Strongly Agree"];
   const nps = [10, 9, 8, 6];
   for (let i = 0; i < 4; i++)
-    rows.push([i + 1, "HCCCI", t1[i], "Strongly Agree", "Agree", nps[i], "Great pace <b>x</b>", i ? "More practice" : "n/a"]);
-  rows.push([5, "HCCCI", "", "", "", "", "", ""]); // regression: blank NPS answer is skipped, not a detractor
+    rows.push([i + 1, "MRCWI", t1[i], "Strongly Agree", "Agree", nps[i], "Great pace <b>x</b>", i ? "More practice" : "n/a"]);
+  rows.push([5, "MRCWI", "", "", "", "", "", ""]); // regression: blank NPS answer is skipped, not a detractor
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "Sheet1");
-  const p = path.join(os.tmpdir(), "tr-fixture-eval_01012024_-_AM_-_HCCCI_1-4.xlsx");
+  const p = path.join(os.tmpdir(), "tr-fixture-eval_01012024_-_AM_-_MRCWI_1-4.xlsx");
   fs.writeFileSync(p, XLSX.write(wb, { bookType: "xlsx", type: "buffer" }));
   return p;
 }
@@ -91,14 +91,14 @@ const kpiVal = (page, scope, label) => page.evaluate(([sc, l]) => {
   await page.click('[data-trfilter="scored"]'); await page.waitForTimeout(200);
   ok(await page.evaluate(() => document.querySelectorAll(".tr-table tbody tr[data-trsession]").length) === 0, "Scored filter: 0 rows");
   await page.click('[data-trfilter="all"]'); await page.waitForTimeout(200);
-  await page.fill("#tr-search", "santos"); await page.waitForTimeout(200);
+  await page.fill("#tr-search", "smith"); await page.waitForTimeout(200);
   ok(await page.evaluate(() => document.querySelectorAll(".tr-table tbody tr[data-trsession]").length === 1 && document.activeElement.id === "tr-search"),
     "search filters rows and keeps focus");
   await page.fill("#tr-search", ""); await page.waitForTimeout(200);
 
   // 5. Select session -> detail
   await page.click('.tr-table tbody tr[data-trsession="0"]'); await page.waitForTimeout(300);
-  ok(await page.evaluate(() => document.querySelector("#tr-detail").textContent.includes("RICO")), "session detail opens with trainer");
+  ok(await page.evaluate(() => document.querySelector("#tr-detail").textContent.includes("ROE")), "session detail opens with trainer");
 
   // 6. Upload eval for the session
   const evalPath = makeEval();
@@ -124,7 +124,7 @@ const kpiVal = (page, scope, label) => page.evaluate(([sc, l]) => {
 
   // 8. Leaderboard + summary (unwritten scores count)
   await page.click('[data-trview="board"]'); await page.waitForTimeout(300);
-  ok(await page.evaluate(() => document.querySelector(".tr-board").textContent.includes("RICO")), "leaderboard lists trainer");
+  ok(await page.evaluate(() => document.querySelector(".tr-board").textContent.includes("ROE")), "leaderboard lists trainer");
   await page.click('[data-trview="summary"]'); await page.waitForTimeout(300);
   ok(await kpiVal(page, "#tr-report", "Respondents") === "4", "summary Respondents = 4 (was always 0)");
   ok(await kpiVal(page, "#tr-report", "Avg NPS") === "25.0", "summary Avg NPS includes the generated (unwritten) score");
@@ -142,7 +142,7 @@ const kpiVal = (page, scope, label) => page.evaluate(([sc, l]) => {
     return { msg, out, name: dl ? dl.suggestedFilename() : "" };
   }
   const w1 = await doWriteback(1);
-  ok(/Row 4 \(.*RICO.*\): NPS = 25\.0, Trainer Score = 4\.58/.test(w1.msg), "confirm lists the pending row (Excel row 4) with both scores");
+  ok(/Row 4 \(.*ROE.*\): NPS = 25\.0, Trainer Score = 4\.58/.test(w1.msg), "confirm lists the pending row (Excel row 4) with both scores");
   ok(w1.name === "tr-fixture-tracker-scored.xlsx", "write-back downloads <name>-scored.xlsx");
   if (w1.out) {
     const ws = XLSX.read(fs.readFileSync(w1.out)).Sheets.trial;
@@ -170,7 +170,7 @@ const kpiVal = (page, scope, label) => page.evaluate(([sc, l]) => {
     const s = QBR.trainers._state.tracker.sessions;
     s[1].nps = 0; s[1].trainerScore = 3; s[0].nps = null; s[0].trainerScore = 4; s[0].written = null;
     QBR.trainers._state.view = "board"; QBR.trainers.render();
-    return /SANTOS/.test(document.querySelector(".tr-board tbody tr td:nth-child(2)").textContent);
+    return /SMITH/.test(document.querySelector(".tr-board tbody tr td:nth-child(2)").textContent);
   }), "leaderboard: NPS 0 ranks above a trainer with no NPS");
   ok(await page.evaluate(() => [...document.querySelectorAll("#trainers-body table")].every(t => t.getAttribute("data-resizable") === "static")),
     "trainers tables opt out of global column resizing");

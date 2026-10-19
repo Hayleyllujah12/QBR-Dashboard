@@ -1,6 +1,6 @@
 /* QBR Dashboard — general ticketing (js/gentickets.js)
  *
- * Separate queue from Lenovo hardware tickets (Pedro, 2026-10-12).
+ * Separate queue from Lenovo hardware tickets (owner, 2026-10-12).
  * Per-user: tickets live in the current user's data namespace.
  * Numbering: REQ-YYYYMMDD-## (daily sequence).
  * Fields mirror Ticket 360 (priority, statuses, follow-ups/notes) minus serial;

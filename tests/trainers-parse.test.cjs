@@ -16,16 +16,16 @@ eq(P.excelDate(null).iso, "", "null -> empty iso");
 const thead = ["Date", "Year", "Month", "Trainer", "New Code", "New Description", "Client",
                "Time Start", "Time End", "Net Promoter Score"];
 const trows = [thead,
-  [45000, 2023, "Mar", "RICO, Reneeson III", "MS-102A", "Teams Workshop", "HCCCI", 0.333, 0.5, ""],
-  [45000, 2023, "Mar", "RICO, Reneeson III", "MS-102A", "Teams Workshop", "HCCCI", 0.54, 0.62, 88.6],
+  [45000, 2023, "Mar", "ROE, Sample III", "MS-102A", "Teams Workshop", "MRCWI", 0.333, 0.5, ""],
+  [45000, 2023, "Mar", "ROE, Sample III", "MS-102A", "Teams Workshop", "MRCWI", 0.54, 0.62, 88.6],
   ["", "", "", "", "", "", "", "", "", ""],
-  [45002, 2023, "Mar", "SANTOS, Maria", "MS-103A", "Workshop P1", "SPC", 0.54, 0.62, ""]
+  [45002, 2023, "Mar", "SMITH, Pat", "MS-103A", "Workshop P1", "SPC", 0.54, 0.62, ""]
 ];
 const ss = P.parseTrackerSheet(trows);
 eq(ss.length, 3, "blank rows skipped");
-eq(ss[0].trainer, "RICO, Reneeson III", "trainer parsed");
+eq(ss[0].trainer, "ROE, Sample III", "trainer parsed");
 eq(ss[0].code, "MS-102A", "new code -> code");
-eq(ss[0].client, "HCCCI", "client parsed");
+eq(ss[0].client, "MRCWI", "client parsed");
 eq(ss[0].rowIdx, 1, "rowIdx tracks sheet row");
 eq(ss[0].status, "unscored", "empty NPS -> unscored");
 eq(ss[1].status, "scored", "filled NPS -> scored");
@@ -34,25 +34,25 @@ eq(ss[0].timeStart < 0.5, true, "time start fraction kept");
 
 /* ---- session id column ---- */
 const irows = [["Session ID","Date","Trainer"],
-  ["SES-2023-0001", 45000, "RICO, Reneeson III"],
-  ["", 45001, "SANTOS, Maria"]];
+  ["SES-2023-0001", 45000, "ROE, Sample III"],
+  ["", 45001, "SMITH, Pat"]];
 const iss = P.parseTrackerSheet(irows);
 eq(iss[0].id, "SES-2023-0001", "session id parsed");
 eq(iss[1].id, "", "blank session id -> empty string");
 
 /* ---- acronym index + next session id ---- */
-eq(P.acronymOf("Holy Cross College Carigara, Inc."), "HCCC", "acronym skips Inc.");
-eq(P.acronymOf("Academia De San Vicente Ferrer"), "ASVF", "acronym skips De");
-var aidx = P.buildAcronymIndex(["Holy Cross College Carigara, Inc.", "Saint Gregory Academy", ""]);
-eq(aidx["HCCC"], "Holy Cross College Carigara, Inc.", "acronym lookup");
-eq(aidx["SGA"], "Saint Gregory Academy", "acronym lookup 2");
+eq(P.acronymOf("Maple Ridge College Westbrook, Inc."), "MRCW", "acronym skips Inc.");
+eq(P.acronymOf("Academia De Santa Lucia Norte"), "ASLN", "acronym skips De");
+var aidx = P.buildAcronymIndex(["Maple Ridge College Westbrook, Inc.", "Bright Path Academy", ""]);
+eq(aidx["MRCW"], "Maple Ridge College Westbrook, Inc.", "acronym lookup");
+eq(aidx["BPA"], "Bright Path Academy", "acronym lookup 2");
 eq(P.nextSessionId([{id:"SES-2024-0001"},{id:"SES-2024-0003"},{id:"SES-2023-0009"},{id:""}], "2024"), "SES-2024-0004", "next id = max+1 for the year");
 eq(P.nextSessionId([{id:"SES-2024-0001"}], "2026"), "SES-2026-0001", "new year restarts at 0001");
 
 /* ---- buildSummary ---- */
 var sumSessions = [
-  { dateISO: "2026-05-07", trainer: "A", code: "MS-101", client: "HCCCI", timeStart: 0.333, timeEnd: 0.5, nps: 80, trainerScore: 4.5, n: 44 },
-  { dateISO: "2026-05-08", trainer: "A", code: "MS-101", client: "HCCCI", timeStart: 0.333, timeEnd: 0.5, nps: 60, trainerScore: 4.0, n: 30 },
+  { dateISO: "2026-05-07", trainer: "A", code: "MS-101", client: "MRCWI", timeStart: 0.333, timeEnd: 0.5, nps: 80, trainerScore: 4.5, n: 44 },
+  { dateISO: "2026-05-08", trainer: "A", code: "MS-101", client: "MRCWI", timeStart: 0.333, timeEnd: 0.5, nps: 60, trainerScore: 4.0, n: 30 },
   { dateISO: "2026-06-01", trainer: "B", code: "WD-201", client: "SPC", timeStart: null, timeEnd: null, nps: null, trainerScore: null }
 ];
 var sm = P.buildSummary(sumSessions);
@@ -63,10 +63,10 @@ eq(sm.scoredNps, 2, "summary scored count");
 eq(sm.avgScore, 4.25, "summary avg trainer score");
 eq(sm.respondents, 74, "summary respondents summed");
 eq(sm.respSessions, 2, "summary respondent session count");
-eq(sm.repeatRate, 67, "summary repeat-school rate (2 of 3 at HCCCI)");
+eq(sm.repeatRate, 67, "summary repeat-school rate (2 of 3 at MRCWI)");
 eq(sm.bySchool.length, 2, "summary two schools");
-eq(sm.bySchool[0].key, "HCCCI", "summary schools sorted");
-eq(sm.bySchool[0].sessions, 2, "summary HCCCI session count");
+eq(sm.bySchool[0].key, "MRCWI", "summary schools sorted");
+eq(sm.bySchool[0].sessions, 2, "summary MRCWI session count");
 eq(sm.monthly.length, 2, "summary two months");
 eq(sm.monthly[0].key, "2026-05", "summary months sorted");
 eq(sm.byCourse[0].key, "MS-101", "summary courses sorted");
@@ -83,17 +83,17 @@ eq(cmap.byTitle["M365 Onboarding for Students"], "MS-101B", "course map title->c
 eq(!("" in cmap.byCode), true, "course map skips blank codes");
 
 /* ---- parseFilename ---- */
-let f = P.parseFilename("Training_Feedback_Form_-_05072026_-_AM_-_HCCCI_1-44.xlsx");
-eq(f, { dateISO: "2026-05-07", session: "AM", school: "HCCCI" }, "sample filename parsed");
+let f = P.parseFilename("Training_Feedback_Form_-_05072026_-_AM_-_MRCWI_1-44.xlsx");
+eq(f, { dateISO: "2026-05-07", session: "AM", school: "MRCWI" }, "sample filename parsed");
 eq(P.parseFilename("random.xlsx"), null, "non-matching filename -> null");
 eq(P.parseFilename("Form_32132026_-_PM_-_SPC.xlsx"), null, "invalid date -> null");
 f = P.parseFilename("Eval_-_12122025_-_PM_-_College of San Benildo.xlsx");
 eq(f && f.school, "College of San Benildo", "multi-word school");
 
 /* ---- suggestSessions ---- */
-const sug = P.suggestSessions(ss, { dateISO: ss[0].dateISO, session: "AM", school: "HCCCI" });
+const sug = P.suggestSessions(ss, { dateISO: ss[0].dateISO, session: "AM", school: "MRCWI" });
 eq(sug.length >= 2, true, "date+school matches found");
-eq(sug[0].client, "HCCCI", "school match ranked first");
+eq(sug[0].client, "MRCWI", "school match ranked first");
 
 /* ---- detectLayout ---- */
 const hrow = ["ID", "School / Organization", "Knowledge and mastery of the topic",
@@ -143,8 +143,8 @@ eq(ts.score, 3.83, "mean of row means: (4.667 + 3)/2 = 3.83");
 eq(ts.itemAvgs.t1, 4.5, "t1 avg");
 
 /* ---- findPrevSession ---- */
-const sA = { trainer: "Rico, Reneeson III", code: "MS-102A", dateISO: "2026-05-07", nps: 88.6, trainerScore: 4.8 };
-const sB = { trainer: "RICO, Reneeson III", code: "ms-102a", dateISO: "2026-06-07", nps: null, trainerScore: null };
+const sA = { trainer: "Roe, Sample III", code: "MS-102A", dateISO: "2026-05-07", nps: 88.6, trainerScore: 4.8 };
+const sB = { trainer: "ROE, Sample III", code: "ms-102a", dateISO: "2026-06-07", nps: null, trainerScore: null };
 const sC = { trainer: "Santos, Maria", code: "MS-103A", dateISO: "2026-05-01", nps: 70, trainerScore: 4 };
 eq(P.findPrevSession([sA, sB, sC], sB), sA, "prev = same trainer+code (case-insensitive), earlier date");
 eq(P.findPrevSession([sB, sC], sB), null, "no earlier scored session -> null");
@@ -190,18 +190,18 @@ eq(P.timeOf("1:30 pm"), 13.5 / 24, "\"1:30 pm\" -> afternoon");
 eq(P.timeOf("12:15 AM") < 0.5 && P.timeOf("12:15 PM") >= 0.5, true, "12 AM / 12 PM edge");
 eq(P.timeOf(""), null, "blank time -> null");
 const tt = P.parseTrackerSheet([["Date", "Trainer", "Client", "Time Start"],
-  ["05/07/2026", "A", "HCCCI", "1:00 PM"], ["05/07/2026", "B", "HCCCI", "8:00 AM"]]);
-eq(P.suggestSessions(tt, { dateISO: "2026-05-07", session: "AM", school: "HCCCI" })[0].trainer, "B",
+  ["05/07/2026", "A", "MRCWI", "1:00 PM"], ["05/07/2026", "B", "MRCWI", "8:00 AM"]]);
+eq(P.suggestSessions(tt, { dateISO: "2026-05-07", session: "AM", school: "MRCWI" })[0].trainer, "B",
   "AM/PM tiebreak works with text times");
 // Underscored school names (MS Forms filenames)
 eq(P.parseFilename("Training_Feedback_Form_-_05072026_-_PM_-_St._Jude_Parish_School_1-44.xlsx").school,
   "St. Jude Parish School", "underscored school name -> spaces, _1-44 suffix dropped");
 eq(P.parseFilename("Form_-_05072026_-_am_-_A&B_College.xlsx").school, "A&B College", "lowercase am + & + trailing name");
 // Same-day fallback ranked below school matches
-const fb = P.suggestSessions([{ dateISO: "2026-05-07", client: "Holy Cross College", timeStart: 0.3 },
-  { dateISO: "2026-05-07", client: "HCCCI", timeStart: 0.6 }, { dateISO: "2026-05-08", client: "X" }],
-  { dateISO: "2026-05-07", session: "AM", school: "HCCCI" });
-eq(fb.map(s => s.client), ["HCCCI", "Holy Cross College"], "school match first, same-day fallback next, other days excluded");
+const fb = P.suggestSessions([{ dateISO: "2026-05-07", client: "Maple Ridge College", timeStart: 0.3 },
+  { dateISO: "2026-05-07", client: "MRCWI", timeStart: 0.6 }, { dateISO: "2026-05-08", client: "X" }],
+  { dateISO: "2026-05-07", session: "AM", school: "MRCWI" });
+eq(fb.map(s => s.client), ["MRCWI", "Maple Ridge College"], "school match first, same-day fallback next, other days excluded");
 // Likert neutral
 eq(P.mapLikert("Neither agree nor disagree"), 3, "\"Neither agree nor disagree\" = 3 (not 2)");
 eq(P.mapLikert("Neither satisfied nor dissatisfied"), 3, "\"Neither satisfied nor dissatisfied\" = 3");
@@ -217,9 +217,9 @@ const H = ["ID", "Start time", "School / Organization", "Knowledge and mastery o
   "Ability to engage and connect", "The pace of the session was just right", "Overall, how satisfied were you with the training?",
   "On a scale of 0 to 10, how likely are you to recommend", "Why did you give this rating?", "What did you like best", "What suggestions do you have to improve"];
 const ER = [H,
-  [1, 46149.4, "HCCCI", "Strongly Agree", "Strongly Agree", "Agree", "Neutral", "Very satisfied", 10, "great", "Hands-on activities", "More hands-on practice"],
-  [2, 46149.4, "Holy Cross College of Carigara, Inc.", "Agree", "Strongly Agree", "Agree", "Somewhat Disagree", "Satisfied", 6, "Too fast pace", "Examples", "Slower pace, more practice"],
-  [3, 46149.4, "HCCCI", "Strongly Agree", "Agree", "Strongly Agree", "Agree", "Dissatisfied", "", "", "n/a", "none"],
+  [1, 46149.4, "MRCWI", "Strongly Agree", "Strongly Agree", "Agree", "Neutral", "Very satisfied", 10, "great", "Hands-on activities", "More hands-on practice"],
+  [2, 46149.4, "Maple Ridge College of Westbrook, Inc.", "Agree", "Strongly Agree", "Agree", "Somewhat Disagree", "Satisfied", 6, "Too fast pace", "Examples", "Slower pace, more practice"],
+  [3, 46149.4, "MRCWI", "Strongly Agree", "Agree", "Strongly Agree", "Agree", "Dissatisfied", "", "", "n/a", "none"],
   ["", "", "", "", "", "", "", "", "", "", "", ""]];
 const ER_ROLES = P.detectLayout(H).roles;
 const A = P.analyzeEval(ER, ER_ROLES);
@@ -228,7 +228,7 @@ eq([A.nps.n, A.nps.promoters, A.nps.detractors, A.nps.nps], [2, 1, 1, 0], "analy
 eq(A.ratings.map(r => r.header.slice(0, 12)), ["Knowledge an", "Communicatio", "Ability to e", "The pace of ", "Overall, how"], "rating items detected; NPS / comment columns are not rating items");
 eq(A.ratings[3].avg, 3, "pace item: Neutral 3, Somewhat Disagree 2, Agree 4 -> 3.00");
 eq(A.satisfaction, 66.7, "satisfaction = top-2 share of the satisfaction item (2 of 3)");
-eq(A.schools.map(s => [s.name, s.count]), [["Holy Cross College of Carigara, Inc.", 3]], "acronym HCCCI merged into the full school name");
+eq(A.schools.map(s => [s.name, s.count]), [["Maple Ridge College of Westbrook, Inc.", 3]], "acronym MRCWI merged into the full school name");
 eq(A.comments.suggest, ["More hands-on practice", "Slower pace, more practice"], "trivial answers (none / n/a) left out of comments");
 eq(A.detractorReasons, ["Too fast pace"], "detractor reasons come from NPS 0–6 rows only");
 eq(A.keywords.suggest[0], { word: "practice", count: 2 }, "top suggestion theme counted once per answer");
@@ -244,25 +244,25 @@ const SUM = P.buildSummary([{ client: "A", nps: 50, trainerScore: 4.5, n: 20, ti
 eq([SUM.respondents, SUM.respSessions, SUM.avgNps, SUM.avgScore, SUM.hours, SUM.repeatRate], [25, 2, 20, 4, 6, 67], "buildSummary: respondents from n, negative NPS averaged, hours, repeat rate");
 
 /* ---- bulk matching (matchEval / rankSessions) ---- */
-const MS = [{ dateISO: "2026-05-07", client: "HCCCI", timeStart: 0.33 }, { dateISO: "2026-05-07", client: "HCCCI", timeStart: 0.6 },
-            { dateISO: "2026-05-08", client: "St. Paul College", timeStart: 0.33 }, { dateISO: "2026-05-08", client: "Paco Catholic School", timeStart: 0.33 }];
-ok(P.matchEval(MS, { dateISO: "2026-05-07", session: "PM", school: "HCCCI" }).auto === MS[1], "matchEval: PM file -> PM session");
-ok(P.matchEval(MS, { dateISO: "2026-05-08", session: "AM", school: "SPC" }).auto === MS[2], "matchEval: acronym SPC -> St. Paul College");
+const MS = [{ dateISO: "2026-05-07", client: "MRCWI", timeStart: 0.33 }, { dateISO: "2026-05-07", client: "MRCWI", timeStart: 0.6 },
+            { dateISO: "2026-05-08", client: "Summit Point College", timeStart: 0.33 }, { dateISO: "2026-05-08", client: "Pinewood Catholic School", timeStart: 0.33 }];
+ok(P.matchEval(MS, { dateISO: "2026-05-07", session: "PM", school: "MRCWI" }).auto === MS[1], "matchEval: PM file -> PM session");
+ok(P.matchEval(MS, { dateISO: "2026-05-08", session: "AM", school: "SPC" }).auto === MS[2], "matchEval: acronym SPC -> Summit Point College");
 ok(P.matchEval(MS, { dateISO: "2026-05-08", session: "AM", school: "Unknown" }).auto === null, "matchEval: no school match -> nothing auto-picked");
 eq(P.matchEval(MS, { dateISO: "2026-05-08", session: "AM", school: "Unknown" }).candidates.length, 2, "matchEval: same-day sessions still offered");
-ok(P.matchEval(MS, { dateISO: "2026-05-07", session: "", school: "HCCCI" }).auto === null, "matchEval: two equal matches (no AM/PM) -> user picks");
+ok(P.matchEval(MS, { dateISO: "2026-05-07", session: "", school: "MRCWI" }).auto === null, "matchEval: two equal matches (no AM/PM) -> user picks");
 ok(P.matchEval(MS, { dateISO: "2026-01-01", session: "AM", school: "SPC" }, "2026-05-08").auto === MS[2], "matchEval: falls back to the answer date when the filename date has no session");
 ok(P.matchEval(MS, null, "2026-05-07").auto === null && P.matchEval(MS, null, "2026-05-07").candidates.length === 2, "matchEval: no filename hint -> candidates from answer date only");
 
 /* ---- trainer / course reporting ---- */
 const TS = [
-  { trainer: "RICO, R", code: "C1", title: "Teams", client: "X", dateISO: "2026-05-01", timeStart: 0.25, timeEnd: 0.5, nps: 50, trainerScore: 4.5, n: 10, itemAvgs: { t1: 4.8, t2: 4.2, t3: 4.5 } },
-  { trainer: "rico, r", code: "C1", title: "", client: "Y", dateISO: "2026-04-01", timeStart: 0.25, timeEnd: 0.5, nps: null, trainerScore: null, n: null },
-  { trainer: "RICO, R", code: "C2", title: "Excel", client: "X", dateISO: "2026-04-15", nps: -20, trainerScore: 3.5, n: 4 },
-  { trainer: "SANTOS, M", code: "C2", title: "Excel", client: "Z", dateISO: "2026-02-01", timeStart: 0.5, timeEnd: 0.625, nps: 10, trainerScore: 4, n: 5 }];
-const TT = P.trainerTable(TS, [{ trainer: "Rico, R", nps: 0 }, { trainer: "RICO, R", nps: 10 }]);
+  { trainer: "ROE, S", code: "C1", title: "Teams", client: "X", dateISO: "2026-05-01", timeStart: 0.25, timeEnd: 0.5, nps: 50, trainerScore: 4.5, n: 10, itemAvgs: { t1: 4.8, t2: 4.2, t3: 4.5 } },
+  { trainer: "roe, s", code: "C1", title: "", client: "Y", dateISO: "2026-04-01", timeStart: 0.25, timeEnd: 0.5, nps: null, trainerScore: null, n: null },
+  { trainer: "ROE, S", code: "C2", title: "Excel", client: "X", dateISO: "2026-04-15", nps: -20, trainerScore: 3.5, n: 4 },
+  { trainer: "SMITH, P", code: "C2", title: "Excel", client: "Z", dateISO: "2026-02-01", timeStart: 0.5, timeEnd: 0.625, nps: 10, trainerScore: 4, n: 5 }];
+const TT = P.trainerTable(TS, [{ trainer: "Roe, S", nps: 0 }, { trainer: "ROE, S", nps: 10 }]);
 eq(TT.map(r => [r.trainer, r.sessions, r.hours, r.courses, r.schools, r.respondents, r.avgNps, r.avgScore, r.noEval, r.last]),
-  [["RICO, R", 3, 12, 2, 2, 14, 15, 4, 1, "2026-05-01"], ["SANTOS, M", 1, 3, 1, 1, 5, 10, 4, 0, "2026-02-01"]],
+  [["ROE, S", 3, 12, 2, 2, 14, 15, 4, 1, "2026-05-01"], ["SMITH, P", 1, 3, 1, 1, 5, 10, 4, 0, "2026-02-01"]],
   "trainerTable: trainer names grouped case-insensitively; trainings, hours, courses, schools, respondents, averages, no-eval, last");
 eq([TT[0].topCourse.title, TT[0].topCourse.sessions, TT[0].npsChange, TT[1].npsChange], ["Teams", 2, 10, null], "trainerTable: top course + NPS change vs previous period (15 vs avg 5)");
 const CT = P.courseTable(TS);
@@ -275,9 +275,9 @@ eq([P.prevPeriod("2026"), P.prevPeriod("2026-Q1"), P.prevPeriod("2026-Q3"), P.pr
 eq(P.trainerTable([], []), [], "trainerTable: empty");
 
 /* ---- duplicate protection + real filename formats ---- */
-eq(P.parseFilename("Training Feedback Form - 05072026 - AM - HCCCI(1-44).xlsx"), { dateISO: "2026-05-07", session: "AM", school: "HCCCI" }, "filename: 'MMDDYYYY - AM - SCHOOL(1-44)'");
-eq(P.parseFilename("Training Feedback Form - Nov. 28, 2025 [SGA] - Microsoft 36.xlsx"), { dateISO: "2025-11-28", session: "", school: "SGA" }, "filename: 'Nov. 28, 2025 [SGA]' (36 is not a date)");
-eq(P.parseFilename("Feedback - Sept. 3rd, 2025 - PM [ASVF].xlsx"), { dateISO: "2025-09-03", session: "PM", school: "ASVF" }, "filename: 'Sept. 3rd, 2025 - PM [ASVF]'");
+eq(P.parseFilename("Training Feedback Form - 05072026 - AM - MRCWI(1-44).xlsx"), { dateISO: "2026-05-07", session: "AM", school: "MRCWI" }, "filename: 'MMDDYYYY - AM - SCHOOL(1-44)'");
+eq(P.parseFilename("Training Feedback Form - Nov. 28, 2025 [BPA] - Microsoft 36.xlsx"), { dateISO: "2025-11-28", session: "", school: "BPA" }, "filename: 'Nov. 28, 2025 [BPA]' (36 is not a date)");
+eq(P.parseFilename("Feedback - Sept. 3rd, 2025 - PM [ASLN].xlsx"), { dateISO: "2025-09-03", session: "PM", school: "ASLN" }, "filename: 'Sept. 3rd, 2025 - PM [ASLN]'");
 eq(P.parseFilename("Microsoft 36.xlsx"), null, "filename without a date -> null");
 const A1 = [["ID", "Start time", "Q"], [1, 45946.49, 9], [2, 45946.5, 10]];
 const A2 = [["ID", "Start time", "Q"], [1, 45946.49, 9], [2, 45946.5, 10]];
@@ -289,13 +289,35 @@ const TR2 = P.parseTrackerSheet([["Date", "Trainer", "Client", "Eval Source"], [
 eq([TR2[0].evalFp, TR2[1].evalFp], ["0a1b2c3d", ""], "tracker 'Eval Source' read back as a fingerprint");
 const PW2 = P.planWriteback(["Net Promoter Score"], [{ rowIdx: 1, computed: { nps: 5, trainerScore: 4, evalSource: "x · fp:0a1b2c3d" } }]);
 eq([PW2.addSourceCol, PW2.edits[0].evalSource], [true, "x · fp:0a1b2c3d"], "planWriteback adds 'Eval Source'");
-const SD = [{ dateISO: "2025-10-16", client: "Academia de San Vicente Ferrer", timeStart: 0.33 }, { dateISO: "2025-10-16", client: "Academia de San Vicente Ferrer", timeStart: 0.54 },
-            { dateISO: "2026-05-07", client: "Holy Cross College of Carigara", timeStart: 0.33 }, { dateISO: "2025-11-28", client: "Saint Gregory Academy", timeStart: 0.33 }];
-ok(P.matchEval(SD, { dateISO: "2025-10-16", session: "", school: "ASVF" }, "2025-10-16", { session: "PM" }).auto === SD[1], "matchEval: answer-time AM/PM splits same-day sessions");
-ok(P.matchEval(SD, { dateISO: "2025-10-16", session: "", school: "ASVF" }, "2025-10-16").auto === null, "matchEval: same-day twins without AM/PM -> user picks");
-ok(P.matchEval(SD, { dateISO: "2026-05-07", session: "AM", school: "HCCCI" }).auto === SD[2], "matchEval: HCCCI = Holy Cross College of Carigara (trailing Inc. letter)");
-ok(P.matchEval(SD, { dateISO: "2025-11-28", session: "", school: "SGA" }, "2025-11-29").auto === SD[3], "matchEval: filename date (Nov 28) wins over the answer date (Nov 29)");
-ok(P.matchEval([{ dateISO: "2025-12-01", client: "Paco Catholic School" }], { dateISO: "2025-12-01", school: "PACO-HS" }, null, { aliases: { pacohs: "paco catholic school" } }).auto !== null, "matchEval: learned alias");
+const SD = [{ dateISO: "2025-10-16", client: "Academia de Santa Lucia Norte", timeStart: 0.33 }, { dateISO: "2025-10-16", client: "Academia de Santa Lucia Norte", timeStart: 0.54 },
+            { dateISO: "2026-05-07", client: "Maple Ridge College of Westbrook", timeStart: 0.33 }, { dateISO: "2025-11-28", client: "Bright Path Academy", timeStart: 0.33 }];
+ok(P.matchEval(SD, { dateISO: "2025-10-16", session: "", school: "ASLN" }, "2025-10-16", { session: "PM" }).auto === SD[1], "matchEval: answer-time AM/PM splits same-day sessions");
+ok(P.matchEval(SD, { dateISO: "2025-10-16", session: "", school: "ASLN" }, "2025-10-16").auto === null, "matchEval: same-day twins without AM/PM -> user picks");
+ok(P.matchEval(SD, { dateISO: "2026-05-07", session: "AM", school: "MRCWI" }).auto === SD[2], "matchEval: MRCWI = Maple Ridge College of Westbrook (trailing Inc. letter)");
+ok(P.matchEval(SD, { dateISO: "2025-11-28", session: "", school: "BPA" }, "2025-11-29").auto === SD[3], "matchEval: filename date (Nov 28) wins over the answer date (Nov 29)");
+ok(P.matchEval([{ dateISO: "2025-12-01", client: "Pinewood Catholic School" }], { dateISO: "2025-12-01", school: "PINE-HS" }, null, { aliases: { pinehs: "pinewood catholic school" } }).auto !== null, "matchEval: learned alias");
+
+/* ---- co-trainers (v1.39.0): one row per session, names in one cell ---- */
+eq(P.splitTrainers("DOE, John / ROE, Jane"), ["DOE, John", "ROE, Jane"], "splitTrainers: ' / ' (comma inside names kept)");
+eq(P.splitTrainers("A, B; C, D & E, F + G, H"), ["A, B", "C, D", "E, F", "G, H"], "splitTrainers: ; & +");
+eq(P.splitTrainers("John Doe and Jane Roe\nX Y"), ["John Doe", "Jane Roe", "X Y"], "splitTrainers: ' and ' + line break");
+eq(P.splitTrainers("ROE, Sample III"), ["ROE, Sample III"], "splitTrainers: single trainer untouched");
+eq(P.splitTrainers("Alexander Sand / alexander sand"), ["Alexander Sand"], "splitTrainers: no 'and' split inside words; duplicate names once");
+eq(P.joinTrainers(["DOE, John", "", "ROE, Jane"]), "DOE, John / ROE, Jane", "joinTrainers");
+const CO = [
+  { trainer: "DOE, John / ROE, Jane", code: "CV-1", client: "Sample Education Dept", dateISO: "2026-09-11", nps: 80, trainerScore: 4.6, n: 50, timeStart: 0.375, timeEnd: 0.5 },
+  { trainer: "DOE, John", code: "CV-1", client: "Pinewood Catholic School", dateISO: "2026-09-20", nps: 60, trainerScore: 4.2, n: 20, timeStart: 0.375, timeEnd: 0.5 }];
+const COT = P.trainerTable(CO);
+eq(COT.map(r => [r.trainer, r.sessions, r.coTrained, r.coWith, r.avgNps, r.respondents]),
+   [["DOE, John", 2, 1, ["ROE, Jane"], 70, 70], ["ROE, Jane", 1, 1, ["DOE, John"], 80, 50]], "trainerTable: co-trained session counts for each trainer (shared scores)");
+eq([P.overview(CO).trainers, P.overview(CO).sessions], [2, 2], "overview: 2 trainers, sessions counted ONCE");
+eq(P.buildSummary(CO).respondents, 70, "summary respondents counted once (not per trainer)");
+eq(P.courseTable(CO)[0].trainers, 2, "courseTable: distinct trainers across co-trained rows");
+eq(P.buildRoster(CO), ["DOE, John", "ROE, Jane"], "roster lists each trainer");
+ok(P.hasTrainer(CO[0], "roe, jane") && !P.hasTrainer(CO[1], "ROE, Jane"), "hasTrainer: either name matches a co-trained row");
+ok(P.findPrevSession(CO.concat([{ trainer: "ROE, Jane", code: "CV-1", dateISO: "2026-10-01", client: "X" }]), { trainer: "ROE, Jane", code: "CV-1", dateISO: "2026-10-01" }) === CO[0], "findPrevSession: co-trained session is a previous session for either trainer");
+const DUP = P.duplicateSessions([CO[0], Object.assign({}, CO[0], { trainer: "ROE, Jane" }), Object.assign({}, CO[0], { timeStart: 0.6 }), CO[1]]);
+eq(DUP.map(d => [d.label, d.rows.length]), [["2026-09-11 · Sample Education Dept · CV-1", 2]], "duplicateSessions: same date+school+course+start = one group; other start time is a separate session");
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

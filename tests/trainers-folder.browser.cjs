@@ -23,8 +23,8 @@ const b64 = (sheets) => {
 };
 const TRACKER = b64({ trial: [
   ["Date", "Trainer", "New Code", "New Description", "Client", "Time Start", "Time End", "Net Promoter Score"],
-  [46100, "RICO, Reneeson III", "MS-102A", "Teams Workshop", "HCCCI", 0.333, 0.5, ""],
-  [46101, "SANTOS, Maria", "MS-103A", "Workshop P1", "Holy Cross College of Carigara", 0.54, 0.62, ""]] });
+  [46100, "ROE, Sample III", "MS-102A", "Teams Workshop", "MRCWI", 0.333, 0.5, ""],
+  [46101, "SMITH, Pat", "MS-103A", "Workshop P1", "Maple Ridge College of Westbrook", 0.54, 0.62, ""]] });
 const evalRows = (school, seed) => {
   const head = ["ID", "Start time", "School / Organization", "Knowledge and mastery of the topic",
     "Communication and presentation skills", "Ability to engage and connect with participants",
@@ -35,8 +35,8 @@ const evalRows = (school, seed) => {
   for (let i = 0; i < 5; i++) r.push([i + seed, 46100.4 + i / 1440, school, "Strongly Agree", "Agree", "Agree", "Very satisfied", [10, 9, 8, 10, 9][i], "ok"]);
   return { Sheet1: r };
 };
-const EVAL1 = b64(evalRows("HCCCI", 1));
-const EVAL2 = b64(evalRows("Holy Cross College of Carigara", 50));
+const EVAL1 = b64(evalRows("MRCWI", 1));
+const EVAL2 = b64(evalRows("Maple Ridge College of Westbrook", 50));
 const OTHER = b64({ RISKY_USERS_AND_DOMAIN: [["Month", "School", "Total Risky Users"], ["Jan", "X", 1]] });
 const REPORT = b64({ Sheet1: [["Date", "Amount"], ["2026-01-01", 5]] });
 const GDAPX = b64({ Info: [["GDAP export"]], GDAP: [["Granular admin relationships"], [], ["Name", "Microsoft ID", "Status"],
@@ -44,7 +44,7 @@ const GDAPX = b64({ Info: [["GDAP export"]], GDAP: [["Granular admin relationshi
 
 const FOLDER = [
   { name: "ETG_Training_Tracker_2026.xlsx", path: [], data: TRACKER },
-  { name: "05072026 - AM - HCCCI(1-44).xlsx", path: ["Evals"], data: EVAL1 },
+  { name: "05072026 - AM - MRCWI(1-44).xlsx", path: ["Evals"], data: EVAL1 },
   { name: "Feedback_-_01022026_-_PM_-_HCC_1-5.xlsx", path: ["Evals"], data: EVAL2 },
   { name: "ALL TENANT AUTOMATED TRACKER.xlsx", path: [], data: OTHER },
   { name: "GDAP.xlsx", path: [], data: GDAPX },

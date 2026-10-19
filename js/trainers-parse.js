@@ -128,12 +128,12 @@
   }
 
   /* ---- eval filename -> { dateISO, session: "AM"|"PM", school } | null -----
-   * e.g. "Training_Feedback_Form_-_05072026_-_AM_-_HCCCI_1-44.xlsx"
+   * e.g. "Training_Feedback_Form_-_05072026_-_AM_-_MRCWI_1-44.xlsx"
    * Date is MMDDYYYY (matches the form's "Event Date: May 07, 2026").
    * The trainer is NEVER in the filename. */
   /* Also seen in real exports:
-   *   "Training Feedback Form - 05072026 - AM - HCCCI(1-44).xlsx"
-   *   "Training Feedback Form - Nov. 28, 2025 [SGA] - Microsoft 36.xlsx"  (date in words, school in [ ]) */
+   *   "Training Feedback Form - 05072026 - AM - MRCWI(1-44).xlsx"
+   *   "Training Feedback Form - Nov. 28, 2025 [BPA] - Microsoft 36.xlsx"  (date in words, school in [ ]) */
   var MON3 = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
   function parseFilename(name) {
     var base = norm(name).replace(/\.[a-z0-9]+$/i, "");
@@ -168,7 +168,7 @@
       if (hs && c) {
         var acr = acronymOf(s.client).toLowerCase();
         if (c === hs || (hsA.length >= 2 && acr === hsA) ||
-            (hsA.length >= 4 && acr.length === hsA.length - 1 && hsA.indexOf(acr) === 0) || // HCCCI = Holy Cross College of Carigara (Inc.)
+            (hsA.length >= 4 && acr.length === hsA.length - 1 && hsA.indexOf(acr) === 0) || // MRCWI = Maple Ridge College of Westbrook (Inc.)
             (hint.aliases && hint.aliases[hsA] === c)) schoolScore = 2;                    // learned from an earlier pick
         else if (c.indexOf(hs) >= 0 || hs.indexOf(c) >= 0) schoolScore = 1;
       }
@@ -289,12 +289,12 @@
 
   /* ---- previous session: same trainer + same code, most recent before cur --- */
   function findPrevSession(sessions, cur) {
-    var ct = normKey(cur.trainer), cc = normKey(cur.code);
-    if (!ct) return null;
+    var ct = splitTrainers(cur.trainer).map(normKey), cc = normKey(cur.code);
+    if (!ct.length) return null;
     var best = null;
     (sessions || []).forEach(function (s) {
       if (s === cur) return;
-      if (normKey(s.trainer) !== ct || normKey(s.code) !== cc) return;
+      if (normKey(s.code) !== cc || !splitTrainers(s.trainer).some(function (t) { return ct.indexOf(normKey(t)) >= 0; })) return;
       if (!s.dateISO || (cur.dateISO && s.dateISO >= cur.dateISO)) return;
       if (s.nps == null && s.trainerScore == null) return;
       if (!best || s.dateISO > best.dateISO) best = s;
@@ -302,13 +302,46 @@
     return best;
   }
 
+  /* ---- co-trainers (v1.39.0) ------------------------------------------------
+   * One tracker row per session; several trainers share the Trainer cell:
+   * "DOE, John / ROE, Jane" (also ; & + line break " and ").
+   * Never split on a comma: names are "LASTNAME, Firstname". */
+  var TRAINER_SEP = /\s*(?:\/|;|&|\+|\r?\n|\s+and\s+)\s*/i;
+  function splitTrainers(v) {
+    var seen = {}, out = [];
+    String(v == null ? "" : v).split(TRAINER_SEP).forEach(function (x) {
+      var t = norm(x), k = normKey(t);
+      if (t && !seen[k]) { seen[k] = 1; out.push(t); }
+    });
+    return out;
+  }
+  function hasTrainer(s, name) {
+    var k = normKey(name);
+    return !!k && splitTrainers(s && s.trainer).some(function (t) { return normKey(t) === k; });
+  }
+  function joinTrainers(list) { return splitTrainers((list || []).join(" / ")).join(" / "); }
+  /* Rows that look like the same session entered twice (same date, school, course, start time),
+   * e.g. one row per co-trainer. -> [{ rows: [session…], label }] */
+  function duplicateSessions(sessions) {
+    var g = {}, order = [];
+    (sessions || []).forEach(function (s) {
+      if (!s.dateISO || !normKey(s.client)) return;
+      var k = [s.dateISO, normKey(s.client), normKey(s.code), s.timeStart == null ? "" : Math.round(s.timeStart * 1440)].join("|");
+      if (!g[k]) { g[k] = []; order.push(k); }
+      g[k].push(s);
+    });
+    return order.filter(function (k) { return g[k].length > 1; }).map(function (k) {
+      var a = g[k][0];
+      return { rows: g[k], label: a.dateISO + " · " + a.client + (a.code ? " · " + a.code : "") };
+    });
+  }
   function buildRoster(sessions) {
     var seen = {}, out = [];
     (sessions || []).forEach(function (s) {
-      var t = norm(s.trainer);
-      if (!t) return;
-      var k = normKey(t);
-      if (!seen[k]) { seen[k] = 1; out.push(t); }
+      splitTrainers(s.trainer).forEach(function (t) {
+        var k = normKey(t);
+        if (!seen[k]) { seen[k] = 1; out.push(t); }
+      });
     });
     out.sort(function (a, b) { return normKey(a) < normKey(b) ? -1 : 1; });
     return out;
@@ -525,15 +558,34 @@
     return order.map(function (k) { return { key: k, items: m[k] }; });
   }
   function distinct(list, f) { var o = {}; list.forEach(function (s) { var v = normKey(f(s)); if (v) o[v] = 1; }); return Object.keys(o).length; }
+  function distinctTrainers(list) { var o = {}; list.forEach(function (s) { splitTrainers(s.trainer).forEach(function (t) { o[normKey(t)] = 1; }); }); return Object.keys(o).length; }
+  // One entry per (trainer, session): a co-trained session counts for each of its trainers.
+  function byTrainer(list) {
+    var m = {}, order = [];
+    (list || []).forEach(function (s) {
+      splitTrainers(s.trainer).forEach(function (t) {
+        var k = normKey(t);
+        if (!m[k]) { m[k] = { key: k, name: t, items: [] }; order.push(k); }
+        m[k].items.push(s);
+      });
+    });
+    return order.map(function (k) { return m[k]; });
+  }
   // One row per trainer. prev: the same trainers' sessions in the previous period (for the NPS change).
   function trainerTable(sessions, prev) {
     var prevBy = {};
-    groupBy(prev || [], function (s) { return normKey(s.trainer); }).forEach(function (g) { prevBy[g.key] = avg(g.items, function (s) { return s.nps; }, 1); });
-    return groupBy((sessions || []).filter(function (s) { return norm(s.trainer); }), function (s) { return normKey(s.trainer); }).map(function (g) {
+    byTrainer(prev).forEach(function (g) { prevBy[g.key] = avg(g.items, function (s) { return s.nps; }, 1); });
+    return byTrainer(sessions).map(function (g) {
       var it = g.items, courses = courseTable(it);
       var a = avg(it, function (s) { return s.nps; }, 1), p = prevBy[g.key];
+      var co = {}, coN = 0;
+      it.forEach(function (s) {
+        var ns = splitTrainers(s.trainer);
+        if (ns.length > 1) coN++;
+        ns.forEach(function (t) { if (normKey(t) !== g.key) co[normKey(t)] = co[normKey(t)] || t; });
+      });
       return {
-        trainer: it[0].trainer, sessions: it.length, hours: r1(it.reduce(function (x, s) { return x + hoursOf(s); }, 0)),
+        trainer: g.name, coTrained: coN, coWith: Object.keys(co).map(function (k) { return co[k]; }).sort(), sessions: it.length, hours: r1(it.reduce(function (x, s) { return x + hoursOf(s); }, 0)),
         courses: courses.length, topCourse: courses[0] || null, schools: distinct(it, function (s) { return s.client; }),
         respondents: it.reduce(function (x, s) { return x + (s.n || 0); }, 0),
         avgNps: a, avgScore: avg(it, function (s) { return s.trainerScore; }, 2),
@@ -549,7 +601,7 @@
       var it = g.items, titled = it.filter(function (s) { return norm(s.title); })[0];
       return { code: norm(it[0].code), title: titled ? norm(titled.title) : "", sessions: it.length,
                hours: r1(it.reduce(function (x, s) { return x + hoursOf(s); }, 0)),
-               schools: distinct(it, function (s) { return s.client; }), trainers: distinct(it, function (s) { return s.trainer; }),
+               schools: distinct(it, function (s) { return s.client; }), trainers: distinctTrainers(it),
                avgNps: avg(it, function (s) { return s.nps; }, 1), avgScore: avg(it, function (s) { return s.trainerScore; }, 2) };
     }).sort(function (x, y) { return y.sessions - x.sessions || (x.code < y.code ? -1 : 1); });
   }
@@ -557,7 +609,7 @@
   function overview(sessions) {
     var list = sessions || [];
     var scored = list.filter(function (s) { return s.nps != null || s.trainerScore != null; }).length;
-    return { trainers: distinct(list, function (s) { return s.trainer; }), sessions: list.length,
+    return { trainers: distinctTrainers(list), sessions: list.length,
              hours: r1(list.reduce(function (x, s) { return x + hoursOf(s); }, 0)),
              courses: courseTable(list).length, schools: distinct(list, function (s) { return s.client; }),
              evaluated: scored, coverage: list.length ? Math.round(scored / list.length * 100) : null };
@@ -665,7 +717,7 @@
       o.acr[first(normKey(raw).replace(/[^a-z ]+/g, " "))] = 1;
       o.acr[acronymOf(raw).toLowerCase()] = 1;
     });
-    // "HCCCI" + "Holy Cross College of Carigara, Inc." in the same file: merge the acronym into the long name.
+    // "MRCWI" + "Maple Ridge College of Westbrook, Inc." in the same file: merge the acronym into the long name.
     function first(k) { return k.split(/\s+/).filter(function (t) { return t.length > 2; }).map(function (t) { return t[0]; }).join(""); }
     Object.keys(g).forEach(function (sk) {
       if (!/^[a-z]{2,6}$/.test(sk)) return;
@@ -793,6 +845,7 @@
     suggestSessions: suggestSessions, rankSessions: rankSessions, matchEval: matchEval, detectLayout: detectLayout,
     mapLikert: mapLikert, calcNPS: calcNPS, calcTrainerScore: calcTrainerScore,
     findPrevSession: findPrevSession, buildRoster: buildRoster,
+    splitTrainers: splitTrainers, hasTrainer: hasTrainer, joinTrainers: joinTrainers, duplicateSessions: duplicateSessions,
     planWriteback: planWriteback, TRACKER_COLS: TRACKER_COLS
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

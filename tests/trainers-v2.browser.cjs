@@ -19,8 +19,8 @@ const ok = (c, n) => { if (c) { pass++; console.log("ok - " + n); } else { fail+
 function makeTracker() {
   const rows = [
     ["Date", "Trainer", "New Code", "New Description", "Client", "Time Start", "Time End", "Net Promoter Score"],
-    [46100, "RICO, Reneeson III", "MS-102A", "Teams Workshop", "HCCCI", 0.333, 0.5, 70],
-    [46101, "SANTOS, Maria", "MS-103A", "Workshop P1", "Holy Cross College of Carigara", 0.54, 0.62, ""]
+    [46100, "ROE, Sample III", "MS-102A", "Teams Workshop", "MRCWI", 0.333, 0.5, 70],
+    [46101, "SMITH, Pat", "MS-103A", "Workshop P1", "Maple Ridge College of Westbrook", 0.54, 0.62, ""]
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "trial");
@@ -38,12 +38,12 @@ function makeEval() {
     "Why did you give this rating?", "What did you like best about the session?"];
   const rows = [head];
   for (let i = 0; i < 6; i++)
-    rows.push([i + 1, 46149.4 + i / 1440, "HCCCI", "Strongly Agree", i % 2 ? "Agree" : "Strongly Agree", "Neither agree nor disagree",
+    rows.push([i + 1, 46149.4 + i / 1440, "MRCWI", "Strongly Agree", i % 2 ? "Agree" : "Strongly Agree", "Neither agree nor disagree",
                i ? "Very satisfied" : "Dissatisfied", [10, 9, 10, 5, 9, 10][i], i === 3 ? "Too fast" : "Good", "Hands-on practice"]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "Sheet1");
   // filename date deliberately different from the answer timestamps (2026-05-07)
-  const p = path.join(os.tmpdir(), "Feedback_-_01012026_-_AM_-_HCCCI_1-6.xlsx");
+  const p = path.join(os.tmpdir(), "Feedback_-_01012026_-_AM_-_MRCWI_1-6.xlsx");
   fs.writeFileSync(p, XLSX.write(wb, { bookType: "xlsx", type: "buffer" }));
   return p;
 }
@@ -83,12 +83,12 @@ async function fresh(browser) {
   await page.waitForSelector("#trns-date", { timeout: 5000 });
   ok(await page.inputValue("#trns-date") === "2026-05-07", "A1 date from response timestamps, not filename");
   ok(await page.evaluate(() => /response timestamps/.test(document.querySelector("#trns-date").closest("div").textContent)), "A2 date source hint shown");
-  ok(await page.evaluate(() => { const i = document.querySelector("#trns-trainer"); return i.tagName === "INPUT" && [...document.querySelectorAll("#trns-trainers option")].some(o => o.value === "RICO, Reneeson III"); }),
+  ok(await page.evaluate(() => { const i = document.querySelector("#trns-trainer"); return i.tagName === "INPUT" && [...document.querySelectorAll("#trns-trainers option")].some(o => o.value === "ROE, Sample III"); }),
     "A3 trainer: typeable input with roster suggestions");
-  ok(await page.inputValue("#trns-school") === "Holy Cross College of Carigara" || await page.inputValue("#trns-school") === "HCCCI", "A4 school prefilled from filename");
+  ok(await page.inputValue("#trns-school") === "Maple Ridge College of Westbrook" || await page.inputValue("#trns-school") === "MRCWI", "A4 school prefilled from filename");
   await page.fill("#trns-title", "Teams Work"); await page.waitForTimeout(100);
   ok(await page.inputValue("#trns-code") === "MS-102A", "A5 course code auto-filled from a unique course-name prefix");
-  await page.fill("#trns-trainer", "RICO, Reneeson III");
+  await page.fill("#trns-trainer", "ROE, Sample III");
   await page.fill("#trns-school", "Typed Academy & <Test>");
   await page.click('[data-traction="save-new-session"]'); await page.waitForTimeout(300);
   const added = await page.evaluate(() => { const t = QBR.trainers._state.tracker; const s = t.sessions[t.sessions.length - 1]; return { s: { client: s.client, dateISO: s.dateISO, id: s.id, rowIdx: s.rowIdx, isNew: s.isNew }, n: t.addedRows.length, att: QBR.trainers._state.queue[0].target === t.sessions.length - 1 }; });
@@ -107,16 +107,16 @@ async function fresh(browser) {
   let msg = "";
   page.once("dialog", d => { msg = d.message(); d.accept(); });
   const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 8000 }).catch(() => null), page.click('.tr-pending [data-traction="writeback"]')]);
-  ok(/New row 4: 2026-05-07 · RICO, Reneeson III · MS-102A · Typed Academy & <Test> \(SES-2026-0001\)/.test(msg) && /Row 4 \(2026-05-07/.test(msg), "B3 confirm lists the new row and its scores");
+  ok(/New row 4: 2026-05-07 · ROE, Sample III · MS-102A · Typed Academy & <Test> \(SES-2026-0001\)/.test(msg) && /Row 4 \(2026-05-07/.test(msg), "B3 confirm lists the new row and its scores");
   if (dl) {
     const out = path.join(os.tmpdir(), "trv2-out.xlsx"); await dl.saveAs(out);
     const wb = XLSX.read(fs.readFileSync(out), { cellDates: true, cellNF: true }), ws = wb.Sheets.trial;
     ok(ws.A4 && ws.A4.v instanceof Date && ws.A4.v.getFullYear() === 2026 && ws.A4.v.getMonth() === 4 && ws.A4.v.getDate() === 7, "B4 date written as a real Excel date (2026-05-07)");
-    ok(ws.B4 && ws.B4.v === "RICO, Reneeson III" && ws.C4.v === "MS-102A" && ws.D4.v === "Teams Workshop" && ws.E4.v === "Typed Academy & <Test>", "B5 trainer, code, full course title (from the typed prefix), school written on row 4");
+    ok(ws.B4 && ws.B4.v === "ROE, Sample III" && ws.C4.v === "MS-102A" && ws.D4.v === "Teams Workshop" && ws.E4.v === "Typed Academy & <Test>", "B5 trainer, code, full course title (from the typed prefix), school written on row 4");
     ok(Math.abs(ws.F4.v - 8 / 24) < 1e-3 && Math.abs(ws.G4.v - 12 / 24) < 1e-3, "B6 times written as day fractions");
     ok(ws.I1 && ws.I1.v === "Session ID" && ws.I4.v === "SES-2026-0001" && ws.J1 && ws.J1.v === "Trainer Score", "B7 Session ID + Trainer Score headers added once, in order");
     ok(ws.H4 && ws.H4.v === 66.7 && ws.J4 && typeof ws.J4.v === "number", "B8 NPS (5 promoters, 1 detractor of 6 = 66.7) and trainer score land on the new row");
-    ok(ws.H2.v === 70 && ws.B3.v === "SANTOS, Maria", "B9 existing rows untouched");
+    ok(ws.H2.v === 70 && ws.B3.v === "SMITH, Pat", "B9 existing rows untouched");
     const za = SG.zipRead(new Uint8Array(fs.readFileSync(trk))), zb = SG.zipRead(new Uint8Array(fs.readFileSync(out))), diff = [];
     za.entries.forEach(e => { const f = zb.byName.get(e.name); if (!f || f.crc !== e.crc) diff.push(e.name); });
     ok(diff.every(n => /^xl\/(worksheets\/sheet1|workbook|styles)\.xml$/.test(n)), "B10 format-safe: only sheet (+calc flag, date style) parts changed (" + diff.join(",") + ")");
@@ -223,14 +223,14 @@ async function fresh(browser) {
   /* ---- Q: bulk — many eval files at once, matched to their sessions ---- */
   {
     const rows = [["Date", "Trainer", "New Code", "New Description", "Client", "Time Start", "Time End", "Net Promoter Score"],
-      [46149, "RICO, Reneeson III", "MS-102A", "Teams AM", "HCCCI", 0.333, 0.5, ""],
-      [46149, "SANTOS, Maria", "MS-102A", "Teams PM", "HCCCI", 0.54, 0.7, ""],
-      [46150, "REYES, Jun", "MS-103A", "Word", "St. Paul College", "8:00 AM", "12:00 PM", ""],
-      [46150, "DELA CRUZ, Ana", "MS-104A", "Excel", "Paco Catholic School", 0.333, 0.5, ""]];
+      [46149, "ROE, Sample III", "MS-102A", "Teams AM", "MRCWI", 0.333, 0.5, ""],
+      [46149, "SMITH, Pat", "MS-102A", "Teams PM", "MRCWI", 0.54, 0.7, ""],
+      [46150, "REYES, Jun", "MS-103A", "Word", "Summit Point College", "8:00 AM", "12:00 PM", ""],
+      [46150, "DELA CRUZ, Ana", "MS-104A", "Excel", "Pinewood Catholic School", 0.333, 0.5, ""]];
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "trial");
     const tq = path.join(os.tmpdir(), "trq-tracker.xlsx"); fs.writeFileSync(tq, XLSX.write(wb, { bookType: "xlsx", type: "buffer" }));
     const src = fs.readFileSync(evf), dir = fs.mkdtempSync(path.join(os.tmpdir(), "trq-"));
-    const names = ["Form_-_05072026_-_AM_-_HCCCI_1-6.xlsx", "Form_-_05072026_-_PM_-_HCCCI_1-6.xlsx", "Form_-_05082026_-_AM_-_SPC_1-6.xlsx",
+    const names = ["Form_-_05072026_-_AM_-_MRCWI_1-6.xlsx", "Form_-_05072026_-_PM_-_MRCWI_1-6.xlsx", "Form_-_05082026_-_AM_-_SPC_1-6.xlsx",
                    "Form_-_05082026_-_AM_-_Unknown_School_1-6.xlsx", "notes.txt"];
     // different answers per file (same answers = same fingerprint = treated as the same file)
     const evRows = XLSX.utils.sheet_to_json(XLSX.read(src).Sheets.Sheet1, { header: 1 });
@@ -243,7 +243,7 @@ async function fresh(browser) {
     ok(ch.isMultiple(), "Q1 'Add eval exports' lets you select many files");
     await ch.setFiles(files); await page.waitForTimeout(1200);
     const st = () => page.evaluate(() => QBR.trainers._state.queue.map(q => q.target));
-    ok(JSON.stringify(await st()) === JSON.stringify([0, 1, 2, -1]), "Q2 4 xlsx files listed (txt ignored): AM→AM session, PM→PM session, SPC→St. Paul College (acronym), unknown school not auto-picked (" + JSON.stringify(await st()) + ")");
+    ok(JSON.stringify(await st()) === JSON.stringify([0, 1, 2, -1]), "Q2 4 xlsx files listed (txt ignored): AM→AM session, PM→PM session, SPC→Summit Point College (acronym), unknown school not auto-picked (" + JSON.stringify(await st()) + ")");
     ok(await page.evaluate(() => { const q = QBR.trainers._state.queue[3]; return q.cands.length === 2 && q.cands.indexOf(2) >= 0; }), "Q3 unknown school: same-day sessions offered in its list");
     // the same files again: duplicates skipped
     const [ch2] = await Promise.all([page.waitForEvent("filechooser"), page.click('[data-trpill="eval"]')]);
@@ -296,9 +296,9 @@ async function fresh(browser) {
   /* ---- R: duplicates + already-scored protection + Eval Source (real filename formats) ---- */
   {
     const rows = [["Date", "Trainer", "New Code", "New Description", "Client", "Time Start", "Time End", "Net Promoter Score", "Trainer Score"],
-      [45946, "AZAÑA, Lito", "MS-101A", "Microsoft", "Academia de San Vicente Ferrer", 0.333, 0.5, "", ""],
-      [45946, "AZAÑA, Lito", "MS-101A", "Microsoft", "Academia de San Vicente Ferrer", 0.5417, 0.7083, "", ""],
-      [45989, "REYES, Jun", "MS-102A", "Microsoft", "Saint Gregory Academy", 0.333, 0.5, 80, 4.5]];
+      [45946, "DOEÑA, Alex", "MS-101A", "Microsoft", "Academia de Santa Lucia Norte", 0.333, 0.5, "", ""],
+      [45946, "DOEÑA, Alex", "MS-101A", "Microsoft", "Academia de Santa Lucia Norte", 0.5417, 0.7083, "", ""],
+      [45989, "REYES, Jun", "MS-102A", "Microsoft", "Bright Path Academy", 0.333, 0.5, 80, 4.5]];
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "trial");
     const tr = path.join(os.tmpdir(), "trr-tracker.xlsx"); fs.writeFileSync(tr, XLSX.write(wb, { bookType: "xlsx", type: "buffer" }));
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "trr-"));
@@ -309,9 +309,9 @@ async function fresh(browser) {
       const w = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(w, XLSX.utils.aoa_to_sheet(r), "Sheet1");
       const f = path.join(dir, name); fs.writeFileSync(f, XLSX.write(w, { bookType: "xlsx", type: "buffer" })); return f;
     };
-    const fAM = mk("Training Feedback Form - Oct. 16, 2025 [ASVF] - Micro.xlsx", 45946, 0.49, 1, [10, 9, 10, 9]);       // answered ~11:45 AM
-    const fPM = mk("Training Feedback Form - Oct. 16, 2025 [ASVF] - Microsoft 3.xlsx", 45946, 0.70, 101, [10, 6, 8, 9]); // answered ~4:50 PM
-    const fSGA = mk("Training Feedback Form - Nov. 28, 2025 [SGA] - Microsoft 36.xlsx", 45990, 0.49, 201, [9, 9, 10, 10]); // answered the next day
+    const fAM = mk("Training Feedback Form - Oct. 16, 2025 [ASLN] - Micro.xlsx", 45946, 0.49, 1, [10, 9, 10, 9]);       // answered ~11:45 AM
+    const fPM = mk("Training Feedback Form - Oct. 16, 2025 [ASLN] - Microsoft 3.xlsx", 45946, 0.70, 101, [10, 6, 8, 9]); // answered ~4:50 PM
+    const fSGA = mk("Training Feedback Form - Nov. 28, 2025 [BPA] - Microsoft 36.xlsx", 45990, 0.49, 201, [9, 9, 10, 10]); // answered the next day
     const fCopy = path.join(dir, "copy of Micro.xlsx"); fs.copyFileSync(fAM, fCopy);
     page = await fresh(browser);
     await upload(page, '[data-trpill="tracker"]', tr);
@@ -320,23 +320,23 @@ async function fresh(browser) {
     const Q = () => page.evaluate(() => QBR.trainers._state.queue.map(q => ({ n: q.name, t: q.target, h: q.hint && q.hint.dateISO, s: q.hint && q.hint.school })));
     let q = await Q();
     ok(q.length === 3, "R1 renamed copy with the same answers is not added (" + q.length + " files)");
-    ok(q[0].h === "2025-10-16" && q[0].s === "ASVF" && q[2].h === "2025-11-28" && q[2].s === "SGA", "R2 real filenames read: 'Oct. 16, 2025 [ASVF]', 'Nov. 28, 2025 [SGA]'");
-    ok(q[0].t === 0 && q[1].t === 1, "R3 two same-day ASVF sessions split by answer time: Micro → 8 AM session, Microsoft 3 → 1 PM session");
-    ok(q[2].t === 2, "R4 SGA matched by the filename date (Nov 28), not the answer date (Nov 29)");
+    ok(q[0].h === "2025-10-16" && q[0].s === "ASLN" && q[2].h === "2025-11-28" && q[2].s === "BPA", "R2 real filenames read: 'Oct. 16, 2025 [ASLN]', 'Nov. 28, 2025 [BPA]'");
+    ok(q[0].t === 0 && q[1].t === 1, "R3 two same-day ASLN sessions split by answer time: Micro → 8 AM session, Microsoft 3 → 1 PM session");
+    ok(q[2].t === 2, "R4 BPA matched by the filename date (Nov 28), not the answer date (Nov 29)");
     ok(await page.evaluate(() => { const o = [...document.querySelectorAll("[data-trq-target] option")].map(x => x.textContent); return o.some(x => /8:00 AM–12:00 PM.*row 2/.test(x)) && o.some(x => /1:00 PM–5:00 PM.*row 3/.test(x)); }),
       "R5 session labels show time and row, so same-day sessions differ");
-    ok(await page.evaluate(() => /Already scored/.test(document.querySelector('.tr-queue tbody tr:nth-child(3)').textContent) && !!document.querySelector("[data-trq-replace]")), "R6 SGA row: 'Already scored' NPS 80.0 + 'Replace existing score' box");
+    ok(await page.evaluate(() => /Already scored/.test(document.querySelector('.tr-queue tbody tr:nth-child(3)').textContent) && !!document.querySelector("[data-trq-replace]")), "R6 BPA row: 'Already scored' NPS 80.0 + 'Replace existing score' box");
     await saveMapIfAsked(page);
     ok(await page.evaluate(() => /Generate 2 matched files/.test(document.querySelector('[data-traction="q-generate"]').textContent)), "R7 Generate count leaves out the already-scored session");
     await page.click('[data-traction="q-generate"]'); await page.waitForTimeout(500);
-    ok(await page.evaluate(() => { const s = QBR.trainers._state.tracker.sessions; return !!s[0].computed && !!s[1].computed && !s[2].computed && s[2].nps === 80; }), "R8 generated ASVF ×2; SGA score untouched");
+    ok(await page.evaluate(() => { const s = QBR.trainers._state.tracker.sessions; return !!s[0].computed && !!s[1].computed && !s[2].computed && s[2].nps === 80; }), "R8 generated ASLN ×2; BPA score untouched");
     let msg = ""; page.once("dialog", d => { msg = d.message(); d.accept(); });
     const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 8000 }).catch(() => null), page.click('.tr-pending [data-traction="writeback"]')]);
     let out = null;
     if (dl) { out = path.join(os.tmpdir(), "trr-out.xlsx"); await dl.saveAs(out); }
     const ws = out ? XLSX.read(fs.readFileSync(out)).Sheets.trial : {};
     ok(ws.J1 && ws.J1.v === "Eval Source" && /Micro\.xlsx · fp:[0-9a-f]{8}$/.test(ws.J2 && ws.J2.v) && /Microsoft 3\.xlsx · fp:/.test(ws.J3 && ws.J3.v) && !ws.J4, "R9 'Eval Source' column records file + fingerprint per written row");
-    // tick Replace for SGA -> confirm shows old -> new
+    // tick Replace for BPA -> confirm shows old -> new
     await page.click("[data-trq-replace]"); await page.waitForTimeout(200);
     await page.click('[data-traction="q-generate"]'); await page.waitForTimeout(400);
     msg = ""; page.once("dialog", d => { msg = d.message(); d.dismiss(); });

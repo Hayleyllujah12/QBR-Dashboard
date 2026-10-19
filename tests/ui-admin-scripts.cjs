@@ -1,4 +1,4 @@
-// 2026-10-09 (v1.34.0 beta patch) Admin › PowerShell scripts (Mars's feature-admin-scripts + feature-scripts-pastesafe), headless Chromium, file://.
+// 2026-10-09 (v1.34.0 beta patch) Admin › PowerShell scripts (the contributor's feature-admin-scripts + feature-scripts-pastesafe), headless Chromium, file://.
 // Usage: PW=<dir with node_modules/playwright> node tests/ui-admin-scripts.cjs
 const { chromium } = require(process.env.PW + "/playwright");
 const path = require("path"), fs = require("fs");
@@ -27,7 +27,7 @@ const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail
   ok(ps.every(s => !s.blk), "no <# … #> block comments left (paste-safe)  " + JSON.stringify(ps.map(s => s.t + ":" + s.blk)));
   ok(ps.every(s => /^(Write-Host|Set-StrictMode)/.test(s.firstCode)), "first non-comment line is real code, so a partial paste can't run doc text  " + JSON.stringify(ps.map(s => s.firstCode)));
   const st = await p.evaluate(() => QBR.scriptList().find(s => /Storage/.test(s.title)).body);
-  ok(/TB of \{1:N2\} GB used/.test(st), "storage USAGE format is 'X TB of Y GB used' (Mars's 2026-10-09 change)");
+  ok(/TB of \{1:N2\} GB used/.test(st), "storage USAGE format is 'X TB of Y GB used' (the contributor's 2026-10-09 change)");
 
   console.log("== wizard no longer has 'Manage scripts'");
   const wiz = await p.evaluate(() => {

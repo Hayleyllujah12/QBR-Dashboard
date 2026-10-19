@@ -930,8 +930,8 @@ function synthesizePmVerify(model) {
   if (model.pmVerify.length) model.sources.postmaster = true;
 }
 
-// Organizations are federation codes (BULPRISA, DICES, RCBNES…). Canonicalize to
-// UPPERCASE so casing variants merge into one org (e.g. "Bulprisa" -> "BULPRISA",
+// Organizations are federation codes (ORGALPHA, ORGBETA, ORGGAMMA…). Canonicalize to
+// UPPERCASE so casing variants merge into one org (e.g. "Orgalpha" -> "ORGALPHA",
 // "Government" -> "GOVERNMENT"); blank / "-" become null (Unspecified).
 function canonicalizeOrgs(model) {
   const canon = o => { const s = String(o == null ? "" : o).trim(); return (s === "" || s === "-") ? null : s.toUpperCase(); };

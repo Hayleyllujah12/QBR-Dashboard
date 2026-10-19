@@ -1,4 +1,4 @@
-// 2026-10-13 My To-Do tighten pass (Mars) + review fixes. Headless Chromium, file://.
+// 2026-10-13 My To-Do tighten pass (contributor) + review fixes. Headless Chromium, file://.
 // Usage: PW=<dir with node_modules/playwright> node tests/ui-todo.cjs
 const { chromium } = require(process.env.PW + "/playwright");
 const path = require("path"), fs = require("fs");

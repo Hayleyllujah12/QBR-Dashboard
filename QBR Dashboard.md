@@ -252,7 +252,7 @@ This is the single most important thing to internalize before touching aggregati
 
 ### Master School Dimension
 
-School names vary across sheets (`DR. YANGA'S COLLEGES` vs `Dr Yanga's Colleges`). Every fact row carries `key` (canonical join key) and `schoolRaw` (display). `buildMasterSchools()` builds `model.master` (key → `{name, aliases, inSheets}`), `model.orgByKey`, and `model.quality`. Sheets lacking an Organization column (Canva, User Management, Domain Registration) resolve theirs through `orgByKey`.
+School names vary across sheets (`DR. SAMPLE'S COLLEGES` vs `Dr Sample's Colleges`). Every fact row carries `key` (canonical join key) and `schoolRaw` (display). `buildMasterSchools()` builds `model.master` (key → `{name, aliases, inSheets}`), `model.orgByKey`, and `model.quality`. Sheets lacking an Organization column (Canva, User Management, Domain Registration) resolve theirs through `orgByKey`.
 
 **Source data is dirty by design.** All defensive normalization lives in the loader; extend it there rather than pushing cleanup downstream:
 - `schoolKey()` — uppercase, strip zero-width/bidi unicode and punctuation, collapse whitespace. Join key only, never displayed. Canonical display name = the *longest* raw variant seen.
