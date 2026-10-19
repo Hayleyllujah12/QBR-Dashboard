@@ -43,7 +43,7 @@ function serve() {
   ok(p._errs.length === 0, "no page errors on load" + (p._errs.length ? " (" + p._errs.join("; ") + ")" : ""));
   ok(await p.evaluate(() => QBR.remoteFlagsStatus().source) === "live", "flags loaded from the live site");
   ok(await p.evaluate(() => QBR.features.list().map(f => f.key).sort().join(",")) ===
-    "inventory.assets,inventory.scan,inventory.supplies,inventory.tickets,mos", "4 pilot sub-features + mos (v1.37.0) registered");
+    "inventory.assets,inventory.scan,inventory.supplies,inventory.tickets,mos,trainers", "4 pilot sub-features + mos (v1.37.0) + trainers (v1.38.0) registered");
   ok(await p.evaluate(() => QBR.adminIsOn("inventory.supplies")) === true, "adminIsOn true by default");
   ok(await p.evaluate(() => document.querySelector('[data-tab="dash-scan"]').getAttribute("data-feature")) === "inventory.scan",
     "Scan nav button carries data-feature");
@@ -53,9 +53,9 @@ function serve() {
   await p.fill("#admin-pw-1", "t3st"); await p.fill("#admin-pw-2", "t3st");
   await p.click("#admin-pw-ok"); await p.waitForTimeout(700);
   ok(await vis(p, "#admin-body .admin-remote"), "Remote flags section renders in the Admin panel");
-  ok(await p.$$eval("#admin-body [data-rf-toggle]", x => x.length) === 5, "5 remote toggles listed (4 inventory + MOS)");
-  ok(await p.$$eval("#admin-body .admin-remote .badge", x => x.length) === 5, "each toggle has a REMOTE badge");
-  ok(await p.$$eval("#admin-body [data-rf-toggle]:disabled", x => x.length) === 5, "toggles disabled without a token on this machine");
+  ok(await p.$$eval("#admin-body [data-rf-toggle]", x => x.length) === 6, "6 remote toggles listed (4 inventory + MOS + Trainers)");
+  ok(await p.$$eval("#admin-body .admin-remote .badge", x => x.length) === 6, "each toggle has a REMOTE badge");
+  ok(await p.$$eval("#admin-body [data-rf-toggle]:disabled", x => x.length) === 6, "toggles disabled without a token on this machine");
   ok(/This tab can publish: No/.test(await p.textContent("#admin-body .admin-remote")), "publish indicator says No without token");
   ok(await p.evaluate(() => { const b = document.querySelector("#rf-publish"); return b && b.disabled; }), "Publish button disabled without token");
   ok(/only on your own machine/.test(await p.textContent("#admin-body .admin-remote")), "own-machine token warning shown");
