@@ -399,7 +399,9 @@
 
   // attempts: parsed pages with fileMeta merged in. roster: [{school, section, name, email, studentNo}]
   // overrides: { [ref]: {section, studentKey} } — manual fixes from the Check panel (memory only)
-  function buildModel(attempts, roster, overrides) {
+  // opts.acronyms: { [school]: "SPCP" } from the school profiles (overrides the automatic acronym)
+  function buildModel(attempts, roster, overrides, opts) {
+    var acrs = (opts && opts.acronyms) || {};
     overrides = overrides || {};
     roster = roster || [];
     var idx = { byEmail: {} };
@@ -452,7 +454,7 @@
     });
     // batch: Exam No. from the PDF file name when known, else auto code per school + exam day (ACR-YYYYMMDD-NN)
     rows.forEach(function (r) {
-      var acr = acronym(r.school);
+      var acr = String(acrs[r.school] || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase() || acronym(r.school);
       r.batchAuto = r.date ? acr + "-" + r.date.replace(/-/g, "") + "-01" : "";
       r.batch = r.examBase || r.batchAuto;
     });

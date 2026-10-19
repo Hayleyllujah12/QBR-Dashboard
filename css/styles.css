@@ -2389,3 +2389,46 @@ body.identity-gated:not(.identity-authed) :is(.app-header,#app-sidebar,main,#det
 #dash-mos .mos-check summary{cursor:pointer}
 #dash-mos .mos-check-tbl{max-height:420px;overflow:auto}
 @media print{#dash-mos .mos-load,#dash-mos .mos-filters,#dash-mos #mos-more,#dash-mos .mos-check{display:none}}
+
+/* ===== v1.37.0 MOS school profile dialog + Exam Summary print view ===== */
+.mos-ov{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+.mos-ov-box{width:min(680px,100%);height:auto !important;max-height:90vh;overflow:auto;align-self:center}
+.mos-pf-imgs{display:grid;grid-template-columns:1fr 2fr;gap:16px}
+.mos-pf-prev{height:90px;border:1px dashed var(--line);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;margin:4px 0 6px;background:var(--subtle);overflow:hidden}
+.mos-pf-prev img{max-height:86px;max-width:100%;object-fit:contain}
+@media (max-width:600px){.mos-pf-imgs{grid-template-columns:1fr}}
+#mos-print{display:none}
+@media print{
+  body.mos-printing > *:not(#mos-print){display:none !important}
+  body.mos-printing #mos-print{display:block !important}
+  body.mos-printing{background:#fff !important}
+}
+#mos-print .mos-sum-doc{font-family:"Segoe UI",system-ui,sans-serif;color:#000;font-size:10.5pt;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+#mos-print .mos-sum-banner{display:block;width:100%;max-height:120px;object-fit:contain;margin-bottom:8px}
+#mos-print .mos-sum-hdr{display:flex;align-items:center;gap:14px;border-bottom:2px solid #0F6CBD;padding-bottom:8px;margin-bottom:8px}
+#mos-print .mos-sum-logo{height:64px;width:auto;max-width:160px;object-fit:contain}
+#mos-print .mos-sum-school{font-size:16pt;font-weight:700;line-height:1.2}
+#mos-print .mos-sum-addr{font-size:9pt;color:#444}
+#mos-print .mos-sum-title{font-size:12pt;color:#0F548C;font-weight:600;margin-top:2px}
+#mos-print .mos-sum-meta{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:9pt}
+#mos-print .mos-sum-meta th{color:#555;font-weight:600;padding:2px 6px 2px 0;white-space:nowrap}
+#mos-print .mos-sum-meta td{padding:2px 14px 2px 0}
+#mos-print .mos-sum-kpis{display:flex;gap:6px;margin-bottom:10px}
+#mos-print .mos-sum-kpis div{flex:1;border:1px solid #ccc;border-radius:4px;padding:4px 6px;text-align:center}
+#mos-print .mos-sum-kpis b{display:block;font-size:13pt}
+#mos-print .mos-sum-kpis span{font-size:8pt;color:#555}
+#mos-print .mos-sum-tbl{width:100%;border-collapse:collapse;font-size:9.5pt}
+#mos-print .mos-sum-tbl th{background:#0F6CBD;color:#fff;text-align:left;padding:4px 5px}
+#mos-print .mos-sum-tbl td{border-bottom:1px solid #ddd;padding:3px 5px}
+#mos-print .mos-sum-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+#mos-print .mos-sum-tbl thead{display:table-header-group}
+#mos-print .mos-sum-tbl tr{break-inside:avoid}
+#mos-print .mos-sum-tbl tbody tr:nth-child(even) td{background:#f6f8fb}
+#mos-print .mos-sum-tbl td.low{color:#B10E1C;font-weight:700}
+#mos-print .mos-sum-tbl tr.fail td{color:#B10E1C}
+#mos-print .mos-sum-tbl tr.wait td{color:#7A5B00}
+#mos-print .mos-sum-tbl .rt{font-size:8pt;color:#BC4B09}
+#mos-print .mos-sum-legend{font-size:8.5pt;margin-top:6px}
+#mos-print .mos-sum-legend span{margin-right:12px;white-space:nowrap}
+#mos-print .mos-sum-foot{display:flex;flex-direction:column;gap:1px;font-size:7.5pt;color:#666;margin-top:10px;border-top:1px solid #ccc;padding-top:4px}
+.mos-ov .mos-fl{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted);margin:0}

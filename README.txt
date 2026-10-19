@@ -6,6 +6,19 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: Exam Summary (PDF) with school logo + banner
+  - New buttons next to "Export (.xlsx)" on the MOS page:
+    · "School profile…" — for the school picked in the School filter: name to print, acronym (used in the
+      batch codes, e.g. DHS-20261015-01), optional address line, logo (≤ 512 KB) and a full-width banner
+      (≤ 1.5 MB). Saved in THIS browser only (like the custom OpsDesk logo); no student data is saved.
+    · "Exam Summary (PDF)" — a printable summary of exactly what is filtered on screen (e.g. School +
+      Exam No. / batch = one session, or School + Section). In the print dialog choose "Save as PDF"; the
+      file name is "MOS Exam Summary - <acronym> - <date>".
+  - The summary: banner, logo, school name and address; exam, Exam No. / batch, date, section and proctor;
+    examinees, passed, failed, passing rate, average, highest, lowest; then every student (by section and
+    name) with score and result. When all rows are the same exam, the skill areas are columns I–V (red below
+    50%) with a legend. Failed rows are red, retakes are marked. No emails, addresses or IDs are printed.
+
 UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: import the Certiport results export (.xlsx)
   - "Add export / roster (.xlsx)…" now also takes the Certiport "Results … Plus" export (every exam taker
     with exam, certification, date and time, score, result, proctor, station, time used). The app tells an
