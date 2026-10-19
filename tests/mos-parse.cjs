@@ -83,6 +83,9 @@ function walk(d) { let o = []; for (const f of fs.readdirSync(d)) { const p = pa
   ok(byRef["90000003"].match === "name" && byRef["90000003"].section === "11B", "first-name token disambiguates Carl vs Carla");
   ok(byRef["90000005"].match === "none" && byRef["90000005"].section === "12B", "other school: no roster match, file-name section kept");
   ok(byRef["90000002"].attemptNo === 1 && byRef["90000004"].attemptNo === 2 && byRef["90000004"].isRetake && byRef["90000004"].pass, "retake numbered as attempt 2 for the same student + exam");
+  ok(byRef["90000002"].retakeEligible && byRef["90000002"].retakeUsed && !byRef["90000004"].retakeEligible && byRef["90000006"].retakeEligible && !byRef["90000006"].retakeUsed,
+    "retake rule: first-time fail = eligible (Bea retook, Eve not yet); 2nd take is not eligible again");
+  ok(M.buildModel([{ ref: "1", name: "A B", email: "a@x.example", exam: "Excel", date: "2026-01-01", score: 700, outcome: "FAIL", school: "S" }], []).rows[0].pass, "exactly 700 passes (score wins over a stray outcome)");
   const m2 = M.buildModel(attempts, roster, { "90000005": { section: "12C" } });
   ok(m2.rows.find(r => r.ref === "90000005").section === "12C", "manual section override");
 

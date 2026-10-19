@@ -205,7 +205,8 @@
       if (/^\d+\s*[-.]\s*\S/.test(parts[i])) { school = parts[i]; break; }
     }
     if (!school && schoolOverride) school = schoolOverride;
-    if (!school && parts.length > 1) school = parts[0];
+    // fallback: the top folder, unless it is a generic folder name ("Archive SY 2021 - 2022", "Exam Results", "SY 25-26")
+    if (!school && parts.length > 1 && !/^(archive|exam\s*results?|results?|sy\s*\d|school\s*year|\d{4})/i.test(parts[0])) school = parts[0];
     school = norm(school.replace(/^\d+\s*[-.]\s*/, ""));
     var m = base.match(/Exam\s*(\d{4}(?:\.\d+)?)/i);
     var examNo = m ? m[1] : "";
@@ -447,8 +448,11 @@
       r.sy = schoolYear(r.date);
       r.band = bandOf(r.score);
       r.pending = r.score == null;                                         // "In Progress" in the export
-      r.pass = r.outcome === "PASS";
+      // passing = score of 700 or more (exactly 700 passes); the report's own outcome only when there is no score
+      r.pass = r.score != null ? r.score >= (r.required || 700) : r.outcome === "PASS";
+      // same student across takes: roster > email > Certiport ID > name (emails are how retakes are matched)
       r.studentKey = st ? ("roster:" + (st.studentNo || st.email || st.name) + "|" + (st.school || r.school))
+        : r.email ? "email:" + r.email
         : (r.certiportId ? "cid:" + r.certiportId.toLowerCase() : "name:" + tokens(r.name).sort().join(" ") + "|" + r.school);
       rows.push(r);
     });
@@ -463,7 +467,14 @@
     rows.forEach(function (r) { var g = r.studentKey + "|" + r.exam; (groups[g] = groups[g] || []).push(r); });
     Object.keys(groups).forEach(function (g) {
       groups[g].sort(function (a, b) { return (a.date || "").localeCompare(b.date || "") || String(a.ref).localeCompare(String(b.ref)); });
-      groups[g].forEach(function (r, i) { r.attemptNo = i + 1; r.isRetake = i > 0 || !!r.retakeFile; r.attempts = groups[g].length; });
+      groups[g].forEach(function (r, i) {
+        r.attemptNo = i + 1; r.isRetake = i > 0 || !!r.retakeFile; r.attempts = groups[g].length;
+        // retake rule (up to 2 takes per exam): a first-time taker who failed may retake once
+        r.retakeEligible = r.attemptNo === 1 && !r.pending && !r.pass;
+        r.retakeUsed = r.retakeEligible && r.attempts > 1;
+        r.noRetakesLeft = r.attemptNo >= 2 && !r.pending && !r.pass;
+        r.overLimit = r.attemptNo > 2;
+      });
     });
     rows.sort(function (a, b) {
       return a.school.localeCompare(b.school) || (a.section || "~").localeCompare(b.section || "~") ||

@@ -6,6 +6,28 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: Exam Summary redesign + resizable tables
+  - Exam Summary now follows the 2021 report layout: company logos on top (Rakso CT left — built in —,
+    partner / GTP logo right, same height and aligned), then a results box: school logo + name + address |
+    "Microsoft Office Specialist in Excel · EXAM RESULTS" | date + Exam No.; below it total students,
+    passed, failed, eligible for retake, and the big student passing rate (all attempts in the filter).
+  - The banner slot is gone (a square badge in a full-width banner slot was what looked off). The partner
+    logo is uploaded once under School profile… › Company logos and is used for every school.
+  - Retake rule: up to 2 takes per exam, matched by the student's email. A first-time taker scoring below
+    700 is failed and eligible for one retake; 700 is a pass. Rows say "Failed · retake eligible",
+    "Failed · retook" or "Failed · no retakes left".
+  - If the Result or Score filter hides part of the batch (e.g. Result = Pass), the app warns before
+    printing — that is what produced a "46 / 0 failed / 100%" summary for Exam 1119 (the full batch is 59 /
+    46 / 13 / 78%). The summary also prints a "Filtered: …" note in that case.
+  - Skill-area columns now use the objectives most students share; a student from another exam version is
+    marked † with its own legend line (Exam 1119 had one).
+  - MOS tables: columns can be resized (drag the line at the right of a header, double-click for auto
+    width, or focus it and use ← →); "Reset columns" goes back to automatic widths. Fixes text overlapping
+    in the Results table: it kept a fixed layout after a re-render but lost its resize handles. Column
+    widths are remembered in this browser (layout only).
+  - A school folder that is not numbered ("Archive SY 2021 - 2022") is no longer taken as the school name;
+    type the school first in that case.
+
 UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: Exam Summary (PDF) with school logo + banner
   - New buttons next to "Export (.xlsx)" on the MOS page:
     · "School profile…" — for the school picked in the School filter: name to print, acronym (used in the

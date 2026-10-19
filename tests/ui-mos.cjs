@@ -172,38 +172,71 @@ async function run(b, url, label, full) {
       "export: proctor + batch columns, no voucher / date of birth");
     fs.unlinkSync(fp2);
 
-    console.log("== Exam Summary (PDF) + school profile");
+    console.log("== Exam Summary (PDF) + school profile + company logos");
     const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGNgYGD4z8DAwAAABQABDQottAAAAABJRU5ErkJggg==", "base64");
     await p.evaluate(() => { window.__printed = 0; window.print = () => { window.__printed++; }; });
     await p.selectOption("#mos-f-school", "Demo High School"); await p.waitForTimeout(150);
     await p.click("#mos-profile"); await p.waitForSelector("#mos-pf-title");
     ok(await p.evaluate(() => document.activeElement && document.activeElement.id === "mos-pf-title"), "profile dialog opens with focus in the first field");
+    ok(!(await p.$("#mos-pf-banner")) && await p.evaluate(() => /rakso-ct-logo\.png$/.test(document.getElementById("mos-pf-left-img").getAttribute("src"))), "no banner slot; left company logo = built-in Rakso CT");
     await p.fill("#mos-pf-title", "Demo High School of Example City"); await p.fill("#mos-pf-acr", "dhs");
     await p.setInputFiles("#mos-pf-logo", { name: "logo.png", mimeType: "image/png", buffer: PNG }); await p.waitForSelector("#mos-pf-logo-img");
-    await p.setInputFiles("#mos-pf-banner", { name: "banner.png", mimeType: "image/png", buffer: PNG }); await p.waitForSelector("#mos-pf-banner-img");
+    await p.setInputFiles("#mos-pf-right", { name: "partner.png", mimeType: "image/png", buffer: PNG }); await p.waitForSelector("#mos-pf-right-img");
     await p.setInputFiles("#mos-pf-logo", { name: "big.png", mimeType: "image/png", buffer: Buffer.alloc(600 * 1024, 1) }); await p.waitForTimeout(200);
     ok(/too large/.test(await p.textContent("#mos-pf-msg")) && !!(await p.$("#mos-pf-logo-img")), "oversized logo refused, previous logo kept");
     await p.click("#mos-pf-save"); await p.waitForTimeout(200);
     ok(!(await p.$(".mos-ov")), "profile saved and dialog closed");
-    const prof = await p.evaluate(() => localStorage.getItem("qbr-mos-school-profiles-v1") || "");
-    ok(/Demo High School of Example City/.test(prof) && /"acronym":"DHS"/.test(prof) && !/Alex|Bea|Gina|example\.com/.test(prof), "profile stored in this browser: school images/name only, no student data");
+    const prof = await p.evaluate(() => (localStorage.getItem("qbr-mos-school-profiles-v1") || "") + (localStorage.getItem("qbr-mos-branding-v1") || ""));
+    ok(/Demo High School of Example City/.test(prof) && /"acronym":"DHS"/.test(prof) && /"right":"data:image\/png/.test(prof) && !/Alex|Bea|Gina|example\.com/.test(prof), "profile + company logos stored in this browser, no student data");
     ok(await p.evaluate(() => QBR.mos._state().model.rows.some(r => r.batchAuto && r.batchAuto.indexOf("DHS-") === 0)), "profile acronym used in batch codes");
     await p.click("#mos-summary"); await p.waitForFunction(() => window.__printed > 0, null, { timeout: 10000 });
-    const sm = await p.evaluate(() => { const h = document.getElementById("mos-print"); return h ? { school: h.querySelector(".mos-sum-school").textContent, logo: !!h.querySelector("img.mos-sum-logo"), banner: !!h.querySelector("img.mos-sum-banner"),
-      rows: h.querySelectorAll(".mos-sum-tbl tbody tr").length, kpi: h.querySelector(".mos-sum-kpis").textContent, txt: h.textContent, title: document.title } : null; });
-    ok(sm && sm.school === "Demo High School of Example City" && sm.logo && sm.banner, "summary header: profile name, logo, banner");
-    ok(sm && sm.rows === 4 && /4Examinees/.test(sm.kpi) && /75\.0%/.test(sm.kpi), "summary covers the current filters (Demo High School: 4 attempts, 75.0%)");
+    const sm = await p.evaluate(() => { const h = document.getElementById("mos-print"); if (!h) return null; const co = [...h.querySelectorAll(".mos-sum-brand img")];
+      return { co: co.length, coTop: co.map(i => Math.round(i.getBoundingClientRect().top)), school: h.querySelector(".mos-sum-box .nm").textContent, logo: !!h.querySelector("img.mos-sum-logo"),
+        sub: h.querySelector(".mos-sum-box .sub").textContent, counts: h.querySelector(".mos-sum-counts").textContent, rate: h.querySelector(".mos-sum-box .rate").textContent,
+        rows: h.querySelectorAll(".mos-sum-tbl tbody tr").length, txt: h.textContent, title: document.title }; });
+    ok(sm && sm.co === 2 && sm.school === "DEMO HIGH SCHOOL OF EXAMPLE CITY" && sm.logo && /^Microsoft Office Specialist — Excel, PowerPoint$/.test(sm.sub), "header: company logos row, school logo + name, exam title");
+    ok(sm && sm.rows === 4 && /^4TOTAL/.test(sm.counts) && /3STUDENTSPASSED/.test(sm.counts) && /1STUDENTSFAILED/.test(sm.counts) && /1ELIGIBLEFOR RETAKE/.test(sm.counts) && sm.rate === "75%",
+      "summary row: total / passed / failed / eligible for retake + passing rate (Demo High School: 4 attempts, 75%)  [" + (sm && sm.counts) + "]");
+    ok(sm && /Failed · retook/.test(sm.txt) && /2nd take/.test(sm.txt), "first-time fail who retook is marked; 2nd take marked");
     ok(sm && !/@|example\.com|alexdemo01/.test(sm.txt), "no emails / Certiport IDs printed");
     ok(sm && /^MOS Exam Summary - DHS - \d{4}-\d\d-\d\d$/.test(sm.title), "document title = PDF file name  [" + (sm && sm.title) + "]");
     await p.emulateMedia({ media: "print" });
     ok(await vis(p, "#mos-print") && !(await vis(p, "#app-body")) && !(await vis(p, "#app-sidebar")), "print shows only the summary");
+    const tops = await p.evaluate(() => [...document.querySelectorAll("#mos-print .mos-sum-brand img")].map(i => { const r = i.getBoundingClientRect(); return Math.round(r.top + r.height / 2); }));
+    ok(tops.length === 2 && Math.abs(tops[0] - tops[1]) <= 1, "company logos vertically aligned (centres " + tops.join(" / ") + ")");
     await p.emulateMedia({ media: "screen" });
     await p.evaluate(() => window.dispatchEvent(new Event("afterprint"))); await p.waitForTimeout(100);
     ok(await p.evaluate(() => !document.getElementById("mos-print") && !document.body.classList.contains("mos-printing") && !/MOS Exam Summary/.test(document.title)), "after printing the view is removed and the title restored");
+    // a pass-only filter would print a misleading 100% → warn first
+    await p.selectOption("#mos-f-outcome", "PASS"); await p.waitForTimeout(100);
+    let msg = ""; p.once("dialog", d => { msg = d.message(); d.dismiss(); });
+    const before = await p.evaluate(() => window.__printed);
+    await p.click("#mos-summary"); await p.waitForTimeout(300);
+    ok(/leave out 1 attempt/.test(msg) && await p.evaluate(b => window.__printed === b, before), "Result = Pass filter → warning; cancel prints nothing");
+    await p.selectOption("#mos-f-outcome", ""); await p.waitForTimeout(100);
     await p.selectOption("#mos-f-exam", "Excel"); await p.selectOption("#mos-f-proctor", ""); await p.waitForTimeout(100);
     await p.evaluate(() => { QBR.mos._state().f.section = ""; });
     const sk = await p.evaluate(() => QBR.mos._summary());
     ok(sk.areas === 5 && /Manage Worksheets and Workbooks/.test(sk.html), "one exam → skill areas I–V as columns with a legend");
+
+    console.log("== resizable columns");
+    await p.click("#mos-reset"); await p.waitForTimeout(150);
+    ok(await p.evaluate(() => { const t = document.getElementById("mos-res"); return !t.classList.contains("resizable") && getComputedStyle(t).tableLayout === "auto" &&
+      [...t.querySelectorAll("tbody td")].every(td => td.scrollWidth <= td.clientWidth + 1); }), "results table: automatic layout, no cell spills into its neighbour (was table-layout:fixed without grips)");
+    ok(await p.$$eval("#mos-res thead th .mos-grip", g => g.length) === 11 && await p.$$eval("#mos-sum thead th .mos-grip", g => g.length) > 5, "every column has a resize grip");
+    const g1 = await p.$("#mos-res thead th:nth-child(1) .mos-grip"); await g1.scrollIntoViewIfNeeded(); const gb = await g1.boundingBox();
+    const w0 = await p.$eval("#mos-res thead th:nth-child(1)", th => th.getBoundingClientRect().width);
+    await p.mouse.move(gb.x + 4, gb.y + gb.height / 2); await p.mouse.down(); await p.mouse.move(gb.x + 84, gb.y + gb.height / 2, { steps: 4 }); await p.mouse.up(); await p.waitForTimeout(100);
+    const w1 = await p.$eval("#mos-res thead th:nth-child(1)", th => th.getBoundingClientRect().width);
+    ok(w1 - w0 > 60 && await p.evaluate(() => document.getElementById("mos-res").classList.contains("mos-fixed")), "drag widens the column (" + Math.round(w0) + " → " + Math.round(w1) + " px)");
+    await p.focus("#mos-res thead th:nth-child(1) .mos-grip"); await p.keyboard.press("ArrowLeft"); await p.waitForTimeout(50);
+    const w2 = await p.$eval("#mos-res thead th:nth-child(1)", th => th.getBoundingClientRect().width);
+    ok(Math.abs((w1 - w2) - 16) <= 2, "arrow key narrows the column by 16 px");
+    await p.selectOption("#mos-sort", "name"); await p.waitForTimeout(150);
+    ok(await p.evaluate(() => document.getElementById("mos-res").classList.contains("mos-fixed") && document.querySelectorAll("#mos-res .mos-grip").length === 11), "widths and grips survive a re-render (sort)");
+    ok(await p.evaluate(() => /mos-res:11/.test(localStorage.getItem("qbr-mos-colw-v1") || "") && !/Alex|Bea/.test(localStorage.getItem("qbr-mos-colw-v1") || "")), "widths kept as a layout preference (no student data)");
+    await p.click('[data-mos-colreset="mos-res"]'); await p.waitForTimeout(150);
+    ok(await p.evaluate(() => !document.getElementById("mos-res").classList.contains("mos-fixed")), "Reset columns → automatic layout");
   }
   ok(errs.length === 0, "no page errors" + (errs.length ? " (" + errs.join("; ") + ")" : ""));
   await ctx.close();

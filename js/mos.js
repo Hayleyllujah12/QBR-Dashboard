@@ -212,8 +212,8 @@
             '<label class="mos-chk small"><input id="mos-f-first" type="checkbox"> First attempts only</label>' +
             '<button id="mos-reset" class="btn btn-outline-secondary btn-sm" type="button">Reset filters</button>' +
             '<button id="mos-export" class="btn btn-outline-primary btn-sm" type="button" title="Download the filtered results as an Excel workbook (no emails or addresses)">Export (.xlsx)</button>' +
-            '<button id="mos-summary" class="btn btn-primary btn-sm" type="button" title="Printable Exam Summary for the current filters (school logo + banner). Choose “Save as PDF” in the print dialog.">Exam Summary (PDF)</button>' +
-            '<button id="mos-profile" class="btn btn-outline-secondary btn-sm" type="button" title="Logo, banner, name and acronym used on the Exam Summary for the selected school (saved in this browser)">School profile…</button>' +
+            '<button id="mos-summary" class="btn btn-primary btn-sm" type="button" title="Printable Exam Summary for the current filters (company + school logos). Choose “Save as PDF” in the print dialog.">Exam Summary (PDF)</button>' +
+            '<button id="mos-profile" class="btn btn-outline-secondary btn-sm" type="button" title="School logo, name, address and acronym, plus the company logos, used on the Exam Summary (saved in this browser)">School profile…</button>' +
           '</div>' +
         '</div>' +
         '<div id="mos-kpi" class="row row-cols-2 row-cols-md-4 row-cols-xl-8 g-3 kpi-row mt-1"></div>' +
@@ -231,9 +231,9 @@
         '<div class="card-box mt-3"><div class="mos-ch-head"><h6 class="mb-0" id="mos-sum-h">Summary by section</h6>' +
           '<label class="small mb-0">Group by <select id="mos-groupby" class="form-select form-select-sm d-inline-block w-auto ms-1">' +
           '<option value="auto">Section (or school)</option><option value="school">School</option><option value="section">Section</option>' +
-          '<option value="proctor">Proctor</option><option value="exam">Exam</option><option value="batch">Exam No. / batch</option></select></label></div><div class="table-responsive"><table class="table table-sm mos-tbl" id="mos-sum"></table></div></div>' +
+          '<option value="proctor">Proctor</option><option value="exam">Exam</option><option value="batch">Exam No. / batch</option></select></label></div><button type="button" class="btn btn-link btn-sm p-0 mos-colreset d-none" data-mos-colreset="mos-sum">Reset columns</button><div class="table-responsive"><table class="table table-sm mos-tbl" id="mos-sum" data-resizable="mos"></table></div></div>' +
         '<div class="card-box mt-3"><div class="mos-ch-head"><h6 class="mb-0" id="mos-res-h">Results</h6><span class="small text-muted">Click a student to see every attempt.</span></div>' +
-          '<div class="table-responsive"><table class="table table-sm mos-tbl mos-res" id="mos-res"></table></div><div id="mos-more" class="mt-2"></div></div>' +
+          '<button type="button" class="btn btn-link btn-sm p-0 mos-colreset d-none" data-mos-colreset="mos-res">Reset columns</button><div class="table-responsive"><table class="table table-sm mos-tbl mos-res" id="mos-res" data-resizable="mos"></table></div><div id="mos-more" class="mt-2"></div></div>' +
         '<details class="card-box mt-3 mos-check" id="mos-check"><summary><b>Check &amp; fix</b> <span id="mos-check-n" class="small"></span></summary><div id="mos-check-body" class="mt-2"></div></details>' +
       '</div>';
     wire(host);
@@ -282,6 +282,7 @@
     $("mos-summary").addEventListener("click", printSummary);
     $("mos-profile").addEventListener("click", openProfile);
     $("mos-groupby").addEventListener("change", function (e) { S.groupBy = e.target.value; update(); });
+    host.querySelectorAll("[data-mos-colreset]").forEach(function (b) { b.addEventListener("click", function () { resetCols(b.getAttribute("data-mos-colreset")); }); });
     host.querySelectorAll("[data-mos-trend]").forEach(function (b) {
       b.addEventListener("click", function () { S.trend = b.getAttribute("data-mos-trend"); update(); });
     });
@@ -463,6 +464,71 @@
   };
   function groupDef() { return GROUPS[S.groupBy] || (S.f.school ? GROUPS.section : GROUPS.school); }
 
+  /* ---------------- resizable columns (MOS tables) ----------------
+   * The app-wide makeTablesResizable() marks a table once and adds grips to its FIRST thead; MOS tables are
+   * re-rendered (innerHTML) on every filter change, so the grips vanished while table-layout:fixed stayed →
+   * nowrap cells spilled over their neighbours (overlapping text). MOS tables opt out (data-resizable="mos")
+   * and get grips after every render here. No widths set → automatic layout (nothing can overlap; the
+   * table scrolls sideways). After a drag → fixed layout with every column width kept, long text cut with
+   * "…" and shown in full as a tooltip. Widths are a layout preference (localStorage), never student data.
+   * Double-click a grip = auto width for that column; "Reset columns" = automatic layout again. */
+  var COLW_KEY = "qbr-mos-colw-v1";
+  function colWidths() { try { return JSON.parse(localStorage.getItem(COLW_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function saveColWidths(all) { try { localStorage.setItem(COLW_KEY, JSON.stringify(all)); } catch (e) {} }
+  function mosCols(id) {
+    var tbl = $(id); if (!tbl) return;
+    var ths = Array.prototype.slice.call(tbl.querySelectorAll(":scope > thead > tr > th"));
+    if (!ths.length) return;
+    var key = id + ":" + ths.length, all = colWidths(), w = all[key] || null;
+    function apply() {
+      var cg = tbl.querySelector(":scope > colgroup"); if (cg) cg.parentNode.removeChild(cg);
+      tbl.classList.toggle("mos-fixed", !!w);
+      if (w) {
+        cg = document.createElement("colgroup");
+        ths.forEach(function (th, i) { var c = document.createElement("col"); if (w[i]) c.style.width = w[i] + "px"; cg.appendChild(c); });
+        tbl.insertBefore(cg, tbl.firstChild);
+        tbl.style.width = w.reduce(function (a, b) { return a + (b || 0); }, 0) + "px";
+        // full text as a tooltip wherever "…" cut it
+        tbl.querySelectorAll(":scope > tbody > tr > td").forEach(function (td) { if (!td.title && td.scrollWidth > td.clientWidth + 1) td.title = td.textContent.trim(); });
+      } else tbl.style.width = "";
+    }
+    function start(i, x) {
+      if (!w) w = ths.map(function (th) { return Math.round(th.getBoundingClientRect().width); });
+      return { i: i, x: x, w0: w[i] };
+    }
+    function set(i, px) { w[i] = Math.max(44, Math.round(px)); all[key] = w; saveColWidths(all); apply(); }
+    ths.forEach(function (th, i) {
+      var g = document.createElement("span");
+      g.className = "mos-grip"; g.setAttribute("role", "separator"); g.setAttribute("aria-orientation", "vertical");
+      g.setAttribute("aria-label", "Resize column " + th.textContent.trim()); g.tabIndex = 0;
+      g.title = "Drag to resize · double-click: auto width · arrow keys: ±16 px";
+      g.addEventListener("click", function (e) { e.stopPropagation(); e.preventDefault(); });
+      g.addEventListener("mousedown", function (e) {
+        e.preventDefault(); e.stopPropagation();
+        var st = start(i, e.clientX); g.classList.add("dragging"); document.body.classList.add("mos-resizing");
+        function mv(ev) { set(st.i, st.w0 + ev.clientX - st.x); }
+        function up() { g.classList.remove("dragging"); document.body.classList.remove("mos-resizing"); document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); }
+        document.addEventListener("mousemove", mv); document.addEventListener("mouseup", up);
+      });
+      g.addEventListener("keydown", function (e) {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault(); var st = start(i, 0); set(i, st.w0 + (e.key === "ArrowRight" ? 16 : -16));
+      });
+      g.addEventListener("dblclick", function (e) {
+        e.stopPropagation();
+        if (!w) return;
+        tbl.classList.remove("mos-fixed"); tbl.style.width = ""; var cg = tbl.querySelector(":scope > colgroup"); if (cg) cg.parentNode.removeChild(cg);
+        var nat = ths.map(function (h) { return Math.round(h.getBoundingClientRect().width); });   // natural width of every column
+        w[i] = nat[i]; all[key] = w; saveColWidths(all); apply();
+      });
+      th.appendChild(g);
+    });
+    var rs = tbl.parentNode && tbl.parentNode.parentNode ? tbl.parentNode.parentNode.querySelector('[data-mos-colreset="' + id + '"]') : null;
+    if (rs) rs.classList.toggle("d-none", !w);
+    apply();
+  }
+  function resetCols(id) { var all = colWidths(); Object.keys(all).forEach(function (k) { if (k.indexOf(id + ":") === 0) delete all[k]; }); saveColWidths(all); update(); }
+
   /* ---------------- tables ---------------- */
   function rateCell(v) { return '<td class="num"><span class="mos-rate mos-rate-' + rateTone(v) + '">' + pct(v) + "</span></td>"; }
   function renderSummary(R) {
@@ -498,6 +564,7 @@
         S.limit = 200; update();
       });
     });
+    mosCols("mos-sum");
   }
 
   function sc(r, dflt) { return r.score == null ? dflt : r.score; }   // in-progress rows sort last
@@ -552,6 +619,7 @@
     $("mos-res").innerHTML = html + "</tbody>";
     $("mos-more").innerHTML = list.length > shown.length
       ? '<button type="button" class="btn btn-outline-secondary btn-sm">Show more (' + num(list.length - shown.length) + " not shown)</button>" : "";
+    mosCols("mos-res");
   }
 
   /* ---------------- check & fix ---------------- */
@@ -655,164 +723,217 @@
     return p.join(" · ") || "None";
   }
 
-  /* ---------------- school profiles (logo + banner; this browser only) ----------------
-   * { [school as in the data]: { title, acronym, address, logo: dataURL, banner: dataURL } } in localStorage.
-   * School images only — no student data is ever stored. */
-  var PROF_KEY = "qbr-mos-school-profiles-v1", LOGO_MAX = 512 * 1024, BANNER_MAX = 1536 * 1024;
-  function profiles() { try { return JSON.parse(localStorage.getItem(PROF_KEY) || "{}") || {}; } catch (e) { return {}; } }
-  function saveProfiles(all) {
-    try { localStorage.setItem(PROF_KEY, JSON.stringify(all)); return true; }
-    catch (e) { window.alert("Could not save the school images in this browser (storage is full). Try a smaller image."); return false; }
-  }
-  function profileOf(school) { return profiles()[school] || {}; }
-  function acronymMap() { var all = profiles(), o = {}; Object.keys(all).forEach(function (k) { if (all[k].acronym) o[k] = all[k].acronym; }); return o; }
-  function readImage(file, max) {
-    return new Promise(function (res, rej) {
-      if (!file) return rej(new Error("No file"));
-      if (!/^image\/(png|jpe?g|gif|webp|svg\+xml)$/i.test(file.type)) return rej(new Error("Use a PNG, JPG, GIF, WebP or SVG image."));
-      if (file.size > max) return rej(new Error("Image is too large (" + Math.round(file.size / 1024) + " KB; max " + Math.round(max / 1024) + " KB)."));
-      var fr = new FileReader();
-      fr.onerror = function () { rej(new Error("Could not read the image.")); };
-      fr.onload = function () {
-        var img = new Image();
-        img.onload = function () { res(fr.result); };
-        img.onerror = function () { rej(new Error("That file is not a valid image.")); };
-        img.src = fr.result;
-      };
-      fr.readAsDataURL(file);
-    });
-  }
-  function openProfile() {
-    var school = S.f.school || (S.model && uniq(S.model.rows.map(function (r) { return r.school; })).length === 1 ? S.model.rows[0].school : "");
-    if (!school) { window.alert("Pick a school in the School filter first."); return; }
-    var pr = profileOf(school), work = { title: pr.title || "", acronym: pr.acronym || "", address: pr.address || "", logo: pr.logo || "", banner: pr.banner || "" };
-    var ov = document.createElement("div");
-    ov.className = "mos-ov"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true"); ov.setAttribute("aria-labelledby", "mos-pf-h");
-    function draw(msg) {
-      ov.innerHTML = '<div class="mos-ov-box card-box">' +
-        '<h5 id="mos-pf-h" class="mb-1">School profile</h5><div class="small text-muted mb-2">' + esc(school) + ' · used on the Exam Summary. Saved in this browser only.</div>' +
-        '<label class="mos-fl w-100 mb-2"><span>Name on the summary</span><input id="mos-pf-title" class="form-control form-control-sm" value="' + esc(work.title) + '" placeholder="' + esc(school) + '"></label>' +
-        '<div class="d-flex gap-2 mb-2"><label class="mos-fl"><span>Acronym (batch codes)</span><input id="mos-pf-acr" class="form-control form-control-sm" maxlength="8" value="' + esc(work.acronym) + '" placeholder="' + esc(P().acronym(school)) + '"></label>' +
-        '<label class="mos-fl flex-grow-1"><span>Address line (optional)</span><input id="mos-pf-addr" class="form-control form-control-sm" value="' + esc(work.address) + '"></label></div>' +
-        '<div class="mos-pf-imgs">' +
-          '<div><div class="small fw-bold">Logo</div><div class="mos-pf-prev">' + (work.logo ? '<img id="mos-pf-logo-img" alt="School logo" src="' + work.logo + '">' : '<span class="small text-muted">None</span>') + '</div>' +
-          '<label class="btn btn-outline-primary btn-sm mb-0">Upload logo…<input id="mos-pf-logo" type="file" accept="image/*" hidden></label> ' +
-          (work.logo ? '<button type="button" class="btn btn-link btn-sm" data-pf-clear="logo">Remove</button>' : "") + '<div class="small text-muted">PNG/JPG/SVG, ≤ 512 KB</div></div>' +
-          '<div><div class="small fw-bold">Banner (full width, optional)</div><div class="mos-pf-prev mos-pf-prev-banner">' + (work.banner ? '<img id="mos-pf-banner-img" alt="School banner" src="' + work.banner + '">' : '<span class="small text-muted">None</span>') + '</div>' +
-          '<label class="btn btn-outline-primary btn-sm mb-0">Upload banner…<input id="mos-pf-banner" type="file" accept="image/*" hidden></label> ' +
-          (work.banner ? '<button type="button" class="btn btn-link btn-sm" data-pf-clear="banner">Remove</button>' : "") + '<div class="small text-muted">Wide image, e.g. 2000×300 px, ≤ 1.5 MB</div></div>' +
-        '</div>' +
-        '<div id="mos-pf-msg" class="small text-danger mt-1" role="alert">' + esc(msg || "") + '</div>' +
-        '<div class="d-flex justify-content-end gap-2 mt-2"><button type="button" class="btn btn-outline-secondary btn-sm" id="mos-pf-cancel">Cancel</button>' +
-        '<button type="button" class="btn btn-primary btn-sm" id="mos-pf-save">Save</button></div></div>';
-      function keep() { work.title = ov.querySelector("#mos-pf-title").value.trim(); work.acronym = ov.querySelector("#mos-pf-acr").value.trim().toUpperCase(); work.address = ov.querySelector("#mos-pf-addr").value.trim(); }
-      ["logo", "banner"].forEach(function (k) {
-        ov.querySelector("#mos-pf-" + k).addEventListener("change", function (e) {
-          keep();
-          readImage(e.target.files[0], k === "logo" ? LOGO_MAX : BANNER_MAX).then(function (url) { work[k] = url; draw(); }, function (err) { draw(err.message); });
-        });
-      });
-      ov.querySelectorAll("[data-pf-clear]").forEach(function (b) { b.addEventListener("click", function () { keep(); work[b.getAttribute("data-pf-clear")] = ""; draw(); }); });
-      ov.querySelector("#mos-pf-cancel").addEventListener("click", close);
-      ov.querySelector("#mos-pf-save").addEventListener("click", function () {
-        keep();
-        var all = profiles(); all[school] = work;
-        if (!work.title && !work.acronym && !work.address && !work.logo && !work.banner) delete all[school];
-        if (saveProfiles(all)) { close(); rebuild(); }
-      });
-      setTimeout(function () { var t = ov.querySelector("#mos-pf-title"); if (t) t.focus(); }, 20);
-    }
-    function close() { document.removeEventListener("keydown", onKey, true); if (ov.parentNode) ov.parentNode.removeChild(ov); var b = $("mos-profile"); if (b) b.focus(); }
-    function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
-    document.addEventListener("keydown", onKey, true);
-    document.body.appendChild(ov); draw();
-  }
-
-  /* ---------------- Exam Summary (print → Save as PDF) ----------------
-   * Covers exactly the current filters. One page header (banner, logo, school, batch/exam, dates, proctors),
-   * KPI strip, then the student table: skill areas as columns I–V when every row is the same exam (legend
-   * under the table), red below 50%; scores below 700 red. Opened as a print view; the browser's
-   * "Save as PDF" makes the file. No emails, addresses or IDs are printed. */
-  function romans(i) { return ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"][i] || String(i + 1); }
-  function buildSummary(R) {
-    var f = S.f, rows = R.slice().sort(function (a, b) {
-      return (a.section || "~").localeCompare(b.section || "~") || String(a.rosterName || a.name).toLowerCase().localeCompare(String(b.rosterName || b.name).toLowerCase()) || (a.date || "").localeCompare(b.date || "");
-    });
-    var schools = uniq(rows.map(function (r) { return r.school; }));
-    var school = schools.length === 1 ? schools[0] : "";
-    var pr = school ? profileOf(school) : {};
-    var exams = uniq(rows.map(function (r) { return r.exam; }));
-    var dates = uniq(rows.map(function (r) { return r.date; }));
-    var batches = uniq(rows.map(function (r) { return r.examNo ? "Exam " + r.examNo : r.batch; }));
-    var proctors = uniq(rows.map(function (r) { return r.proctor; }));
-    var sections = uniq(rows.map(function (r) { return r.section; }));
-    var s = P().summarize(rows);
-    // skill columns only when one exam family + the same objectives
-    var areas = [];
-    if (exams.length === 1) {
-      var withSk = rows.filter(function (r) { return r.skills && r.skills.length; });
-      if (withSk.length) {
-        var sig = withSk[0].skills.map(function (k) { return k.area; }).join("|");
-        if (withSk.every(function (r) { return r.skills.map(function (k) { return k.area; }).join("|") === sig; })) areas = withSk[0].skills.map(function (k) { return k.area; });
-      }
-    }
-    var dateTxt = !dates.length ? "" : dates.length === 1 ? fmtDate(dates[0]) : fmtDate(dates[0]) + " – " + fmtDate(dates[dates.length - 1]);
-    var meta = [
-      ["Exam", exams.join(", ") || "—"], ["Exam No. / batch", batches.length > 4 ? batches.length + " batches" : (batches.join(", ") || "—")],
-      ["Date", dateTxt || "—"], ["Section", sections.length ? (sections.length > 6 ? sections.length + " sections" : sections.join(", ")) : "—"],
-      ["Proctor", proctors.length ? proctors.join(", ") : "—"]
-    ];
-    var html = '<div class="mos-sum-doc">' +
-      (pr.banner ? '<img class="mos-sum-banner" alt="" src="' + pr.banner + '">' : "") +
-      '<div class="mos-sum-hdr">' + (pr.logo ? '<img class="mos-sum-logo" alt="" src="' + pr.logo + '">' : "") +
-        '<div class="mos-sum-titles"><div class="mos-sum-school">' + esc(pr.title || school || "All schools") + "</div>" +
-        (pr.address ? '<div class="mos-sum-addr">' + esc(pr.address) + "</div>" : "") +
-        '<div class="mos-sum-title">Microsoft Office Specialist — Exam Summary</div></div></div>' +
-      '<table class="mos-sum-meta"><tbody><tr>' + meta.map(function (m) { return "<th>" + esc(m[0]) + "</th><td>" + esc(m[1]) + "</td>"; }).join("") + "</tr></tbody></table>" +
-      '<div class="mos-sum-kpis">' + [
-        ["Examinees", num(s.attempts)], ["Passed", num(s.passed)], ["Failed", num(s.failed)], ["Passing rate", pct(s.passRate)],
-        ["Average", num(s.avg)], ["Highest", s.high == null ? "—" : s.high], ["Lowest", s.low == null ? "—" : s.low]
-      ].concat(s.pending ? [["In progress", num(s.pending)]] : []).map(function (k) { return '<div><b>' + k[1] + "</b><span>" + esc(k[0]) + "</span></div>"; }).join("") + "</div>" +
-      '<table class="mos-sum-tbl"><thead><tr><th class="num">#</th><th>Name</th><th>Section</th>' + (exams.length > 1 ? "<th>Exam</th>" : "") + (dates.length > 1 ? "<th>Date</th>" : "") +
-        areas.map(function (a, i) { return '<th class="num" title="' + esc(a) + '">' + romans(i) + "</th>"; }).join("") +
-        '<th class="num">Score</th><th>Result</th></tr></thead><tbody>' +
-      rows.map(function (r, i) {
-        var skCells = areas.map(function (a, j) { var k = (r.skills || [])[j]; return '<td class="num' + (k && k.pct < 50 ? " low" : "") + '">' + (k ? k.pct + "%" : "—") + "</td>"; }).join("");
-        return "<tr" + (r.pending ? ' class="wait"' : !r.pass ? ' class="fail"' : "") + '><td class="num">' + (i + 1) + "</td><td>" + esc(r.rosterName || r.name) + (r.isRetake ? ' <span class="rt">retake</span>' : "") +
-          "</td><td>" + esc(r.section || "—") + "</td>" + (exams.length > 1 ? "<td>" + esc(r.exam) + "</td>" : "") + (dates.length > 1 ? "<td>" + fmtDate(r.date) + "</td>" : "") + skCells +
-          '<td class="num"><b>' + (r.score == null ? "—" : r.score) + "</b></td><td>" + (r.pending ? "In progress" : r.pass ? "Passed" : "Failed") + "</td></tr>";
-      }).join("") + "</tbody></table>" +
-      (areas.length ? '<div class="mos-sum-legend"><b>Skill areas</b> (section analysis %, red below 50%): ' + areas.map(function (a, i) { return "<span><b>" + romans(i) + "</b> " + esc(a) + "</span>"; }).join("") + "</div>" : "") +
-      '<div class="mos-sum-foot"><span>Passing score: 700 / 1000 · Source: Certiport score reports' + (S.exports.length ? " and results export" : "") + "</span>" +
-        "<span>Filters: " + esc(describeFilters()) + "</span><span>Generated " + esc(new Date().toLocaleString()) + " · RCT OpsDesk</span></div>" +
-      "</div>";
-    return { html: html, rows: rows.length, areas: areas.length, school: school, logo: !!pr.logo, banner: !!pr.banner };
-  }
-  function printSummary() {
-    var R = rows();
-    if (!R.length) { window.alert("No attempts match the current filters."); return; }
-    if (R.length > 600 && !window.confirm(R.length + " attempts will be printed. Narrow the filters to one school / batch for a shorter summary. Continue?")) return;
-    var out = buildSummary(R);
-    var host = $("mos-print"); if (host) host.parentNode.removeChild(host);
-    host = document.createElement("div"); host.id = "mos-print"; host.innerHTML = out.html;
-    document.body.appendChild(host);
-    document.body.classList.add("mos-printing");
-    var prevTitle = document.title;
-    document.title = "MOS Exam Summary" + (out.school ? " - " + (profileOf(out.school).acronym || P().acronym(out.school)) : "") + (S.f.examNo ? " - " + S.f.examNo : "") + " - " + new Date().toISOString().slice(0, 10);
-    var done = false;
-    function cleanup() {
-      if (done) return; done = true;
-      document.body.classList.remove("mos-printing"); document.title = prevTitle;
-      var h = $("mos-print"); if (h && h.parentNode) h.parentNode.removeChild(h);
-      window.removeEventListener("afterprint", cleanup);
-    }
-    window.addEventListener("afterprint", cleanup);
-    var imgs = Array.prototype.slice.call(host.querySelectorAll("img"));
-    Promise.race([Promise.all(imgs.map(function (im) { return im.decode ? im.decode().catch(function () {}) : Promise.resolve(); })), new Promise(function (r) { setTimeout(r, 3000); })])
-      .then(function () { try { window.print(); } finally { setTimeout(cleanup, 60000); } });
-    S.lastSummary = out;
-  }
-
+  /* ---------------- school profiles (logo, name, acronym; this browser only) ----------------
+   * { [school as in the data]: { title, acronym, address, logo: dataURL } (+ company logos in qbr-mos-branding-v1) } in localStorage.
+   * School images only — no student data is ever stored. */
+  var PROF_KEY = "qbr-mos-school-profiles-v1", LOGO_MAX = 512 * 1024;
+  function profiles() { try { return JSON.parse(localStorage.getItem(PROF_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function saveProfiles(all) {
+    try { localStorage.setItem(PROF_KEY, JSON.stringify(all)); return true; }
+    catch (e) { window.alert("Could not save the school images in this browser (storage is full). Try a smaller image."); return false; }
+  }
+  function profileOf(school) { return profiles()[school] || {}; }
+  function acronymMap() { var all = profiles(), o = {}; Object.keys(all).forEach(function (k) { if (all[k].acronym) o[k] = all[k].acronym; }); return o; }
+  function readImage(file, max) {
+    return new Promise(function (res, rej) {
+      if (!file) return rej(new Error("No file"));
+      if (!/^image\/(png|jpe?g|gif|webp|svg\+xml)$/i.test(file.type)) return rej(new Error("Use a PNG, JPG, GIF, WebP or SVG image."));
+      if (file.size > max) return rej(new Error("Image is too large (" + Math.round(file.size / 1024) + " KB; max " + Math.round(max / 1024) + " KB)."));
+      var fr = new FileReader();
+      fr.onerror = function () { rej(new Error("Could not read the image.")); };
+      fr.onload = function () {
+        var img = new Image();
+        img.onload = function () { res(fr.result); };
+        img.onerror = function () { rej(new Error("That file is not a valid image.")); };
+        img.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+  function openProfile() {
+    var school = S.f.school || (S.model && uniq(S.model.rows.map(function (r) { return r.school; })).length === 1 ? S.model.rows[0].school : "");
+    if (!school) { window.alert("Pick a school in the School filter first."); return; }
+    var pr = profileOf(school), work = { title: pr.title || "", acronym: pr.acronym || "", address: pr.address || "", logo: pr.logo || "" };
+    var br = branding(), bw = { left: br.left || "", right: br.right || "" };
+    var ov = document.createElement("div");
+    ov.className = "mos-ov"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true"); ov.setAttribute("aria-labelledby", "mos-pf-h");
+    function draw(msg) {
+      ov.innerHTML = '<div class="mos-ov-box card-box">' +
+        '<h5 id="mos-pf-h" class="mb-1">School profile</h5><div class="small text-muted mb-2">' + esc(school) + ' · used on the Exam Summary. Saved in this browser only.</div>' +
+        '<label class="mos-fl w-100 mb-2"><span>Name on the summary</span><input id="mos-pf-title" class="form-control form-control-sm" value="' + esc(work.title) + '" placeholder="' + esc(school) + '"></label>' +
+        '<div class="d-flex gap-2 mb-2"><label class="mos-fl"><span>Acronym (batch codes)</span><input id="mos-pf-acr" class="form-control form-control-sm" maxlength="8" value="' + esc(work.acronym) + '" placeholder="' + esc(P().acronym(school)) + '"></label>' +
+        '<label class="mos-fl flex-grow-1"><span>Address line (optional)</span><input id="mos-pf-addr" class="form-control form-control-sm" value="' + esc(work.address) + '"></label></div>' +
+        '<div class="mos-pf-imgs">' +
+          '<div><div class="small fw-bold">Logo</div><div class="mos-pf-prev">' + (work.logo ? '<img id="mos-pf-logo-img" alt="School logo" src="' + work.logo + '">' : '<span class="small text-muted">None</span>') + '</div>' +
+          '<label class="btn btn-outline-primary btn-sm mb-0">Upload logo…<input id="mos-pf-logo" type="file" accept="image/*" hidden></label> ' +
+          (work.logo ? '<button type="button" class="btn btn-link btn-sm" data-pf-clear="logo">Remove</button>' : "") + '<div class="small text-muted">PNG/JPG/SVG, ≤ 512 KB</div></div>' +
+          '<div><div class="small fw-bold">Company logos (every school)</div>' +
+            '<div class="mos-pf-co"><div><div class="mos-pf-prev">' + '<img id="mos-pf-left-img" alt="Left company logo" src="' + esc(bw.left || RAKSO_DEFAULT) + '">' + '</div>' +
+              '<label class="btn btn-outline-secondary btn-sm mb-0">Left logo…<input id="mos-pf-left" type="file" accept="image/*" hidden></label>' +
+              (bw.left ? ' <button type="button" class="btn btn-link btn-sm" data-pf-coclear="left">Use Rakso CT</button>' : '<div class="small text-muted">Rakso CT (built in)</div>') + '</div>' +
+            '<div><div class="mos-pf-prev">' + (bw.right ? '<img id="mos-pf-right-img" alt="Right partner logo" src="' + bw.right + '">' : '<span class="small text-muted">None</span>') + '</div>' +
+              '<label class="btn btn-outline-primary btn-sm mb-0">Right logo (GTP)…<input id="mos-pf-right" type="file" accept="image/*" hidden></label>' +
+              (bw.right ? ' <button type="button" class="btn btn-link btn-sm" data-pf-coclear="right">Remove</button>' : "") + '</div></div>' +
+            '<div class="small text-muted">Printed above the results box: left and right, same height. ≤ 512 KB each.</div></div>' +
+        '</div>' +
+        '<div id="mos-pf-msg" class="small text-danger mt-1" role="alert">' + esc(msg || "") + '</div>' +
+        '<div class="d-flex justify-content-end gap-2 mt-2"><button type="button" class="btn btn-outline-secondary btn-sm" id="mos-pf-cancel">Cancel</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" id="mos-pf-save">Save</button></div></div>';
+      function keep() { work.title = ov.querySelector("#mos-pf-title").value.trim(); work.acronym = ov.querySelector("#mos-pf-acr").value.trim().toUpperCase(); work.address = ov.querySelector("#mos-pf-addr").value.trim(); }
+      ov.querySelector("#mos-pf-logo").addEventListener("change", function (e) {
+        keep();
+        readImage(e.target.files[0], LOGO_MAX).then(function (url) { work.logo = url; draw(); }, function (err) { draw(err.message); });
+      });
+      ["left", "right"].forEach(function (k) {
+        ov.querySelector("#mos-pf-" + k).addEventListener("change", function (e) {
+          keep();
+          readImage(e.target.files[0], LOGO_MAX).then(function (url) { bw[k] = url; draw(); }, function (err) { draw(err.message); });
+        });
+      });
+      ov.querySelectorAll("[data-pf-coclear]").forEach(function (b) { b.addEventListener("click", function () { keep(); bw[b.getAttribute("data-pf-coclear")] = ""; draw(); }); });
+      ov.querySelectorAll("[data-pf-clear]").forEach(function (b) { b.addEventListener("click", function () { keep(); work[b.getAttribute("data-pf-clear")] = ""; draw(); }); });
+      ov.querySelector("#mos-pf-cancel").addEventListener("click", close);
+      ov.querySelector("#mos-pf-save").addEventListener("click", function () {
+        keep();
+        var all = profiles(); all[school] = work;
+        if (!work.title && !work.acronym && !work.address && !work.logo) delete all[school];
+        if (saveProfiles(all) && saveBranding(bw)) { close(); rebuild(); }
+      });
+      setTimeout(function () { var t = ov.querySelector("#mos-pf-title"); if (t) t.focus(); }, 20);
+    }
+    function close() { document.removeEventListener("keydown", onKey, true); if (ov.parentNode) ov.parentNode.removeChild(ov); var b = $("mos-profile"); if (b) b.focus(); }
+    function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(); } }
+    document.addEventListener("keydown", onKey, true);
+    document.body.appendChild(ov); draw();
+  }
+
+  /* ---------------- Exam Summary (print → Save as PDF) ----------------
+   * Covers exactly the current filters. Layout (2021 report): company logos row (Rakso CT left, partner badge
+   * right), 3-column box [school logo + name | MOS in <exam> · EXAM RESULTS | date + Exam No.] and
+   * [total / passed / failed / eligible for retake | big passing rate], then the student table: skill areas as columns I–V when every row is the same exam (legend
+   * under the table), red below 50%; scores below 700 red. Opened as a print view; the browser's
+   * "Save as PDF" makes the file. No emails, addresses or IDs are printed. */
+  function romans(i) { return ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"][i] || String(i + 1); }
+  /* company logos on every summary: left = Rakso CT (built in, replaceable), right = partner badge (upload) */
+  var BRAND_KEY = "qbr-mos-branding-v1", RAKSO_DEFAULT = "assets/rakso-ct-logo.png";
+  function branding() { try { return JSON.parse(localStorage.getItem(BRAND_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function saveBranding(b) {
+    try { localStorage.setItem(BRAND_KEY, JSON.stringify(b)); return true; }
+    catch (e) { window.alert("Could not save the company logos in this browser (storage is full). Try a smaller image."); return false; }
+  }
+  function upper(s) { return String(s || "").toUpperCase(); }
+  var MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  function longDate(iso) { return iso ? MONTHS_LONG[+iso.slice(5, 7) - 1] + " " + (+iso.slice(8, 10)) + ", " + iso.slice(0, 4) : ""; }
+  // filters that hide part of a batch (pass/fail, score range, search, first-attempt) → shown on the summary + warned about
+  function narrowingFilters() {
+    var f = S.f, p = [];
+    if (f.outcome) p.push("Result: " + (f.outcome === "PASS" ? "Pass" : f.outcome === "FAIL" ? "Fail" : "In progress"));
+    if (f.min !== "" || f.max !== "") p.push("Score " + (f.min || 0) + "–" + (f.max || 1000));
+    if (f.q) p.push("Search: " + f.q);
+    if (f.firstOnly) p.push("First attempts only");
+    return p;
+  }
+  function buildSummary(R) {
+    var rows = R.slice().sort(function (a, b) {
+      return (a.section || "~").localeCompare(b.section || "~") || String(a.rosterName || a.name).toLowerCase().localeCompare(String(b.rosterName || b.name).toLowerCase()) || (a.date || "").localeCompare(b.date || "");
+    });
+    var schools = uniq(rows.map(function (r) { return r.school; }));
+    var school = schools.length === 1 ? schools[0] : "";
+    var pr = school ? profileOf(school) : {}, br = branding();
+    var exams = uniq(rows.map(function (r) { return r.exam; }));
+    var certs = uniq(rows.map(function (r) { return r.certName; }));
+    var dates = uniq(rows.map(function (r) { return r.date; }));
+    var batches = uniq(rows.map(function (r) { return r.examNo || r.batch; }));
+    var s = P().summarize(rows);
+    var eligible = rows.filter(function (r) { return r.retakeEligible; }).length;
+    // skill columns I–V: the objectives most rows share (one exam family). Rows from another exam version with the
+    // same number of objectives are filled by position and marked †, with their own legend line; others show —.
+    var areas = [], altSigs = {}, sigOf = function (r) { return (r.skills || []).map(function (k) { return k.area; }).join("|"); };
+    if (exams.length === 1) {
+      var cnt = {};
+      rows.forEach(function (r) { if (r.skills && r.skills.length) { var g = sigOf(r); cnt[g] = (cnt[g] || 0) + 1; } });
+      var top = Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; })[0];
+      if (top) {
+        areas = top.split("|");
+        Object.keys(cnt).forEach(function (g) { if (g !== top && g.split("|").length === areas.length) altSigs[g] = 1; });
+      }
+    }
+    var examTitle = exams.length === 1 ? "Microsoft Office Specialist in " + exams[0] : exams.length ? "Microsoft Office Specialist — " + exams.join(", ") : "Microsoft Office Specialist";
+    var certLine = certs.length === 1 ? certs[0] : "";
+    var dateTxt = !dates.length ? "" : dates.length === 1 ? longDate(dates[0]) : longDate(dates[0]) + " – " + longDate(dates[dates.length - 1]);
+    var batchTxt = batches.length === 1 ? (/^\d/.test(batches[0]) ? "Exam No.: " + batches[0] : "Batch: " + batches[0])
+      : batches.length <= 4 ? "Exam No.: " + batches.join(", ") : batches.length + " batches";
+    var narrow = narrowingFilters();
+    var leftLogo = br.left || RAKSO_DEFAULT;
+    var html = '<div class="mos-sum-doc">' +
+      '<div class="mos-sum-brand"><img class="mos-sum-co" alt="Rakso CT" src="' + esc(leftLogo) + '">' +
+        (br.right ? '<img class="mos-sum-co" alt="Partner logo" src="' + esc(br.right) + '">' : "") + "</div>" +
+      '<table class="mos-sum-box"><tbody>' +
+        "<tr>" +
+          '<td class="c1"><div class="mos-sum-school">' + (pr.logo ? '<img class="mos-sum-logo" alt="" src="' + esc(pr.logo) + '">' : "") +
+            '<div><div class="nm">' + esc(upper(pr.title || school || "All schools")) + "</div>" + (pr.address ? '<div class="ad">' + esc(pr.address) + "</div>" : "") + "</div></div></td>" +
+          '<td class="c2"><div class="sub">' + esc(examTitle) + "</div><div class=\"big\">EXAM RESULTS</div>" + (certLine ? '<div class="ad">' + esc(certLine) + "</div>" : "") + "</td>" +
+          '<td class="c3"><div class="dt">' + esc(upper(dateTxt || "—")) + '</div><div class="no">' + esc(batchTxt) + "</div></td>" +
+        "</tr><tr>" +
+          '<td class="c1"><div class="mos-sum-counts">' +
+            '<div><b>' + num(s.attempts) + "</b><span>TOTAL<br>STUDENTS</span></div>" +
+            '<div class="ok"><b>' + num(s.passed) + "</b><span>STUDENTS<br>PASSED</span></div>" +
+            '<div class="bad"><b>' + num(s.failed) + "</b><span>STUDENTS<br>FAILED</span></div>" +
+            '<div><b>' + num(eligible) + "</b><span>ELIGIBLE<br>FOR RETAKE</span></div>" +
+          "</div></td>" +
+          '<td class="c23" colspan="2"><span class="rate">' + (s.passRate == null ? "—" : Math.round(s.passRate * 100) + "%") + '</span><span class="rl">STUDENT PASSING RATE</span>' +
+            '<div class="ad">Average ' + num(s.avg) + " · Highest " + (s.high == null ? "—" : s.high) + " · Lowest " + (s.low == null ? "—" : s.low) + (s.pending ? " · " + s.pending + " in progress (not counted)" : "") + "</div></td>" +
+        "</tr></tbody></table>" +
+      (narrow.length ? '<div class="mos-sum-narrow">Filtered: ' + esc(narrow.join(" · ")) + " — this summary does not show the whole batch.</div>" : "") +
+      '<table class="mos-sum-tbl"><thead><tr><th class="num">#</th><th>Name</th><th>Section</th>' + (exams.length > 1 ? "<th>Exam</th>" : "") + (dates.length > 1 ? "<th>Date</th>" : "") +
+        areas.map(function (a, i) { return '<th class="num" title="' + esc(a) + '">' + romans(i) + "</th>"; }).join("") +
+        '<th class="num">Score</th><th>Result</th></tr></thead><tbody>' +
+      rows.map(function (r, i) {
+        var sg = sigOf(r), alt = areas.length && sg && sg !== areas.join("|"), fit = !alt || altSigs[sg];
+        var skCells = areas.map(function (a, j) { var k = fit ? (r.skills || [])[j] : null; return '<td class="num' + (k && k.pct < 50 ? " low" : "") + '">' + (k ? k.pct + "%" : "—") + "</td>"; }).join("");
+        var res = r.pending ? "In progress" : r.pass ? "Passed" : r.retakeEligible ? (r.retakeUsed ? "Failed · retook" : "Failed · retake eligible") : "Failed · no retakes left";
+        return "<tr" + (r.pending ? ' class="wait"' : !r.pass ? ' class="fail"' : "") + '><td class="num">' + (i + 1) + "</td><td>" + esc(r.rosterName || r.name) + (alt && fit ? " †" : "") + (r.isRetake ? ' <span class="rt">2nd take</span>' : "") +
+          "</td><td>" + esc(r.section || "—") + "</td>" + (exams.length > 1 ? "<td>" + esc(r.exam) + "</td>" : "") + (dates.length > 1 ? "<td>" + fmtDate(r.date) + "</td>" : "") + skCells +
+          '<td class="num"><b>' + (r.score == null ? "—" : r.score) + "</b></td><td>" + esc(res) + "</td></tr>";
+      }).join("") + "</tbody></table>" +
+      (areas.length ? '<div class="mos-sum-legend"><b>Skill areas</b> (section analysis %, red below 50%): ' + areas.map(function (a, i) { return "<span><b>" + romans(i) + "</b> " + esc(a) + "</span>"; }).join("") + "</div>" : "") +
+      Object.keys(altSigs).map(function (g) { return '<div class="mos-sum-legend"><b>† Other exam version:</b> ' + g.split("|").map(function (a, i) { return "<span><b>" + romans(i) + "</b> " + esc(a) + "</span>"; }).join("") + "</div>"; }).join("") +
+      '<div class="mos-sum-foot"><span>Passing score: 700 / 1000 (700 passes). Up to 2 takes per exam: a first-time taker who fails is eligible for one retake (matched by email).</span>' +
+        "<span>Source: Certiport score reports" + (S.exports.length ? " and results export" : "") + " · Filters: " + esc(describeFilters()) + "</span><span>Generated " + esc(new Date().toLocaleString()) + " · RCT OpsDesk</span></div>" +
+      "</div>";
+    return { html: html, rows: rows.length, areas: areas.length, school: school, logo: !!pr.logo, partner: !!br.right, eligible: eligible, narrow: narrow };
+  }
+  function printSummary() {
+    var R = rows();
+    if (!R.length) { window.alert("No attempts match the current filters."); return; }
+    if (R.length > 600 && !window.confirm(R.length + " attempts will be printed. Narrow the filters to one school / batch for a shorter summary. Continue?")) return;
+    var f = S.f;
+    if (f.outcome === "PASS" || f.min !== "" || f.max !== "") {
+      var wide = P().filterAttempts(S.model.rows, filterObj({ outcome: "", min: "", max: "" }));
+      var hidden = wide.length - R.length;
+      if (hidden > 0 && !window.confirm("The Result / Score filters leave out " + hidden + " attempt" + (hidden === 1 ? "" : "s") + " of this batch (e.g. failed students). Print the summary anyway?\n\nCancel, then Reset filters, to print the whole batch.")) return;
+    }
+    var out = buildSummary(R);
+    var host = $("mos-print"); if (host) host.parentNode.removeChild(host);
+    host = document.createElement("div"); host.id = "mos-print"; host.innerHTML = out.html;
+    document.body.appendChild(host);
+    document.body.classList.add("mos-printing");
+    var prevTitle = document.title;
+    document.title = "MOS Exam Summary" + (out.school ? " - " + (profileOf(out.school).acronym || P().acronym(out.school)) : "") + (S.f.examNo ? " - " + S.f.examNo : "") + " - " + new Date().toISOString().slice(0, 10);
+    var done = false;
+    function cleanup() {
+      if (done) return; done = true;
+      document.body.classList.remove("mos-printing"); document.title = prevTitle;
+      var h = $("mos-print"); if (h && h.parentNode) h.parentNode.removeChild(h);
+      window.removeEventListener("afterprint", cleanup);
+    }
+    window.addEventListener("afterprint", cleanup);
+    var imgs = Array.prototype.slice.call(host.querySelectorAll("img"));
+    Promise.race([Promise.all(imgs.map(function (im) { return im.decode ? im.decode().catch(function () {}) : Promise.resolve(); })), new Promise(function (r) { setTimeout(r, 3000); })])
+      .then(function () { try { window.print(); } finally { setTimeout(cleanup, 60000); } });
+    S.lastSummary = out;
+  }
+
   /* ---------------- hooks ---------------- */
   QBR.mos = {
     render: render,
