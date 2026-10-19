@@ -2256,6 +2256,7 @@ const TAB_FILTERS = {
   "dash-audit":      [],                          // audit editor; own month picker inside the panel
   "dash-todo":       [],                          // My To-Do: per-user, not scoped by the shared period/org/school filters
   "dash-gtickets":   [],                          // General tickets: per-user queue, own table
+  "dash-mos":        [],                          // v1.37.0 MOS results: own school/section/period filters inside the panel
   "dash-soc":        [],                          // v1.32.0 SOC investigation: standalone, own Tenant/Month inputs
   "dash-admin":      [],                          // v1.31.0 admin panel (feature flags, appearance)
 };
@@ -2272,7 +2273,7 @@ function applyFilterVisibility(tabId) {
   const bar = document.querySelector(".filter-bar");
   if (bar) bar.style.display = NO_FILTER_BAR.includes(tabId) ? "none" : "";
 }
-const NO_FILTER_BAR = ["dash-todo", "dash-gtickets"];
+const NO_FILTER_BAR = ["dash-todo", "dash-gtickets", "dash-mos"];
 
 function wireFilters() {
   // dropdown/select filters
@@ -3138,6 +3139,7 @@ function initShell() {
     // Per-user panels: refresh on open so they reflect the current user and latest tickets.
     if (APP.activeTab === "dash-todo" && window.QBR && QBR.todo) QBR.todo.render();
     if (APP.activeTab === "dash-gtickets" && window.QBR && QBR.gtickets) QBR.gtickets.render();
+    if (APP.activeTab === "dash-mos" && window.QBR && QBR.mos) QBR.mos.render(); // v1.37.0: size charts once visible
   }));
 
   // User management sub-tabs: Readiness | Bulk generator (lazy-init the generator on first open)

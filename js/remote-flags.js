@@ -60,7 +60,8 @@
     mail: "Domains & email",
     reporting: "Reporting",
     audit: "Audit",
-    data: "Data"
+    data: "Data",
+    certification: "Certification"
   };
 
   QBR.features = {

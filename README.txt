@@ -6,6 +6,101 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.37.0 [BETA] MOS review fixes before the develop merge
+  - An "In Progress" row (no score yet) no longer counts as the student's first take, so the real first
+    take keeps its retake eligibility and the first-attempt pass rate.
+  - Exam Summary: the first number is "TOTAL EXAMINEES" (all takes in the filter, so it adds up with passed +
+    failed and the passing rate), with the number of different students under it when a retake session is
+    included. "ELIGIBLE FOR RETAKE" no longer counts students who already retook.
+  - A take matched to the roster by name and another take with only the same email are now the same student.
+  - The "(none)" Exam No. / batch row can be clicked and filtered; emails typed in the Student search are not
+    printed or exported (shown as "(email)"); a roster added without a school is flagged in Check & fix;
+    the Check & fix and history tables no longer pick up the app-wide fixed column layout.
+
+UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: smaller summary header, adjustable size
+  - The Exam Summary header is smaller by default: company logos 40 px high and centered side by side,
+    results box at 85% (smaller text and padding), and the date column no longer wraps one word per line:
+    "OCTOBER 8 – 15, 2026"; several batches show as "2 batches" with the codes in small text.
+  - School profile… › Summary header size: Logo height (24–80 px), Results box size (60–120%), Logo
+    position (centered side by side, or left and right edges), with a live preview; "Default size" resets.
+    Saved in this browser for every school.
+
+UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: Exam Summary redesign + resizable tables
+  - Exam Summary now follows the 2021 report layout: company logos on top (Rakso CT left — built in —,
+    partner / GTP logo right, same height and aligned), then a results box: school logo + name + address |
+    "Microsoft Office Specialist in Excel · EXAM RESULTS" | date + Exam No.; below it total students,
+    passed, failed, eligible for retake, and the big student passing rate (all attempts in the filter).
+  - The banner slot is gone (a square badge in a full-width banner slot was what looked off). The partner
+    logo is uploaded once under School profile… › Company logos and is used for every school.
+  - Retake rule: up to 2 takes per exam, matched by the student's email. A first-time taker scoring below
+    700 is failed and eligible for one retake; 700 is a pass. Rows say "Failed · retake eligible",
+    "Failed · retook" or "Failed · no retakes left".
+  - If the Result or Score filter hides part of the batch (e.g. Result = Pass), the app warns before
+    printing — that is what produced a "46 / 0 failed / 100%" summary for Exam 1119 (the full batch is 59 /
+    46 / 13 / 78%). The summary also prints a "Filtered: …" note in that case.
+  - Skill-area columns now use the objectives most students share; a student from another exam version is
+    marked † with its own legend line (Exam 1119 had one).
+  - MOS tables: columns can be resized (drag the line at the right of a header, double-click for auto
+    width, or focus it and use ← →); "Reset columns" goes back to automatic widths. Fixes text overlapping
+    in the Results table: it kept a fixed layout after a re-render but lost its resize handles. Column
+    widths are remembered in this browser (layout only).
+  - A school folder that is not numbered ("Archive SY 2021 - 2022") is no longer taken as the school name;
+    type the school first in that case.
+
+UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: Exam Summary (PDF) with school logo + banner
+  - New buttons next to "Export (.xlsx)" on the MOS page:
+    · "School profile…" — for the school picked in the School filter: name to print, acronym (used in the
+      batch codes, e.g. DHS-20261015-01), optional address line, logo (≤ 512 KB) and a full-width banner
+      (≤ 1.5 MB). Saved in THIS browser only (like the custom OpsDesk logo); no student data is saved.
+    · "Exam Summary (PDF)" — a printable summary of exactly what is filtered on screen (e.g. School +
+      Exam No. / batch = one session, or School + Section). In the print dialog choose "Save as PDF"; the
+      file name is "MOS Exam Summary - <acronym> - <date>".
+  - The summary: banner, logo, school name and address; exam, Exam No. / batch, date, section and proctor;
+    examinees, passed, failed, passing rate, average, highest, lowest; then every student (by section and
+    name) with score and result. When all rows are the same exam, the skill areas are columns I–V (red below
+    50%) with a legend. Failed rows are red, retakes are marked. No emails, addresses or IDs are printed.
+
+UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: import the Certiport results export (.xlsx)
+  - "Add export / roster (.xlsx)…" now also takes the Certiport "Results … Plus" export (every exam taker
+    with exam, certification, date and time, score, result, proctor, station, time used). The app tells an
+    export from a roster by its header row; title and footer lines are ignored.
+  - School = the export's Test Center at first; when the student is found in a loaded roster (email, then
+    name), the roster's school and section are used instead. Roster names: "SURNAME, First, Middle".
+  - Export + PDFs together: a row and a PDF page with the same Exam reference # are one attempt — the
+    export adds proctor / station / time, the PDF adds the skill areas and the Exam No. from its file name.
+  - Batch: the Exam No. from the PDF file name when there is one, otherwise an automatic code per school and
+    exam day, e.g. SSPCEM-20261015-01 (school acronym + date). Filter "Exam No. / batch".
+  - New: Proctor filter, "Group by" for the summary table and the comparison chart (section, school,
+    proctor, exam, batch), Proctor column, proctor / station / time used in the student history and export.
+  - "In Progress" rows (no score yet) are shown with their own status and are NOT counted as fails or in
+    pass rates; they are listed under Check & fix.
+  - Date of birth, voucher / license codes and payment type in the export are never read.
+
+UPDATE — 2026-10-18 — v1.37.0 [PREVIEW feature/mos] NEW: Certification › MOS results
+  - New sidebar section "Certification" with "MOS results": Microsoft Office Specialist score reports
+    exported from Certiport, summarised School › Section › Student.
+  - Add score reports (PDF, one page per candidate) one by one, or "Add folder…" to read a whole school
+    folder (or the whole MOS folder): folders named like "01 - School name" become the school. For files
+    picked one by one, type the school first. "Exam 1119 Results.pdf" gives the Exam No. (batch);
+    "Exam 1119.1" or "Retake" in the name marks a retake session. Certificates / summary PDFs are skipped.
+  - Add the school roster (.xlsx, one sheet per section: 11A, 11B… with NAME and Email) to put every
+    student in a section. Students are matched by email first, then by name ("SURNAME, First, Middle"
+    against "First Middle Surname"). Anything that does not match is listed under "Check & fix", where
+    you pick the student or type the section.
+  - Filters: school, section, student (name / student no. / Certiport ID), score range 0–1000 with
+    highest-first / lowest-first sort, pass / fail, Exam No., exam, and period (all time / school year /
+    year / month). KPIs: attempts, students, passed, failed, pass rate, first-attempt pass rate (retakes
+    excluded), average, highest / lowest.
+  - Charts: pass rate over time (Monthly / Yearly / School year), pass rate by section (or by school),
+    score distribution, weakest skill areas. Click a student to see every attempt with its skill areas.
+  - Export (.xlsx): the filtered results + summary + by-month and by-year pass rates (no emails or
+    addresses).
+  - PRIVACY: student data stays in the open tab only — nothing is saved, uploaded or put in the deck.
+    Reloading the page clears it. Addresses on the score report are never read.
+  - Works offline: the PDF reader (Mozilla pdf.js 3.11.174) ships in libs/pdfjs and loads only when the
+    first PDF is added. Remote flag "mos" (Certification) can hide the section; set "mos": false in
+    config/features.json on main until the feature is approved for the live site.
+
 UPDATE — 2026-10-14 — v1.36.0 [BETA] patch: "Main" label on the live site
   - The live build (GitHub Pages, the Azure production site, the live OneDrive folder) now shows a green
     "Main" label next to the title and "[MAIN]" in the browser tab — the same place Beta and Preview show
