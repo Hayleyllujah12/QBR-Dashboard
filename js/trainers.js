@@ -550,12 +550,14 @@
     t.sessions.forEach(function (s) {
       var v = sessionView(s);
       if (v.nps == null && v.ts == null) return;
-      var k = P().normKey(s.trainer);
-      var a = agg[k] || (agg[k] = { trainer: s.trainer, n: 0, npsSum: 0, npsN: 0, tsSum: 0, tsN: 0, last: "" });
-      a.n++;
-      if (v.nps != null) { a.npsSum += v.nps; a.npsN++; }
-      if (v.ts != null) { a.tsSum += v.ts; a.tsN++; }
-      if (s.dateISO && s.dateISO > a.last) a.last = s.dateISO;
+      P().splitTrainers(s.trainer).forEach(function (name) { // co-trainers share the session's scores
+        var k = P().normKey(name);
+        var a = agg[k] || (agg[k] = { trainer: name, n: 0, npsSum: 0, npsN: 0, tsSum: 0, tsN: 0, last: "" });
+        a.n++;
+        if (v.nps != null) { a.npsSum += v.nps; a.npsN++; }
+        if (v.ts != null) { a.tsSum += v.ts; a.tsN++; }
+        if (s.dateISO && s.dateISO > a.last) a.last = s.dateISO;
+      });
     });
     return Object.keys(agg).map(function (k) {
       var a = agg[k];
@@ -630,6 +632,7 @@
       '<div class="row g-2">' +
       fld("Date *", '<input type="date" class="form-control form-control-sm" id="trns-date" value="' + esc(date) + '">', dateSrc ? '<span class="tr-hint">' + dateSrc + '</span>' : "") +
       fld("Trainer *", '<input class="form-control form-control-sm" id="trns-trainer" list="trns-trainers" placeholder="Type or pick" autocomplete="off"><datalist id="trns-trainers">' + opt(t.roster) + '</datalist>') +
+      fld("Co-trainer", '<input class="form-control form-control-sm" id="trns-cotrainer" list="trns-trainers" placeholder="Optional — second speaker" autocomplete="off">', '<span class="tr-hint">one row for the session: saved as “TRAINER / CO-TRAINER”</span>') +
       fld("Course name", '<input class="form-control form-control-sm" id="trns-title" list="trns-titles" placeholder="Start typing the course name" autocomplete="off"><datalist id="trns-titles">' + opt(Object.keys(cm.byTitle).sort()) + '</datalist>') +
       fld("Course code *", '<input class="form-control form-control-sm" id="trns-code" list="trns-codes" placeholder="Filled from the course name" autocomplete="off"><datalist id="trns-codes">' + opt(Object.keys(cm.byCode).sort()) + '</datalist>', '<span class="tr-hint" id="trns-codehint"></span>') +
       fld("School *", '<input class="form-control form-control-sm" id="trns-school" list="trns-schools" value="' + esc(school) + '" placeholder="Type or pick" autocomplete="off"><datalist id="trns-schools">' + sch.html + '</datalist>', '<span class="tr-hint">suggestions from ' + sch.src + '</span>') +
@@ -642,7 +645,7 @@
     var host = $("trainers-body"), t = S.tracker, ev = S.eval;
     if (!t) return;
     var g = function (id) { var el = host.querySelector("#trns-" + id); return el ? el.value.trim() : ""; };
-    var date = g("date"), trainer = g("trainer"), code = g("code"), client = g("school");
+    var date = g("date"), trainer = P().joinTrainers([g("trainer"), g("cotrainer")]), code = g("code"), client = g("school");
     if (!date || !trainer || !code || !client) { alert("Date, trainer, course code and school are required."); return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { alert("Pick a valid date."); return; }
     var ts = timeToFrac(g("t0")), te = timeToFrac(g("t1"));
@@ -677,7 +680,8 @@
     };
     t.addedRows.push({ rowIdx: rowIdx, cells: row, session: session });
     t.sessions.push(session);
-    if (t.roster.indexOf(trainer) < 0) { t.roster.push(trainer); t.roster.sort(); }
+    P().splitTrainers(trainer).forEach(function (n) { if (t.roster.indexOf(n) < 0) t.roster.push(n); });
+    t.roster.sort();
     S.selected = t.sessions.length - 1;
     var nq = !S.manualForm && S.newFor && queueItem(S.newFor);
     if (nq) { nq.target = S.selected; nq.auto = false; S.newFor = null; }
@@ -708,7 +712,7 @@
   function summaryRows(period) {
     var t = S.tracker, cm = (t.courseMap && t.courseMap.byCode) || {};
     return t.sessions.filter(function (s) {
-      if (S.repTrainer && P().normKey(s.trainer) !== P().normKey(S.repTrainer)) return false;
+      if (S.repTrainer && !P().hasTrainer(s, S.repTrainer)) return false; // co-trained sessions count for each trainer
       if (S.repSchool && s.client !== S.repSchool) return false;
       return P().inPeriod(s.dateISO, period);
     }).map(function (s) {
@@ -843,6 +847,12 @@
       '</div>';
     var f = function (k, l) { return '<button type="button" class="btn btn-outline-secondary' + (S.filter === k ? " active" : "") + '" data-trfilter="' + k + '" aria-pressed="' + (S.filter === k) + '">' + l + '</button>'; };
     h += queueHTML();
+    var dups = P().duplicateSessions(t.sessions);
+    if (dups.length) h += '<div class="tr-dupwarn small mt-3" role="note"><b>Possible duplicate sessions</b> — same date, school, course and start time on more than one row. ' +
+      'For co-trained sessions keep ONE row and put both trainers in the Trainer cell (“NAME / NAME”), then delete the extra row in Excel.<ul class="mb-0">' +
+      dups.slice(0, 8).map(function (d) {
+        return '<li>' + esc(d.label) + ': rows ' + d.rows.map(function (x) { return excelRow(x) + (x.trainer ? " (" + esc(x.trainer) + ")" : ""); }).join(", ") + '</li>';
+      }).join("") + (dups.length > 8 ? '<li>…and ' + (dups.length - 8) + ' more</li>' : "") + '</ul></div>';
     h += '<div class="card-box mt-3"><div class="tr-ch-head"><h6 class="mb-0">Sessions</h6>' +
       '<div class="tr-toolbar"><div class="btn-group btn-group-sm" role="group" aria-label="Status filter">' +
       f("all", "All") + f("needs", "Needs verifying") + f("scored", "Scored") + f("unscored", "Unscored") + '</div>' +
@@ -1130,6 +1140,11 @@
       '<div class="tr-print-only tr-print-head"><div class="tr-ph-title">' + esc(title) + '</div>' +
       '<div class="tr-ph-sub">' + esc(filt.join(" · ")) + ' · ' + esc(t.name) + ' · generated ' + stamp + '</div></div>' +
       (profile ? '<h5 class="tr-profile-h tr-noprint">' + esc(S.repTrainer) + ' <span class="small text-muted fw-normal">· ' + esc(pLabel) + '</span></h5>' : "");
+    if (profile) {
+      var me = P_.trainerTable(rows).filter(function (r) { return P_.normKey(r.trainer) === P_.normKey(S.repTrainer); })[0];
+      if (me && me.coTrained) h += '<div class="small text-muted mb-1">' + plural(me.coTrained, "co-trained session") + ' (with ' + esc(me.coWith.join(", ")) +
+        ') — counted in full for each trainer, with the shared NPS and trainer score.</div>';
+    }
     // tiles
     var cov = ov.coverage == null ? "—" : ov.coverage + "%";
     var covTone = ov.coverage == null ? "blue" : ov.coverage >= 80 ? "green" : ov.coverage >= 50 ? "orange" : "red";
@@ -1184,7 +1199,8 @@
         trows.map(function (r, i) {
           var tone = function (v, f) { return v == null ? "" : ' class="num tr-t-' + f(v) + '"'; };
           return '<tr><td class="text-muted">' + (i + 1) + '</td><td><button type="button" class="btn btn-link btn-sm p-0 tr-tname" data-trtrainer="' + esc(r.trainer) + '">' + esc(r.trainer) + '</button>' +
-            (r.topCourse ? '<div class="tr-hint">top: ' + esc(r.topCourse.title || r.topCourse.code) + ' ×' + r.topCourse.sessions + '</div>' : "") + '</td>' +
+            (r.topCourse ? '<div class="tr-hint">top: ' + esc(r.topCourse.title || r.topCourse.code) + ' ×' + r.topCourse.sessions + '</div>' : "") +
+            (r.coTrained ? '<div class="tr-hint" title="Co-trained sessions count for each trainer, with the session’s shared NPS and score">' + r.coTrained + ' co-trained · with ' + esc(r.coWith.join(", ")) + '</div>' : "") + '</td>' +
             '<td class="num"><b>' + r.sessions + '</b></td><td class="num">' + num(r.hours, 1) + '</td><td class="num">' + r.courses + '</td><td class="num">' + r.schools + '</td>' +
             '<td class="num">' + (r.respondents || "—") + '</td>' +
             '<td' + (tone(r.avgNps, npsTone) || ' class="num"') + '>' + (r.avgNps == null ? "—" : num(r.avgNps, 1)) + '</td>' +

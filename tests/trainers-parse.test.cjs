@@ -297,5 +297,27 @@ ok(P.matchEval(SD, { dateISO: "2026-05-07", session: "AM", school: "HCCCI" }).au
 ok(P.matchEval(SD, { dateISO: "2025-11-28", session: "", school: "SGA" }, "2025-11-29").auto === SD[3], "matchEval: filename date (Nov 28) wins over the answer date (Nov 29)");
 ok(P.matchEval([{ dateISO: "2025-12-01", client: "Paco Catholic School" }], { dateISO: "2025-12-01", school: "PACO-HS" }, null, { aliases: { pacohs: "paco catholic school" } }).auto !== null, "matchEval: learned alias");
 
+/* ---- co-trainers (v1.39.0): one row per session, names in one cell ---- */
+eq(P.splitTrainers("CEDO, Anthony / FAYLONA, Franchesca"), ["CEDO, Anthony", "FAYLONA, Franchesca"], "splitTrainers: ' / ' (comma inside names kept)");
+eq(P.splitTrainers("A, B; C, D & E, F + G, H"), ["A, B", "C, D", "E, F", "G, H"], "splitTrainers: ; & +");
+eq(P.splitTrainers("Anthony Cedo and Franchesca Faylona\nX Y"), ["Anthony Cedo", "Franchesca Faylona", "X Y"], "splitTrainers: ' and ' + line break");
+eq(P.splitTrainers("RICO, Reneeson III"), ["RICO, Reneeson III"], "splitTrainers: single trainer untouched");
+eq(P.splitTrainers("Alexander Sand / alexander sand"), ["Alexander Sand"], "splitTrainers: no 'and' split inside words; duplicate names once");
+eq(P.joinTrainers(["CEDO, Anthony", "", "FAYLONA, Franchesca"]), "CEDO, Anthony / FAYLONA, Franchesca", "joinTrainers");
+const CO = [
+  { trainer: "CEDO, Anthony / FAYLONA, Franchesca", code: "CV-1", client: "DepEd Philippines", dateISO: "2026-09-11", nps: 80, trainerScore: 4.6, n: 50, timeStart: 0.375, timeEnd: 0.5 },
+  { trainer: "CEDO, Anthony", code: "CV-1", client: "Paco Catholic School", dateISO: "2026-09-20", nps: 60, trainerScore: 4.2, n: 20, timeStart: 0.375, timeEnd: 0.5 }];
+const COT = P.trainerTable(CO);
+eq(COT.map(r => [r.trainer, r.sessions, r.coTrained, r.coWith, r.avgNps, r.respondents]),
+   [["CEDO, Anthony", 2, 1, ["FAYLONA, Franchesca"], 70, 70], ["FAYLONA, Franchesca", 1, 1, ["CEDO, Anthony"], 80, 50]], "trainerTable: co-trained session counts for each trainer (shared scores)");
+eq([P.overview(CO).trainers, P.overview(CO).sessions], [2, 2], "overview: 2 trainers, sessions counted ONCE");
+eq(P.buildSummary(CO).respondents, 70, "summary respondents counted once (not per trainer)");
+eq(P.courseTable(CO)[0].trainers, 2, "courseTable: distinct trainers across co-trained rows");
+eq(P.buildRoster(CO), ["CEDO, Anthony", "FAYLONA, Franchesca"], "roster lists each trainer");
+ok(P.hasTrainer(CO[0], "faylona, franchesca") && !P.hasTrainer(CO[1], "FAYLONA, Franchesca"), "hasTrainer: either name matches a co-trained row");
+ok(P.findPrevSession(CO.concat([{ trainer: "FAYLONA, Franchesca", code: "CV-1", dateISO: "2026-10-01", client: "X" }]), { trainer: "FAYLONA, Franchesca", code: "CV-1", dateISO: "2026-10-01" }) === CO[0], "findPrevSession: co-trained session is a previous session for either trainer");
+const DUP = P.duplicateSessions([CO[0], Object.assign({}, CO[0], { trainer: "FAYLONA, Franchesca" }), Object.assign({}, CO[0], { timeStart: 0.6 }), CO[1]]);
+eq(DUP.map(d => [d.label, d.rows.length]), [["2026-09-11 · DepEd Philippines · CV-1", 2]], "duplicateSessions: same date+school+course+start = one group; other start time is a separate session");
+
 console.log("\n" + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

@@ -6,6 +6,14 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.40.0 [PREVIEW feature/co-trainers] Trainers: co-trained sessions + duplicate-session warning
+  - Co-trained sessions = ONE tracker row with every trainer in the Trainer cell, e.g.
+    "CEDO, Anthony / FAYLONA, Franchesca" (separators: /  ;  &  +  line break  " and " — never a comma, names are
+    "LASTNAME, Firstname"). Leaderboard, trainer table and trainer profile credit each trainer with the session and its
+    shared NPS / trainer score ("co-trained · with …"); totals (trainings, hours, respondents) count the session once.
+    Add session has a Co-trainer field. Rows with the same date, school, course and start time are flagged as
+    "Possible duplicate sessions" with their Excel row numbers (e.g. one row per co-trainer) — nothing is changed.
+
 UPDATE — 2026-10-19 — v1.39.0 [PREVIEW feature/gdap-xlsx] GDAP mapping as .xlsx · Trainers load from the linked folder
   - GDAP mapping can be an Excel workbook: a file named like GDAP.xlsx / GranularAdministerRelationship.xlsx with
     "Name" and "Microsoft ID" columns (any sheet, header in the first 10 rows) turns the gdap pill green and pre-fills
