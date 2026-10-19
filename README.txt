@@ -6,6 +6,17 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Training › Trainers (trainer evaluations)
+  - New Training › Trainers tab: upload the training tracker (sessions from the "trial" sheet) and an
+    MS Forms eval export (one file = one session). The eval filename (MMDDYYYY · AM/PM · school) suggests
+    sessions — same-day sessions are offered too when the school name differs; you confirm the match.
+  - Results per session: NPS (blank answers skipped) and trainer score (mean of the 3 facilitator items,
+    "Neither agree nor disagree" = 3), change vs the trainer's previous session, comments, low-n flag.
+  - Write to tracker lists every session waiting to be written, then downloads <name>-scored.xlsx with only
+    the "Net Promoter Score" / "Trainer Score" cells changed (same format-safe engine as Save to Excel —
+    styles, tables and formatting kept; a plain copy is offered only if that isn't possible). A missing
+    NPS column is added; "Trainer Score" is added once. Leaderboard + results export. Remote flag: trainers.
+
 UPDATE — 2026-10-19 — v1.37.0 [BETA] MOS review fixes before the develop merge
   - An "In Progress" row (no score yet) no longer counts as the student's first take, so the real first
     take keeps its retake eligibility and the first-attempt pass rate.
