@@ -378,7 +378,7 @@
     }
     return { attempts: out, skipped: skipped, header: h.row };
   }
-  // "Sisters of St Pine of Crestview Education Ministry" → "SSPCEM" (Phase 2: editable per school profile)
+  // "Sisters of Silver Pine of Crestview Learning Ministry" → "SSPCLM" (Phase 2: editable per school profile)
   var ACR_SKIP = { of: 1, the: 1, and: 1, "&": 1, de: 1, la: 1, del: 1, for: 1, "-": 1, inc: 1 };
   function acronym(name) {
     var p = String(name || "").replace(/\(([A-Z0-9]{2,})\)/, " $1 ").split(/[\s,.]+/).filter(Boolean);

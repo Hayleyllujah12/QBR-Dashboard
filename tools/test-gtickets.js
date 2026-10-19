@@ -20,7 +20,7 @@ function t(name, cond) {
 }
 const eq = (a, b) => a === b;
 
-vm.runInContext('QBR.users.register("Robin")', sb);
+vm.runInContext('QBR.users.register("Tester")', sb);
 const stamp = (() => { const d = new Date(); return d.getFullYear() +
   String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0"); })();
 const todayLocal = stamp.slice(0,4) + "-" + stamp.slice(4,6) + "-" + stamp.slice(6,8); // local YYYY-MM-DD ("today")
@@ -84,7 +84,7 @@ t("resolved excluded from To-Do",
 vm.runInContext('QBR.users.register("Ana")', sb);
 t("ana sees no tickets", eq(vm.runInContext("QBR.gtickets.list().length", sb), 0));
 vm.runInContext('QBR.users.switch(QBR.users.list()[0].id)', sb);
-t("robin keeps tickets", vm.runInContext("QBR.gtickets.list().length", sb) === 3);
+t("tester keeps tickets", vm.runInContext("QBR.gtickets.list().length", sb) === 3);
 
 /* export: ticket notes are [{d,text}] and must not become "[object Object]" */
 sb.XLSX = { utils: { book_new: () => ({}), aoa_to_sheet: a => a, book_append_sheet: (wb, ws, n) => { wb[n] = ws; wb._last = wb; } }, writeFile: (wb) => { sb._wb = wb; } };

@@ -1,6 +1,6 @@
 /* ============================================================================
  * RCT OpsDesk — Netlify Identity gate (js/identity.js)
- * v1.31.0 — from Sam's patch 5/5, reworked at merge (2026-10-06)
+ * v1.31.0 — from the contributor's patch 5/5, reworked at merge (2026-10-06)
  *
  * Online login for the Netlify-hosted preview/beta sites (*.netlify.app). Invite-only:
  * no login = the dashboard stays hidden. Everywhere else (local file://, the live folder,

@@ -366,7 +366,7 @@
   // dnPartsSpec (only used for fmt '5'): array of { type:'literal', text } or { type:'column', colIndex }
   // Normalize a name to standard Proper Case regardless of source casing
   // (handles ALL CAPS, all lowercase, and mixed case source data).
-  // "DELA CRUZ" -> "Dela Cruz", "o'brien" -> "O'Brien", "santos-reyes" -> "Santos-Reyes"
+  // "DELA CRUZ" -> "Dela Cruz", "o'brien" -> "O'Brien", "smith-jones" -> "Smith-Jones"
   function toProperCase(str) {
     return (str || '')
       .toString()

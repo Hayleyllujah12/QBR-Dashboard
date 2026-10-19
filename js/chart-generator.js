@@ -497,7 +497,7 @@ QBR.chart = {
     const dl = opts && opts.dataLabels; if (opts) delete opts.dataLabels;
     const options = withLabels(baseOpts(opts), dl);
     // Show EVERY category label. Chart.js `autoSkip` silently drops labels that would
-    // crowd/overlap (long rotated org names lost ORGRCA/ORGSPC/EASTFED/ORGFED etc.). Force
+    // crowd/overlap (long rotated org names lost ORG-A/ORG-B/ORG-C/ORG-D etc.). Force
     // all of them on; a caller's explicit x-tick options still win via Object.assign.
     options.scales = options.scales || {};
     options.scales.x = options.scales.x || {};

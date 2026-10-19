@@ -16,24 +16,24 @@ let pass = 0, fail = 0;
 const ok = (c, n) => { if (c) { pass++; console.log("ok - " + n); } else { fail++; console.log("FAIL - " + n); } };
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "trresp-"));
 
-// eval: 12 responses, Oct 16 2025, ASVF
+// eval: 12 responses, Oct 16 2025, ASLN
 const HEAD = ["ID", "Start time", "School / Organization", "Knowledge and mastery of the topic",
   "Communication and presentation skills", "Ability to engage and connect with participants",
   "Overall, how satisfied were you with the training?",
   "On a scale of 0 to 10, how likely are you to recommend this training session to a colleague", "Why did you give this rating?"];
 const ER = [HEAD];
 const npsV = [10, 10, 9, 10, 8, 10, 9, 6, 10, 10, 7, 10];
-for (let i = 0; i < 12; i++) ER.push([i + 1, 45946.4 + i / 1440, "ASVF", "Strongly Agree", i % 3 ? "Agree" : "Strongly Agree", "Strongly Agree", "Very satisfied", npsV[i], "ok"]);
+for (let i = 0; i < 12; i++) ER.push([i + 1, 45946.4 + i / 1440, "ASLN", "Strongly Agree", i % 3 ? "Agree" : "Strongly Agree", "Strongly Agree", "Very satisfied", npsV[i], "ok"]);
 const det = TP.detectLayout(ER[0]);
 const rep = TP.analyzeEval(ER, det.roles);
 const NPS = rep.nps.nps, TS = rep.trainer.score, FP = TP.evalFingerprint(ER);
-const EVAL = path.join(DIR, "Training Feedback Form - Oct. 16, 2025 [ASVF] - Micro.xlsx");
+const EVAL = path.join(DIR, "Training Feedback Form - Oct. 16, 2025 [ASLN] - Micro.xlsx");
 { const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ER), "Sheet1"); fs.writeFileSync(EVAL, XLSX.write(wb, { bookType: "xlsx", type: "buffer" })); }
 
 function tracker(file, extraHead, extraCells) {
   const rows = [["Date", "Trainer", "New Code", "New Description", "Client", "Time Start", "Time End", "Net Promoter Score", "Trainer Score"].concat(extraHead),
-    [45946, "DOEÑA, Alex", "MS-101A", "Microsoft 365 Education Onboarding", "Academia de San Valle Fuerte", 0.375, 0.5, NPS, TS].concat(extraCells),
-    [45950, "DOEÑA, Alex", "MS-101A", "Microsoft 365 Education Onboarding", "Saint Garnet Academy", 0.375, 0.5, "", ""].concat(extraHead.map(() => ""))];
+    [45946, "DOEÑA, Alex", "MS-101A", "Microsoft 365 Education Onboarding", "Academia de Santa Lucia Norte", 0.375, 0.5, NPS, TS].concat(extraCells),
+    [45950, "DOEÑA, Alex", "MS-101A", "Microsoft 365 Education Onboarding", "Bright Path Academy", 0.375, 0.5, "", ""].concat(extraHead.map(() => ""))];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "trial");
   const p = path.join(DIR, file); fs.writeFileSync(p, XLSX.write(wb, { bookType: "xlsx", type: "buffer" })); return p;
 }

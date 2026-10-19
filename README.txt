@@ -6,6 +6,14 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.40.0 [PREVIEW feature/co-trainers] Trainers: co-trained sessions + duplicate-session warning
+  - Co-trained sessions = ONE tracker row with every trainer in the Trainer cell, e.g.
+    "DOE, John / ROE, Jane" (separators: /  ;  &  +  line break  " and " — never a comma, names are
+    "LASTNAME, Firstname"). Leaderboard, trainer table and trainer profile credit each trainer with the session and its
+    shared NPS / trainer score ("co-trained · with …"); totals (trainings, hours, respondents) count the session once.
+    Add session has a Co-trainer field. Rows with the same date, school, course and start time are flagged as
+    "Possible duplicate sessions" with their Excel row numbers (e.g. one row per co-trainer) — nothing is changed.
+
 UPDATE — 2026-10-19 — v1.39.0 [PREVIEW feature/gdap-xlsx] GDAP mapping as .xlsx · Trainers load from the linked folder
   - GDAP mapping can be an Excel workbook: a file named like GDAP.xlsx / GranularAdministerRelationship.xlsx with
     "Name" and "Microsoft ID" columns (any sheet, header in the first 10 rows) turns the gdap pill green and pre-fills
@@ -35,9 +43,9 @@ UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: no more o
   - Sessions that already have a score are left out of "Generate" ("Already scored", with where the score came
     from); tick "Replace existing score" to overwrite. The write confirm shows old → new for every replaced row.
   - A renamed copy of a file in the list isn't added twice.
-  - Real filename formats are read: "05072026 - AM - HCCCI(1-44)", "Nov. 28, 2025 [SGA] - Microsoft 36";
+  - Real filename formats are read: "05072026 - AM - MRCWI(1-44)", "Nov. 28, 2025 [BPA] - Microsoft 36";
     the filename date wins over the answer date. Same-day sessions are told apart by the answers' times
-    (AM/PM) and labelled with time and row. School picks are remembered (e.g. SGA → Saint Garnet Academy).
+    (AM/PM) and labelled with time and row. School picks are remembered (e.g. BPA → Bright Path Academy).
 
 UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: trainer tiles, courses conducted, trainer profile
   - Summary report tiles: Trainers active · Trainings conducted · Training hours · Courses delivered (most conducted
@@ -52,7 +60,7 @@ UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: trainer t
 UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: add many eval files at once
   - "Add eval exports (.xlsx)…" now takes one or many files (Ctrl/Shift-click), or drop them on the card.
     They go to an "Eval files" list; each file is matched to its session from the filename (date · AM/PM ·
-    school, school acronyms like SPC → St. Pine College) or its answer dates. Unclear files are left for you:
+    school, school acronyms like SPC → Summit Point College) or its answer dates. Unclear files are left for you:
     pick from the list, "Pick in the session list…", or "Add as a new session…".
   - "Generate N matched files" scores them all; two files on one session are held back. Then one
     "Write to tracker" writes every session. Each file shows Generated / Written with a View link.
@@ -146,7 +154,7 @@ UPDATE — 2026-10-19 — v1.37.0 [PREVIEW feature/mos] MOS: import the Certipor
   - Export + PDFs together: a row and a PDF page with the same Exam reference # are one attempt — the
     export adds proctor / station / time, the PDF adds the skill areas and the Exam No. from its file name.
   - Batch: the Exam No. from the PDF file name when there is one, otherwise an automatic code per school and
-    exam day, e.g. SSPCEM-20261015-01 (school acronym + date). Filter "Exam No. / batch".
+    exam day, e.g. SSPCLM-20261015-01 (school acronym + date). Filter "Exam No. / batch".
   - New: Proctor filter, "Group by" for the summary table and the comparison chart (section, school,
     proctor, exam, batch), Proctor column, proctor / station / time used in the student history and export.
   - "In Progress" rows (no score yet) are shown with their own status and are NOT counted as fails or in
@@ -782,7 +790,7 @@ UPDATE — 2026-09-18 — Neutral wording for Security Defaults ("Not Enabled"):
 UPDATE — 2026-09-18 — Chart labels + storage detail follows the quarter filter:
   - Bar charts now show EVERY column's category label. Long, rotated names (e.g. on
     "O365 Active by Organization") were being silently dropped by the chart library
-    when they got crowded — ORGRCA, ORGSPC, EASTFED, ORGFED and others went unlabeled.
+    when they got crowded — ORG-A, ORG-B, ORG-C, ORG-D and others went unlabeled.
     All labels are now forced on across every bar chart in the app.
   - The "Per-Tenant Storage Detail" (its KPIs + "Storage Composition vs Capacity")
     now follows the Q1–Q4 filter. Before, it always showed the latest quarter's
@@ -797,8 +805,8 @@ UPDATE — 2026-09-18 — "By Organization" charts no longer dump into "Unspecif
     blank for 168 of its 436 rows, and this one chart grouped by that blank cell alone
     instead of falling back to the school's known organization (the way every other
     view already does). All 168 blank-org rows are in fact resolvable, so "Unspecified"
-    now disappears and those users land under their real orgs (Ashford, ORGALC, EASTFED,
-    ORGLSA, …).
+    now disappears and those users land under their real orgs (ORG-E, ORG-F, ORG-C,
+    ORG-G, …).
   - Applied the same organization fallback to the two sibling charts — "Risky Users by
     Organization" and "Health by Organization" — so the identical bug can't surface
     there either.
@@ -823,7 +831,7 @@ UPDATE — 2026-09-18 — Counting-accuracy fixes + storage parsing:
   - Storage "Used" now reads a FOURTH estimate: the used figure on the left of the
     USAGE cell ("1.35 TB of 100.15 TB used"), which carries its own explicit unit.
     With four independent readings the median can out-vote a mislabeled cell instead
-    of being stuck between two. Concretely — Our Lady of Maplewood Minor Seminary Q2,
+    of being stuck between two. Concretely — Sample Minor Seminary Q2,
     whose "current storage" cell says "1.35 GB" but means 1.35 TB, read as 0.68 TB
     and now reads the correct 1.35 TB. Q2 storage rises 171.11 TB -> 171.79 TB.
   - Where only TWO estimates exist and they disagree by more than 25%, the app no
@@ -857,7 +865,7 @@ UPDATE — 2026-09-17 — Google Postmaster tab fixed + name spelling repair:
     from the tracker's own Status + Reputation columns — no separate file needed.
   - The "Cloudflare DNS" card shows a short note when a workbook has no DNS column
     (that data ships only with the standalone Postmaster export).
-  - Fixed a school-name spelling glitch: "St. Vincent University - Villa SeÃ±ora" now
+  - Fixed a school-name spelling glitch: "Northfield University - Villa SeÃ±ora" now
     renders correctly as "Villa Señora" everywhere (a text-encoding repair). The Data
     Quality tab also flags any such source names so the tracker itself can be cleaned.
 
@@ -910,7 +918,7 @@ UPDATE — 2026-09-17 — Storage data integrity + Domain Status scoping:
   - Storage "Used" is now the MEDIAN of three source estimates — the "current storage"
     text, the "Used Storage(GB)" column, and OneDrive+Exchange+SharePoint. The median
     ignores a single corrupt cell in EITHER direction:
-      · Our Lady of Westbrook Q1 — mislabeled Exchange "168.83 TB" (should be GB) no longer
+      · Sample Lady School Q1 — mislabeled Exchange "168.83 TB" (should be GB) no longer
         inflates Used to 172.6 TB; now correctly 3.89 TB.
       · Dr Sample's Q2 — "Used Storage(GB)" typo 1250 (should be 12500) now reads 12.5 TB.
   - Capacity (Pooled) guarded against impossible values (7–8 digit Q3 totals); Utilization
@@ -940,7 +948,7 @@ UPDATE — 2026-09-14 — Multi-quarter filter, Postmaster, risk & data-quality 
     point, green = Enabled / red = Disabled, with an Enabled/Disabled filter.
   - Terminology: "No Access" → "Not Managed" across every report.
   - Domain Status reconciled so every in-scope tenant lands in exactly one status bucket.
-  - Organization casing auto-merged (e.g. Northbay → NORTHBAY, Government → GOVERNMENT).
+  - Organization casing auto-merged (e.g. Orgalpha → ORGALPHA, Government → GOVERNMENT).
   - Tenant Management classification (GDAP-based: Managed / access-only / Not Connected /
     not onboarded).
   - Per-tenant drill-downs on Office 365 Usage and Storage (click a Top-10 bar or pick a

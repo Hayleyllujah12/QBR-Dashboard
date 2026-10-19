@@ -174,9 +174,9 @@ styles, single-tab print rule for `dash-scan`, deck exclusion like Asset 360.
 - The synthetic fixture is redacted-shape only; drop in the real workbook and the same
   parsers apply (header-pattern based, column-order free).
 
-## v1.2 — 2026-10-04 — scanner hardened against Robin's real label photos
+## v1.2 — 2026-10-04 — scanner hardened against the owner's real label photos
 
-Robin supplied 10 CamScanner photos of ThinkPad E14 Gen 6 box labels and asked
+The owner supplied 10 CamScanner photos of ThinkPad E14 Gen 6 box labels and asked
 why the QBR Scan page couldn't extract serials like his standalone extractor.
 
 Findings from a Node test harness (real vendored Tesseract files + real
@@ -184,7 +184,7 @@ Findings from a Node test harness (real vendored Tesseract files + real
 - The scans' 1D barcodes are undecodable: CamScanner downsampling destroyed the
   thin bars (verified visually + ZXing fails on tight crops). Native
   BarcodeDetector may do slightly better in-browser, but OCR is the reliable
-  path for these images — matching what Robin's standalone showed (its serials
+  path for these images — matching what the owner's standalone showed (its serials
   came from OCR; its Raw Barcodes column was empty).
 - Vendored Tesseract OCR reads the labels fine; `scanParseOCRText` got 9/10
   serials exactly right. One tilted photo misread chars (PF62P5LJ -> PFe2P5LU);
@@ -209,13 +209,13 @@ Fixes in `js/scan.js` (all covered by 15 passing Node assertions):
 - `scanMergeFindings(barcodes, parsed, ocrText)` takes the raw OCR text as a
   third arg; call site in `QBR.scanImage` updated.
 
-Reminder for Robin: OCR needs the app served over http(s) (Web Workers are
+Reminder: OCR needs the app served over http(s) (Web Workers are
 blocked on file://) — `python3 -m http.server` locally or the Azure Static Web
 App. Barcode-only mode remains the graceful fallback with an on-page note.
 
 ## v1.3 — 2026-10-04 — quick serial lookup on the Inventory page
 
-Robin asked for a Search feature to look up info by serial number. The page
+The owner asked for a Search feature to look up info by serial number. The page
 only had a table filter ("Search serial") with no direct jump.
 - New "Look up asset" row in the Inventory actions area: type/paste a serial,
   Enter or Open. Exact or single-substring match jumps straight to Asset 360;

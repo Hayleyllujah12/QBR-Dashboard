@@ -1,6 +1,6 @@
 /* RCT OpsDesk — GDAP mapping (js/gdap.js)
  *
- * Loads Robin's GranularAdministerRelationship mapping: .xlsx/.xlsm (v1.39.0) or the
+ * Loads the owner's GranularAdministerRelationship mapping: .xlsx/.xlsm (v1.39.0) or the
  * legacy .csv (headers: Name, Microsoft ID), and maps an audit school name -> tenant ID for script tenant pre-fill.
  * The file never leaves the browser: parsed rows are kept in localStorage.
  */
