@@ -71,11 +71,27 @@
     o.parsed = parseLog(o.bytes);
     C.log = o;
   }
-  async function openLogHandle(h, dirId, where) {
-    var f = await h.getFile();
+  /* OneDrive / sync tools touch a file right after it is written: a File snapshot taken a moment earlier then
+   * fails with NotReadableError ("…permission problems that have occurred after a reference to a file was
+   * acquired"). Take a fresh snapshot and retry a few times before giving up. */
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  async function readHandle(h, tries) {
+    tries = tries || 6;
+    for (var i = 0; ; i++) {
+      try { var f = await h.getFile(); return { file: f, bytes: new Uint8Array(await f.arrayBuffer()) }; }
+      catch (e) {
+        var busy = e && (e.name === "NotReadableError" || e.name === "InvalidStateError" || e.name === "NoModificationAllowedError");
+        if (!busy || i >= tries - 1) throw e;
+        await sleep(250 * (i + 1));
+      }
+    }
+  }
+  C._readHandle = readHandle;
+  async function openLogHandle(h, dirId, where, knownBytes) {
+    var rd = knownBytes ? { file: null, bytes: knownBytes } : await readHandle(h);
     var perm = "prompt";
     try { perm = await h.queryPermission({ mode: "readwrite" }); if (perm !== "granted") perm = await h.requestPermission({ mode: "readwrite" }); } catch (e) {}
-    useLog({ name: f.name, where: where || f.name, handle: h, dirId: dirId || "", writable: perm === "granted", bytes: new Uint8Array(await f.arrayBuffer()) });
+    useLog({ name: (rd.file && rd.file.name) || h.name || LOG_NAME, where: where || h.name, handle: h, dirId: dirId || "", writable: perm === "granted", bytes: rd.bytes });
   }
   async function pickLog() {
     if (typeof window.showOpenFilePicker === "function") {
@@ -95,18 +111,40 @@
     inp.click();
   }
   function folders() { try { return QBR.fsFolderList ? QBR.fsFolderList() : []; } catch (e) { return []; } }
-  function currentFolder() { var l = folders(); return l.filter(function (d) { return d.id === C.folderId; })[0] || l[0] || null; }
+  // Which linked folder the certificates live in: the one you chose (remembered — a folder id, no student data),
+  // else a folder whose name looks like the MOS / certificates folder, else the first one.
+  var FOLDER_KEY = "qbr-mos-cert-folder";
+  function remember(id) { try { localStorage.setItem(FOLDER_KEY, id); } catch (e) {} }
+  function currentFolder() {
+    var l = folders(), saved = ""; try { saved = localStorage.getItem(FOLDER_KEY) || ""; } catch (e) {}
+    var by = function (id) { return id ? l.filter(function (d) { return d.id === id; })[0] : null; };
+    return by(C.folderId) || by(saved) || l.filter(function (d) { return /mos|certif|microsoft office specialist|course/i.test(d.name); })[0] || l[0] || null;
+  }
+  function setFolder(id) {
+    if (C.log && C.log.dirId && C.log.dirId !== id && !C.log.dirty) C.log = null;   // that folder's own log is found on the next load
+    C.folderId = id; remember(id);
+  }
+  async function chooseFolder() {
+    if (!QBR.fsFolderPickOnly) return;
+    var id = await QBR.fsFolderPickOnly();
+    if (!id) return;
+    setFolder(id);
+    await loadFromFolder();
+  }
   async function createLog() {
     var d = currentFolder(), dir = d && QBR.fsFolderDir ? await QBR.fsFolderDir(d.id, { ask: true }) : null;
     if (dir) {
       var h = null;
       try { h = await dir.getFileHandle(LOG_NAME); } catch (e) { h = null; }      // already there → use it
+      var made = null;
       if (!h) {
         h = await dir.getFileHandle(LOG_NAME, { create: true });
-        var w = await h.createWritable(); await w.write(newLogBytes()); await w.close();
+        made = newLogBytes();
+        var w = await h.createWritable(); await w.write(made); await w.close();
       }
-      C.folderId = d.id;
-      await openLogHandle(h, d.id, d.name + "/" + LOG_NAME);
+      C.folderId = d.id; remember(d.id);
+      // just written → use those bytes (reading it back can hit OneDrive touching the new file)
+      await openLogHandle(h, d.id, d.name + "/" + LOG_NAME, made);
       return;
     }
     // no folder access (other browsers): the log lives in this tab; "Download log" saves it
@@ -182,7 +220,15 @@
     C.busy = true; msg("Saving to " + C.log.name + "…");
     try {
       var bytes = C.log.bytes;
-      if (C.log.handle) { try { var f = await C.log.handle.getFile(); bytes = new Uint8Array(await f.arrayBuffer()); } catch (e) {} }   // latest copy (Excel / OneDrive edits kept)
+      if (C.log.handle) {                         // latest copy (Excel / OneDrive edits kept)
+        try { bytes = (await readHandle(C.log.handle)).bytes; }
+        catch (e) {
+          if (!(e && e.name === "NotFoundError")) {
+            window.alert("Couldn't read the latest " + C.log.name + " (OneDrive may still be syncing it). Nothing was changed — try again in a moment.");
+            return false;
+          }
+        }
+      }
       var out = await applyOps(bytes, ops);
       var saved = false;
       if (C.log.handle && C.log.writable) {
@@ -280,9 +326,12 @@
           : '<span class="badge bg-warning text-dark">not linked to a file — changes stay in this tab</span> <button type="button" class="btn btn-outline-primary btn-sm" data-mc="download">Download log</button>');
     } else h += '<span class="text-muted">No certificate log yet — generated / printed status is kept in <b>' + LOG_NAME + "</b>.</span> " +
       '<button type="button" class="btn btn-outline-primary btn-sm" data-mc="open-log">Open log…</button> <button type="button" class="btn btn-outline-secondary btn-sm" data-mc="create-log">Create log…</button>';
-    if (fs) h += ' <button type="button" class="btn btn-primary btn-sm" data-mc="folder" title="Find certificate PDFs (folders and files with “Certificate” in the name, up to 6 levels deep) and the log in ' +
-      esc(cf ? cf.name : "a folder you pick") + '">📁 ' + (fl.length ? "Load from folder" : "Open folder…") + "</button>" +
-      (fl.length > 1 ? ' <select class="form-select form-select-sm d-inline-block w-auto" data-mc="folder-pick" aria-label="Folder">' + fl.map(function (d) { return '<option value="' + esc(d.id) + '"' + (cf && cf.id === d.id ? " selected" : "") + ">" + esc(d.name) + "</option>"; }).join("") + "</select>" : "");
+    if (fs) h += '<div class="mos-cert-folder"><span class="small text-muted">Certificates folder</span> ' +
+      (fl.length > 1 ? '<select class="form-select form-select-sm d-inline-block w-auto" data-mc="folder-pick" aria-label="Certificates folder">' + fl.map(function (d) { return '<option value="' + esc(d.id) + '"' + (cf && cf.id === d.id ? " selected" : "") + ">📁 " + esc(d.name) + "</option>"; }).join("") + "</select>"
+        : cf ? "<b>📁 " + esc(cf.name) + "</b>" : '<span class="small text-muted">none linked yet</span>') +
+      ' <button type="button" class="btn btn-outline-secondary btn-sm" data-mc="folder-choose" title="Pick the MOS folder (e.g. the course folder with the school folders). It is remembered and kept with your other linked folders.">' + (fl.length ? "Link another folder…" : "Choose folder…") + "</button>" +
+      ' <button type="button" class="btn btn-primary btn-sm" data-mc="folder"' + (cf ? "" : " disabled") + ' title="Find certificate PDFs (folders and files with “Certificate” in the name, up to 6 levels deep) and the log in ' +
+      esc(cf ? cf.name : "the folder") + '">Load certificates</button></div>';
     h += "</div>";
     if (notIn) h += '<div class="mos-cert-pend"><span><b>' + plural(notIn, "certificate") + "</b> loaded here " + (notIn === 1 ? "is" : "are") + " not in the log yet (newly generated).</span>" +
       '<button type="button" class="btn btn-primary btn-sm" data-mc="add-log">Add to log</button></div>';
@@ -401,7 +450,7 @@
   async function loadFromFolder() {
     if (C.busy) return;
     var list = folders();
-    if (!list.length) { var id = QBR.fsFolderPickOnly ? await QBR.fsFolderPickOnly() : null; if (!id) return; C.folderId = id; }
+    if (!list.length) { var id = QBR.fsFolderPickOnly ? await QBR.fsFolderPickOnly() : null; if (!id) return; setFolder(id); }
     var d = currentFolder(); if (!d) return;
     C.busy = true; msg("Scanning " + d.name + " for certificate PDFs…");
     try {
@@ -414,17 +463,22 @@
         prefer: function (n) { return /certif/i.test(n); }
       });
       if (!res) { msg("The folder wasn't allowed — nothing was read."); return; }
-      C.folderId = d.id;
+      C.folderId = d.id; remember(d.id);
       var logs = res.files.filter(function (x) { return /\.xlsx$/i.test(x.name); }).sort(function (a, b) { return a.rel.length - b.rel.length; });
       if (logs.length && !C.log) await openLogHandle(logs[0].handle, d.id, d.name + "/" + logs[0].rel.join("/"));
       var pdfs = res.files.filter(function (x) { return /\.pdf$/i.test(x.name); }), fl = [];
       for (var i = 0; i < pdfs.length; i++) {
-        try { var fo = await pdfs[i].handle.getFile(); try { fo._path = d.name + "/" + pdfs[i].rel.join("/"); } catch (e) {} fl.push(fo); } catch (e) {}
+        try { var fo = (await readHandle(pdfs[i].handle)).file; try { fo._path = d.name + "/" + pdfs[i].rel.join("/"); } catch (e) {} fl.push(fo); } catch (e) {}
       }
       var before = (M() || { certs: [] }).certs.length;
       C.busy = false;
       if (fl.length && QBR.mos && QBR.mos.addCertFiles) await QBR.mos.addCertFiles(fl);
       var added = (M() || { certs: [] }).certs.length - before;
+      if (!pdfs.length && !logs.length) {
+        msg("📁 " + d.name + ": no certificate PDFs and no log found (" + res.scanned.toLocaleString() + " items in " + plural(res.folders, "folder") +
+          "). Is this the MOS folder? Use “Link another folder…” to pick the one with the school folders.");
+        return;
+      }
       msg("📁 " + d.name + ": " + plural(pdfs.length, "certificate PDF") + " · " + plural(added, "new certificate") +
         (logs.length ? " · log: " + logs[0].rel.join("/") : " · no log in this folder yet") +
         " · " + res.scanned.toLocaleString() + " items in " + res.folders.toLocaleString() + " folders scanned" +
@@ -445,7 +499,7 @@
       var t = e.target, a = t.getAttribute && t.getAttribute("data-mc");
       if (a === "sel") { C.sel[t.getAttribute("data-code")] = t.checked; render(); }
       else if (a === "sel-all") { items().filter(function (i) { return inScope(i, false) && i.kind !== "nocert"; }).slice(0, C.limit).forEach(function (i) { C.sel[i.code] = t.checked; }); render(); }
-      else if (a === "folder-pick") { C.folderId = t.value; }
+      else if (a === "folder-pick") { setFolder(t.value); render(); }
       else if (a === "link") {
         var code = t.getAttribute("data-code"), v = t.value; if (!v) return;
         C.links[code] = v;
@@ -458,6 +512,7 @@
       var b = e.target.closest && e.target.closest("button[data-mc]"); if (!b) return;
       var a = b.getAttribute("data-mc"), code = b.getAttribute("data-code");
       if (a === "folder") loadFromFolder();
+      else if (a === "folder-choose") chooseFolder();
       else if (a === "open-log") pickLog();
       else if (a === "create-log") createLog().then(render, function (er) { window.alert("Could not create the log: " + (er && er.message || er)); });
       else if (a === "download") { if (C.log) { download(C.log.bytes, C.log.name); C.log.dirty = false; } }

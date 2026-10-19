@@ -40,10 +40,15 @@ async function fresh(browser) {
     const bin = b => { const s = atob(b), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
     window.__w = 0;
     function file(name, bytes) {
-      const h = { kind: "file", name, bytes,
-        getFile: async () => new File([h.bytes], name, { lastModified: 1767225600000 }),
+      // flaky: like OneDrive touching a file right after it was written — the next snapshots fail NotReadableError
+      const h = { kind: "file", name, bytes, flaky: 0,
+        getFile: async () => {
+          const f = new File([h.bytes], name, { lastModified: 1767225600000 });
+          if (h.flaky > 0) { h.flaky--; window.__flakyHits = (window.__flakyHits || 0) + 1; return { name, size: f.size, lastModified: f.lastModified, arrayBuffer: async () => { throw new DOMException("The requested file could not be read", "NotReadableError"); } }; }
+          return f;
+        },
         queryPermission: async () => "granted", requestPermission: async () => "granted",
-        createWritable: async () => { let buf = null; return { write: async b => { buf = new Uint8Array(b.buffer ? b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) : b); }, close: async () => { h.bytes = buf; window.__w++; }, abort: async () => {} }; } };
+        createWritable: async () => { let buf = null; return { write: async b => { buf = new Uint8Array(b.buffer ? b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) : b); }, close: async () => { h.bytes = buf; h.flaky = 2; window.__w++; }, abort: async () => {} }; } };
       return h;
     }
     function dir(name, t) {
@@ -54,10 +59,15 @@ async function fresh(browser) {
         getFileHandle: async (n, o) => { if (kids[n]) return kids[n]; if (!(o && o.create)) { const e = new Error("not found"); e.name = "NotFoundError"; throw e; } return (kids[n] = file(n, new Uint8Array(0))); } };
     }
     window.__root = window.__root || dir("MOS Courses", T["MOS Courses"]);
+    // the dashboard's own workbook folder is linked first (the reported case): no certificates in it
+    window.__wbRoot = dir("Dashboard workbooks", { "Tracker.xlsx": "UEsDBA==", "Inventory": { "Lenovo.xlsx": "UEsDBA==" } });
+    window.__folders = window.__folders || [{ id: "d0", name: "Dashboard workbooks", state: "granted" }];
+    const rootOf = id => id === "d1" ? window.__root : window.__wbRoot;
     QBR.fsFolderSupported = () => true;
-    QBR.fsFolderList = () => [{ id: "d1", name: "MOS Courses", state: "granted" }];
-    QBR.fsFolderFiles = async (id, opts) => { window.__scanOpts = { depth: opts.maxDepth }; return QBR._fsScanFiles(window.__root, opts); };
-    QBR.fsFolderDir = async () => window.__root;
+    QBR.fsFolderList = () => window.__folders.slice();
+    QBR.fsFolderPickOnly = async () => { if (!window.__folders.some(f => f.id === "d1")) window.__folders.push({ id: "d1", name: "MOS Courses", state: "granted" }); return "d1"; };
+    QBR.fsFolderFiles = async (id, opts) => { window.__scanOpts = { depth: opts.maxDepth, id }; return QBR._fsScanFiles(rootOf(id), opts); };
+    QBR.fsFolderDir = async id => rootOf(id);
     try { localStorage.setItem("qbr-mos-printedby", "Tester One"); } catch (e) {}
   }, T);
   await page.click('[data-tab="dash-mos"]'); await page.waitForTimeout(300);
@@ -82,9 +92,13 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   await page.waitForFunction(() => QBR.mos._state().model && !QBR.mos._state().busy, null, { timeout: 30000 });
   await page.fill("#mos-school-in", "Sample Academy"); await page.setInputFiles("#mos-pdf", PDFS("02 - Sample Academy"));
   await page.waitForFunction(() => !QBR.mos._state().busy && QBR.mos._state().files.length === 3, null, { timeout: 30000 });
-  await page.click('[data-mos-view="certs"]'); await page.waitForTimeout(200);
-  await page.click('[data-mc="folder"]');
+  await page.click('.mos-viewbar [data-mos-view="certs"]'); await page.waitForTimeout(200);
+  ok(/Dashboard workbooks/.test(await page.textContent(".mos-cert-folder")), "certificates folder shown (only the dashboard workbook folder is linked)");
+  await page.click('[data-mc="folder"]'); await page.waitForFunction(() => !QBR.mosCerts._state.busy && /Is this the MOS folder/.test(QBR.mosCerts._state.msg), null, { timeout: 10000 }).catch(() => {});
+  ok(/no certificate PDFs and no log found/.test(await page.evaluate(() => QBR.mosCerts._state.msg)), "wrong folder → says nothing was found and how to link the MOS folder (was: silent refresh)");
+  await page.click('[data-mc="folder-choose"]');
   await page.waitForFunction(() => QBR.mos._state().certs.length >= 4 && !QBR.mosCerts._state.busy, null, { timeout: 30000 });
+  ok(await page.evaluate(() => window.__scanOpts.id === "d1" && localStorage.getItem("qbr-mos-cert-folder") === "d1") && await page.$('select[data-mc="folder-pick"]'), "“Link another folder…” links the MOS folder, loads it, remembers it, and a picker lists both");
   await page.waitForTimeout(300);
   const st = await page.evaluate(() => ({ n: QBR.mos._state().certs.length, dup: QBR.mos._state().certDupPages, files: QBR.mos._state().certs.map(c => c.fileName), msg: QBR.mosCerts._state.msg, d: window.__scanOpts.depth }));
   ok(st.n === 4 && st.dup === 1, "deep scan: 4 certificates found (4 folders below the linked folder), repeated page ignored");
@@ -101,6 +115,7 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   await page.waitForFunction(() => window.__w >= 2, null, { timeout: 10000 });   // created + saved
   await page.waitForTimeout(300);
   let L = await logRows(page);
+  ok(await page.evaluate(() => (window.__flakyHits || 0) >= 2), "OneDrive-style unreadable snapshots after a write were retried (no error)");
   ok(L && L.length === 1 && row(L, "a1b2-C3d4").Printed === "Yes" && row(L, "a1b2-C3d4")["Print Count"] === "1" && row(L, "a1b2-C3d4")["Printed By"] === "Tester One", "Mark printed (no log yet) → MOS Certificate Log.xlsx created in the folder; Printed Yes · count 1 · printed by");
   ok(row(L, "a1b2-C3d4")["Linked Exam Ref #"] === "90000001" && /Certificates SY 25-26/.test(row(L, "a1b2-C3d4")["Source File"]), "log row keeps the linked Exam ref # and the source file path");
   ok(/saves in place/.test(await page.textContent(".mos-certlog")), "log bar: saves in place");
@@ -155,6 +170,7 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   await page.evaluate((t) => {
     const mk = (name, tt) => { const kids = {}; Object.keys(tt).forEach(k => { kids[k] = typeof tt[k] === "string" ? (() => { const s = tt[k], u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); const h = { kind: "file", name: k, bytes: u, getFile: async () => new File([h.bytes], k), queryPermission: async () => "granted", requestPermission: async () => "granted", createWritable: async () => ({ write: async () => {}, close: async () => {} }) }; return h; })() : mk(k, tt[k]); }); return { kind: "directory", name, kids, values: async function* () { for (const k of Object.keys(kids)) yield kids[k]; }, getFileHandle: async n => kids[n] }; };
     window.__root = mk("MOS Courses", t);
+    window.__folders = [{ id: "d0", name: "Dashboard workbooks", state: "granted" }, { id: "d1", name: "MOS Courses", state: "granted" }];
   }, rootTree);
   await page.evaluate(() => { const s = QBR.mos._state(); s.view = "certs"; });
   // open the log through the folder scan, without loading certificate PDFs: remove them from the tree first
@@ -165,6 +181,7 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   k = await kpis(page);
   ok(k["Generated"] === "4" && k["Printed"] === "2" && k["Pending print"] === "2", "new session, log only: 4 generated · 2 printed · 2 pending " + JSON.stringify(k));
   ok(/4 certificates · 2 printed/.test(await page.textContent(".mos-certlog")), "log bar counts from the workbook");
+  ok(await page.evaluate(() => window.__scanOpts.id === "d1"), "with two linked folders, the MOS-named one is used by default");
   ok(!page._errs.length, "no page errors (H) " + page._errs.join(" | "));
   await page.close();
 
