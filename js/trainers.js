@@ -1396,6 +1396,32 @@
     }
     return out;
   }
+  /* Paper layout, decided from the content: side-by-side cards stay together only while both are
+   * short; a row holding a long table is stacked and allowed to run across pages (a flex row can't
+   * break across pages, so it was pushed whole to the next page and left the previous one half empty). */
+  var PRINT_KEEP_ROWS = 12;
+  function tableRows(el) {
+    var n = 0;
+    el.querySelectorAll("table").forEach(function (t) { n = Math.max(n, t.querySelectorAll("tbody tr").length); });
+    // a recommendation is ~4 lines on paper
+    return n + el.querySelectorAll(".tr-comment li").length + 4 * el.querySelectorAll(".tr-recs > li").length;
+  }
+  function layoutForPrint(doc) {
+    doc.querySelectorAll(".row").forEach(function (row) {
+      if (row.classList.contains("kpi-row")) return;
+      row.classList.add(tableRows(row) > PRINT_KEEP_ROWS ? "tr-p-stack" : "tr-p-pair");
+    });
+    doc.querySelectorAll(".card-box").forEach(function (c) {
+      // A card on its own may run on to the next page sooner (its header row repeats) than leave a gap.
+      var alone = !c.closest(".row.tr-p-pair");
+      c.classList.add(tableRows(c) > (alone ? 6 : PRINT_KEEP_ROWS) ? "tr-p-flow" : "tr-p-keep");
+    });
+    // Tiles: as many per row as fit on paper (5), fewer only when there are fewer tiles.
+    doc.querySelectorAll(".kpi-row").forEach(function (r) {
+      var n = r.children.length;
+      r.style.setProperty("--tr-tiles", String(n <= 4 ? n : n % 5 === 0 || n > 6 ? 5 : n === 6 ? 3 : 4));
+    });
+  }
   function printReport(srcId) {
     var src = $(srcId);
     if (!src) return false;
@@ -1406,6 +1432,7 @@
     doc.removeAttribute("id");
     doc.querySelectorAll("[id]").forEach(function (el) { if (el.tagName !== "CANVAS") el.removeAttribute("id"); });
     doc.querySelectorAll(".tr-noprint").forEach(function (el) { el.remove(); });
+    layoutForPrint(doc);
     doc.querySelectorAll("canvas").forEach(function (cv) {
       var url = imgs[cv.id];
       if (!url) { var wrap = cv.closest(".chart-wrap"); if (wrap) wrap.remove(); else cv.remove(); return; }

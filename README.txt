@@ -6,6 +6,11 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: PDFs use the page (summary, trainer profile, session)
+  - Printed reports lay themselves out from their content: 5 compact tiles per row; two cards stay side by side
+    only while both are short; long tables (schools, trainings without an eval, comments, recommendations)
+    run full width onto the next page with the header row repeated, instead of leaving half-empty pages.
+
 UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: no more overwriting encoded evals
   - New tracker column "Eval Source" (written with the scores): the eval file name + a fingerprint of its answers.
     Uploading that eval again later — any browser, even renamed — shows "Already encoded" on its row and is
