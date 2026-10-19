@@ -16,6 +16,12 @@ UPDATE — 2026-10-19 — v1.39.0 [PREVIEW feature/gdap-xlsx] GDAP mapping as .x
     "track") and the MS Forms eval exports (dated / "eval|feedback|form|survey" names, subfolders too) in it and loads
     them on its own — the tracker saves in place. Evals already encoded in the tracker are left out. New
     "📁 Load from folder" button re-reads it (or "📁 Open folder…" to pick one just for Trainers).
+  - Trainers: the Responses count is now written to the tracker (new "Responses" column) and read back — rows scored
+    earlier showed "—" after reopening because only NPS / Trainer Score were saved. Adding an eval that is already
+    encoded fills in its missing count (count only, scores untouched).
+  - Trainers: an eval written to a row before "Eval Source" existed is recognised by its exact scores on that date —
+    the file is pointed at that row (tick "Replace existing score" to record Eval Source + Responses there) and
+    "Add as a new session" asks first, so the same eval no longer ends up on two rows.
 
 UPDATE — 2026-10-19 — v1.38.0 [PREVIEW feature/trainers] Trainers: PDFs use the page (summary, trainer profile, session)
   - Printed reports lay themselves out from their content: 5 compact tiles per row; two cards stay side by side

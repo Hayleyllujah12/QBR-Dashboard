@@ -77,7 +77,8 @@
     nps: ["net promoter score", "nps"],
     trainerScore: ["trainer score"],
     id: ["session id", "sessionid"],
-    evalSource: ["eval source"]
+    evalSource: ["eval source"],
+    responses: ["responses", "no. of responses", "number of responses", "respondents", "response count"]
   };
   function findCol(header, names) {
     for (var i = 0; i < header.length; i++) {
@@ -108,6 +109,7 @@
       var nps = col.nps >= 0 ? numOrNull(row[col.nps]) : null;
       var tsc = col.trainerScore >= 0 ? numOrNull(row[col.trainerScore]) : null;
       var src = col.evalSource >= 0 ? norm(row[col.evalSource]) : "";
+      var resp = col.responses >= 0 ? numOrNull(row[col.responses]) : null;
       out.push({
         rowIdx: r, // 0-based sheet row (header = 0); write-back uses this
         evalSource: src, evalFp: fpOf(src),
@@ -118,7 +120,7 @@
         client: col.client >= 0 ? norm(row[col.client]) : "",
         timeStart: col.timeStart >= 0 ? timeOf(row[col.timeStart]) : null,
         timeEnd: col.timeEnd >= 0 ? timeOf(row[col.timeEnd]) : null,
-        nps: nps, trainerScore: tsc,
+        nps: nps, trainerScore: tsc, n: resp,
         status: (nps != null ? "scored" : "unscored")
       });
     }
@@ -320,13 +322,19 @@
     var npsCol = findCol(header, TRACKER_COLS.nps);
     var tsCol = findCol(header, TRACKER_COLS.trainerScore);
     var srcCol = findCol(header, TRACKER_COLS.evalSource);
+    var respCol = findCol(header, TRACKER_COLS.responses);
     var edits = [];
     sessions.forEach(function (s) {
       if (s.computed && (s.computed.nps != null || s.computed.trainerScore != null)) {
-        edits.push({ row: s.rowIdx, nps: s.computed.nps, trainerScore: s.computed.trainerScore, evalSource: s.computed.evalSource || "" });
+        edits.push({ row: s.rowIdx, nps: s.computed.nps, trainerScore: s.computed.trainerScore, evalSource: s.computed.evalSource || "",
+                     n: s.computed.n != null ? s.computed.n : null });
+      } else if (s.fillN != null && s.n == null) {
+        // v1.39.0: response count only (row already encoded from this eval, count never recorded)
+        edits.push({ row: s.rowIdx, nps: null, trainerScore: null, evalSource: "", n: s.fillN, countOnly: true });
       }
     });
-    return { edits: edits, npsCol: npsCol, trainerCol: tsCol, sourceCol: srcCol,
+    return { edits: edits, npsCol: npsCol, trainerCol: tsCol, sourceCol: srcCol, respCol: respCol,
+             addRespCol: respCol < 0 && edits.some(function (e) { return e.n != null; }),
              addNpsCol: npsCol < 0 && edits.some(function (e) { return e.nps != null; }),
              addTrainerCol: tsCol < 0 && edits.some(function (e) { return e.trainerScore != null; }),
              addSourceCol: srcCol < 0 && edits.some(function (e) { return e.evalSource; }) };
