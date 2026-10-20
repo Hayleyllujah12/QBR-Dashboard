@@ -290,3 +290,4 @@
 :root[data-qbr-fs] #dash-trainers .tr-quote{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-trainers .tr-comment ul{font-size:calc(13px * var(--fs-t,1));line-height:calc(20px * var(--fs-t,1))}
 :root[data-qbr-fs] .tr-item-v{font-size:calc(22px * var(--fs-h,1));line-height:calc(28px * var(--fs-t,1))}
+:root[data-qbr-fs] .mos-prev-cands h6{font-size:calc(14px * var(--fs-h,1))}

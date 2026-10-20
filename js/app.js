@@ -1908,12 +1908,15 @@ function renderDrTable(q) {
     const act = raw ? `<span class="${d.action ? "" : "text-muted"}" title="${escAttr(raw)}">${esc(short)}</span>` : "—";
     return `<tr><td>${esc(d.schoolRaw)}</td><td class="small">${esc(d.domain || "—")}
         ${d.domain ? `<br><button type="button" class="btn btn-link btn-sm p-0 dr-copy" data-domain="${escAttr(d.domain)}" title="Copy domain">Copy</button>` : ""}</td>
-      <td data-dr-edit="reg" data-dr-key="${escAttr(d.key)}" title="Click to edit registration date" style="cursor:pointer">${drDate(d.regMs)} <span class="text-muted">✎</span></td>
-      <td data-dr-edit="valid" data-dr-key="${escAttr(d.key)}" title="Click to edit validity (years)" style="cursor:pointer">${d.validYr ? d.validYr + (d.validYr === 1 ? " yr" : " yrs") : "—"} <span class="text-muted">✎</span></td>
+      <td data-dr-edit="reg" data-dr-key="${escAttr(drEditKey(d))}" title="Click to edit registration date" style="cursor:pointer">${drDate(d.regMs)} <span class="text-muted">✎</span></td>
+      <td data-dr-edit="valid" data-dr-key="${escAttr(drEditKey(d))}" title="Click to edit validity (years)" style="cursor:pointer">${d.validYr ? d.validYr + (d.validYr === 1 ? " yr" : " yrs") : "—"} <span class="text-muted">✎</span></td>
       <td>${drDate(d.expMs)}</td>
       <td class="text-end">${daysCell}</td><td>${badge}</td><td class="small">${act}</td></tr>`;
   }).join("") || '<tr><td colspan="8" class="text-muted">No domains match.</td></tr>';
 }
+
+/* One school can have several domains: the edit key is the record's position in the model (stable until the next load). */
+function drEditKey(d) { const i = ((APP.model && APP.model.domainreg) || []).indexOf(d); return i >= 0 ? "i" + i : d.key + "|" + (d.domain || ""); }
 
 /* Domain copy button */
 if (typeof document !== "undefined") document.addEventListener("click", function (e) {
