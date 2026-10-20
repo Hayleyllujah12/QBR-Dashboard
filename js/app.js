@@ -1906,11 +1906,24 @@ function renderDrTable(q) {
     const raw = d.action || d.remarks || "";
     const short = raw.length > 64 ? raw.slice(0, 61) + "…" : raw;
     const act = raw ? `<span class="${d.action ? "" : "text-muted"}" title="${escAttr(raw)}">${esc(short)}</span>` : "—";
-    return `<tr><td>${esc(d.schoolRaw)}</td><td class="small">${esc(d.domain || "—")}</td>
-      <td>${drDate(d.regMs)}</td><td>${drDate(d.expMs)}</td>
+    return `<tr><td>${esc(d.schoolRaw)}</td><td class="small">${esc(d.domain || "—")}
+        ${d.domain ? `<br><button type="button" class="btn btn-link btn-sm p-0 dr-copy" data-domain="${escAttr(d.domain)}" title="Copy domain">Copy</button>` : ""}</td>
+      <td data-dr-edit="reg" data-dr-key="${escAttr(d.key)}" title="Click to edit registration date" style="cursor:pointer">${drDate(d.regMs)} <span class="text-muted">✎</span></td>
+      <td data-dr-edit="valid" data-dr-key="${escAttr(d.key)}" title="Click to edit validity (years)" style="cursor:pointer">${d.validYr ? d.validYr + (d.validYr === 1 ? " yr" : " yrs") : "—"} <span class="text-muted">✎</span></td>
+      <td>${drDate(d.expMs)}</td>
       <td class="text-end">${daysCell}</td><td>${badge}</td><td class="small">${act}</td></tr>`;
-  }).join("") || '<tr><td colspan="7" class="text-muted">No domains match.</td></tr>';
+  }).join("") || '<tr><td colspan="8" class="text-muted">No domains match.</td></tr>';
 }
+
+/* Domain copy button */
+if (typeof document !== "undefined") document.addEventListener("click", function (e) {
+  var b = e.target && e.target.closest ? e.target.closest(".dr-copy") : null;
+  if (!b) return;
+  var t = b.getAttribute("data-domain") || "";
+  var done = function () { var o = b.textContent; b.textContent = "Copied!"; setTimeout(function () { b.textContent = o; }, 1200); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, done);
+  else { var ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch (x) {} ta.remove(); done(); }
+});
 
 /* ==================== EXECUTIVE REPORT ==================== */
 function renderReport() {
@@ -3065,6 +3078,7 @@ function initShell() {
   initStickyBars();
   if ($("app-version") && QBR.VERSION) $("app-version").textContent = "v" + QBR.VERSION;  // header ← single version constant
   wireFilters();   // once — the controls are static in index.html
+  if (window.QBR && QBR.domainEdit && QBR.domainEdit.wire) QBR.domainEdit.wire();  // domain registration inline edit
   const tb = $("btn-theme");
   if (tb) tb.addEventListener("click", () => setTheme(document.body.getAttribute("data-theme") === "dark" ? "light" : "dark"));
   $("file-input").addEventListener("change", e => { handleFiles(e.target.files); e.target.value = ""; });
