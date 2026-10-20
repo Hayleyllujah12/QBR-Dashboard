@@ -6,6 +6,10 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-21 — Domains & email › Domain registration: roomier layout
+  - The "Domain Registration & Expiration Status" table now uses the full page width (was squeezed beside the chart), so
+    school names, dates and remarks no longer wrap into tall rows. The "Registration Status" chart moved below it, full width.
+
 UPDATE — 2026-10-20 — v1.42.0 Admin › Reports: "report generated" stamp toggle + loading progress bars
   - Admin › Reports: new switch for the "Report generated" date & time on printed reports (Trainers reports, MOS Exam
     Summary, Export Deck cover, Export Images sheet). ON by default; OFF removes only the date and time, the "RCT OpsDesk"
