@@ -29,3 +29,4 @@ desktop.ini
 # Only the synthetic fixtures (tests/make-mos-fixture.py) are allowed.
 *.pdf
 !tests/mos-fixture/**/*.pdf
+!docs/guides/*.pdf

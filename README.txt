@@ -6,6 +6,11 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-20 — Docs: Trainers tab quick guide
+  - New docs/guides/Trainers_Tab_Quick_Guide.pdf (8 pages): open the tab, load the tracker + evaluations (or a linked
+    folder), confirm columns, match + generate, write to the tracker, add a training log (incl. co-trainer), and the
+    Sessions / Summary / Trainer profile reports with their PDF exports. Numbered screenshots use dummy data only.
+
 UPDATE — 2026-10-20 — v1.41.0 (patch, no version bump) MOS › Certificates: print from the tab
   - "Print selected (N)" next to "Mark selected as printed": every ticked certificate in ONE print window, one page
     per certificate (each rendered at ~300 DPI, fitted to the page in the certificate's own orientation), one print
