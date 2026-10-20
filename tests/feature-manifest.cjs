@@ -56,6 +56,7 @@ const F = [
   ["Domain registration edit (v1.41.0)", "js/domain-edit.js", ["QBR.domainEdit", "surgicalSave", "headerIndex", "Safety stop", "VALIDPD"]],
   ["Domain edit wired (v1.41.0)", "js/app.js", ["data-dr-edit", "drEditKey", "domainEdit.wire"]],
   ["MOS certificate preview (v1.41.0)", "js/mos-certs.js", ["previewCert", "mos-prev-canvas", "_mcWired"]],
+  ["MOS certificate printing (v1.41.0 patch)", "js/mos-certs.js", ["printCertItems", "print-sel", "preview-print", "preview-open", "selectableShown"]],
   ["Deep folder scan (v1.41.0)", "js/fsfolder.js", ["QBR.fsFolderFiles", "QBR.fsFolderDir", "scanFiles", "SKIP_DIRS"]],
   ["MOS certificates wired (v1.41.0)", "index.html", ["js/mos-certs.js"]],
   ["Trainers co-trainers (v1.40.0)", "js/trainers-parse.js", ["splitTrainers", "hasTrainer", "duplicateSessions", "byTrainer"]],

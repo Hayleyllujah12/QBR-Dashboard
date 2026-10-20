@@ -303,6 +303,9 @@
     return true;
   }
   var ORDER = { check: 0, pending: 1, nocert: 2, printed: 3 };
+  function byOrder(a, b) { return ORDER[a.status] - ORDER[b.status] || String(a.school).localeCompare(String(b.school)) || String(a.name).localeCompare(String(b.name)); }
+  // Rows the select-all checkbox acts on: exactly the rows on screen (same filter, sort and limit as render).
+  function selectableShown() { return items().filter(function (i) { return inScope(i, false); }).sort(byOrder).slice(0, C.limit).filter(function (i) { return i.kind !== "nocert"; }); }
 
   /* ---------------- render ---------------- */
   var BADGE = {
@@ -351,7 +354,7 @@
     var n = function (st) { return scope.filter(function (i) { return i.status === st; }).length; };
     var gen = scope.filter(function (i) { return i.kind !== "nocert"; }).length;
     var passed = scope.filter(function (i) { return i.attempt; }).length;
-    shown.sort(function (a, b) { return ORDER[a.status] - ORDER[b.status] || String(a.school).localeCompare(String(b.school)) || String(a.name).localeCompare(String(b.name)); });
+    shown.sort(byOrder);
     var f = C.f;
     var schools = uniq(all.map(function (i) { return i.school; })), nos = uniq(all.map(function (i) { return i.examNo; })), fams = uniq(all.map(function (i) { return P().examFamily(i.cert || i.family); }));
     var files = uniq(all.filter(function (i) { return i.kind === "cert" && i.status === "pending"; }).map(function (i) { return i.file; }));
@@ -377,6 +380,7 @@
       '<div class="card-box mt-3"><div class="mos-ch-head"><h6 class="mb-0">Certificates <span class="small text-muted fw-normal">· ' + plural(shown.length, "row") + "</span></h6>" +
         '<div class="d-flex flex-wrap gap-2 align-items-center">' +
         '<button type="button" class="btn btn-primary btn-sm" data-mc="mark-sel"' + (selN ? "" : " disabled") + ">Mark selected as printed" + (selN ? " (" + selN + ")" : "") + "</button>" +
+        '<button type="button" class="btn btn-outline-primary btn-sm" data-mc="print-sel"' + (!selN ? " disabled" : "") + ">Print selected" + (selN ? " (" + selN + ")" : "") + "</button>" +
         (files.length ? '<select class="form-select form-select-sm d-inline-block w-auto" data-mc="file-pick" aria-label="Certificate file">' + files.map(function (x) { return '<option value="' + esc(x) + '">' + esc(x.split("/").pop()) + "</option>"; }).join("") + "</select>" +
           '<button type="button" class="btn btn-outline-primary btn-sm" data-mc="mark-file">Mark file as printed</button>' : "") +
         "</div></div>" +
@@ -387,6 +391,16 @@
       "</tbody></table></div>" + (shown.length > C.limit ? '<button type="button" class="btn btn-link btn-sm" data-mc="more">Show more (' + (shown.length - C.limit) + ")</button>" : "") + "</div>";
     host.innerHTML = h;
     wire(host);
+    // Sync the header select-all checkbox with the real selection (it is recreated
+    // unchecked on every render otherwise): checked = all shown selected,
+    // indeterminate = some shown selected.
+    var sa = host.querySelector('[data-mc="sel-all"]');
+    if (sa) {
+      var elig = selectableShown();
+      var onN = elig.filter(function (i) { return C.sel[i.code]; }).length;
+      sa.checked = elig.length > 0 && onN === elig.length;
+      sa.indeterminate = onN > 0 && onN < elig.length;
+    }
   }
   function rowHTML(it) {
     var b = BADGE[it.status], v = it.log || {};
@@ -423,6 +437,103 @@
       '<td><span class="risk-badge ' + b[0] + '">' + b[1] + "</span></td>";
   }
 
+  /* ---------------- print certificates (300 DPI, one dialog) ---------------- */
+  // Each certificate page is rendered at scale 3 (~300 DPI) IN THIS PAGE, then all of them
+  // print from ONE hidden same-origin frame, so one or many certificates = one print dialog.
+  // ROOT CAUSE of the "Rendering 1 of 1…" → "render timed out (30s)" bug: a pdf.js render with the
+  // default intent ("display") schedules every step with requestAnimationFrame, and a background tab
+  // never runs rAF. The old print window opened as a new tab in front, so this tab went to the
+  // background and the render froze. Fix: render with intent "print" (pdf.js then continues with
+  // microtasks, no rAF — also the right intent for printing), and print from a hidden frame in this
+  // page instead of a pop-up, so switching tabs mid-batch can't stall it and no pop-up permission is needed.
+  // (Printing the raw PDF inside a frame is blocked cross-origin on file://; "Open original
+  // PDF" in the preview stays the true-original path.) Progress + errors show in an overlay.
+  var RENDER_TIMEOUT = 30000;
+  function printOverlay() {
+    var o = document.getElementById("mos-print-prog");
+    if (!o) {
+      o = document.createElement("div"); o.id = "mos-print-prog"; o.className = "mos-print-prog"; o.setAttribute("role", "status"); o.setAttribute("aria-live", "polite");
+      o.innerHTML = '<span class="mos-print-txt"></span> <button type="button" class="btn btn-sm btn-outline-secondary" data-mc-print="cancel">Cancel</button>';
+      document.body.appendChild(o);
+    }
+    return o;
+  }
+  function withTimeout(task, ms) {
+    var t;
+    return Promise.race([task.promise, new Promise(function (res, rej) { t = setTimeout(function () { try { task.cancel(); } catch (e) {} rej(new Error("render timed out (" + Math.round(ms / 1000) + "s)")); }, ms); })])
+      .then(function (v) { clearTimeout(t); return v; }, function (e) { clearTimeout(t); throw e; });
+  }
+  function canvasUrl(cv) {
+    return new Promise(function (res) {
+      if (cv.toBlob) cv.toBlob(function (b) { res(b ? URL.createObjectURL(b) : cv.toDataURL("image/png")); }, "image/png");
+      else res(cv.toDataURL("image/png"));
+    });
+  }
+  var printing = null;
+  async function printCertItems(list) {
+    if (printing) { msg("Already preparing a print — wait for it or press Cancel."); return; }
+    var ms = M(), fr = ms && ms.fileRefs ? ms.fileRefs : {};
+    var seen = {}, jobs = [];
+    list.forEach(function (it) { if (!it || !it.file || it.kind === "nocert") return; var k = it.file + "#" + (it.page || 1); if (seen[k]) return; seen[k] = 1; jobs.push(it); });
+    if (!jobs.length) { msg("Nothing to print - no PDF file for the selected certificates."); return; }
+    var job0 = printing = { cancel: false }, ov = printOverlay(), txt = ov.querySelector(".mos-print-txt");
+    ov.querySelector("[data-mc-print]").onclick = function () { job0.cancel = true; txt.textContent = "Cancelling…"; };
+    var say = function (t) { txt.textContent = t; };
+    var urls = [], docCache = {}, skipped = [], land = 0;
+    var cleanup = function () { printing = null; if (ov.parentNode) ov.remove(); Object.keys(docCache).forEach(function (k) { try { docCache[k].destroy(); } catch (e) {} }); };
+    say("Preparing " + plural(jobs.length, "certificate") + " for print…");
+    try {
+      var lib = await QBR.mos._pdfLib();
+      for (var j = 0; j < jobs.length && !job0.cancel; j++) {
+        var job = jobs[j];
+        say("Rendering " + (j + 1) + " of " + jobs.length + " — " + (job.fileName || job.file) + (job.page ? " p." + job.page : "") + "…");
+        await new Promise(function (r) { setTimeout(r, 0); });   // let the progress text paint
+        try {
+          var fo = fr[job.file];
+          if (!fo && job.fileName) { var keys = Object.keys(fr); for (var i = 0; i < keys.length; i++) { if (keys[i].split("/").pop() === job.fileName) { fo = fr[keys[i]]; break; } } }
+          if (!fo) throw new Error("PDF not in memory - reload the certificates folder.");
+          var doc = docCache[job.file];
+          if (!doc) { doc = await lib.getDocument({ data: new Uint8Array(await fo.arrayBuffer()), isEvalSupported: false, verbosity: 0 }).promise; docCache[job.file] = doc; }
+          var pg = await doc.getPage(job.page || 1), ok = false, lastErr = null;
+          for (var sc = 3; sc >= 2 && !ok && !job0.cancel; sc--) {
+            var cv = document.createElement("canvas");
+            try {
+              var vp = pg.getViewport({ scale: sc });
+              cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+              var ctx = cv.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cv.width, cv.height);
+              await withTimeout(pg.render({ canvasContext: ctx, viewport: vp, intent: "print" }), QBR.mosCerts._renderTimeout || RENDER_TIMEOUT);
+              urls.push(await canvasUrl(cv)); ok = true; if (vp.width > vp.height) land++;
+            } catch (e) { lastErr = e; }
+            cv.width = cv.height = 0;   // free the backing store before the next page
+          }
+          if (!ok && !job0.cancel) throw lastErr || new Error("render failed");
+        } catch (e) { skipped.push((job.fileName || job.file) + (job.page ? " p." + job.page : "") + ": " + (e && e.message || e)); }
+      }
+      if (job0.cancel) { urls.forEach(function (u) { if (/^blob:/.test(u)) URL.revokeObjectURL(u); }); cleanup(); msg("Print cancelled."); return; }
+      if (!urls.length) { cleanup(); msg("Could not render any certificate — " + skipped.join("; ") + ". Workaround: Preview › Open original PDF, then print it from there (Ctrl+P)."); return; }
+      say("Opening the print dialog (" + plural(urls.length, "page") + ")…");
+      var old = document.getElementById("mos-print-frame"); if (old) old.remove();
+      var fr2 = document.createElement("iframe"); fr2.id = "mos-print-frame"; fr2.setAttribute("aria-hidden", "true"); fr2.tabIndex = -1;
+      fr2.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none";
+      document.body.appendChild(fr2);
+      var fd = fr2.contentWindow.document;
+      fd.open();
+      fd.write("<!DOCTYPE html><html><head><meta charset='utf-8'><title>Certificates</title><style>@page{size:" + (land * 2 >= urls.length ? "landscape" : "portrait") + ";margin:0}html,body{margin:0;background:#fff}img{display:block;width:100vw;height:100vh;object-fit:contain;break-after:page;page-break-after:always}img:last-of-type{break-after:auto;page-break-after:auto}</style></head><body>" +
+        urls.map(function (u) { return '<img alt="" src="' + u + '">'; }).join("") + "</body></html>");
+      fd.close();
+      await Promise.all(Array.prototype.map.call(fd.images, function (im) { return im.complete ? Promise.resolve() : new Promise(function (r) { im.onload = im.onerror = r; }); }));
+      var gone = false, finish = function () { if (gone) return; gone = true; setTimeout(function () { urls.forEach(function (u) { if (/^blob:/.test(u)) URL.revokeObjectURL(u); }); if (fr2.parentNode) fr2.remove(); }, 1000); };
+      try { fr2.contentWindow.addEventListener("afterprint", finish); } catch (e) {}
+      cleanup();
+      msg("Printing " + plural(urls.length, "certificate") + (skipped.length ? " · skipped " + skipped.length + ": " + skipped.join("; ") : "") + ". After the sheets come out, confirm with “Mark selected as printed”.");
+      fr2.contentWindow.focus();
+      (QBR.mosCerts._printHook || function (w) { w.print(); })(fr2.contentWindow);
+      setTimeout(finish, 120000);   // fallback if afterprint never fires
+    } catch (err) {
+      cleanup();
+      msg("Print error: " + (err && err.message || err) + ". Workaround: Preview › Open original PDF, then print it from there (Ctrl+P).");
+    }
+  }
   /* ---------------- certificate preview ---------------- */
   async function previewCert(code) {
     try {
@@ -444,7 +555,7 @@
     var h = '<div class="mos-prev-back" data-mc="preview-close">' +
       '<div class="mos-prev-modal" role="dialog" aria-label="Certificate preview">' +
       '<div class="mos-prev-head"><div><b>' + esc(it.name) + '</b> · ' + esc(it.cert) + ' · ' + esc(fmtDate(it.date)) + '<div class="tr-hint">' + esc(it.code) + (it.page ? " · page " + it.page : "") + " · " + esc(it.fileName) + "</div></div>" +
-      '<button type="button" class="btn btn-sm btn-outline-secondary" data-mc="preview-close">Close</button></div>' +
+      '<div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-primary" data-mc="preview-open" title="Open the original PDF in a new tab - print from there at full quality">Open original PDF</button><button type="button" class="btn btn-sm btn-outline-primary" data-mc="preview-print" title="Print this certificate (rendered at 300 DPI)">Print</button><button type="button" class="btn btn-sm btn-outline-secondary" data-mc="preview-close">Close</button></div></div>' +
       '<div class="mos-prev-body"><div class="mos-prev-wrap"><canvas id="mos-prev-canvas"></canvas></div>' +
       '<div class="mos-prev-cands"><h6>Exam results — pick the match</h6>' +
       pool.map(function (r) { return '<button type="button" class="btn btn-outline-primary btn-sm d-block w-100 text-start mb-1" data-mc="preview-link" data-code="' + esc(it.code) + '" data-key="' + esc(r.key) + '">' + esc(attemptLabel(r)) + "</button>"; }).join("") +
@@ -458,7 +569,7 @@
       var b = e.target.closest && e.target.closest("button[data-mc]");
       if (!b) return;
       var a = b.getAttribute("data-mc");
-      if (a === "preview-close") { var m = document.querySelector(".mos-prev-back"); if (m) m.remove(); }
+      if (a === "preview-close") { var m = document.querySelector(".mos-prev-back"); if (m) m.remove(); } else if (a === "preview-open") { try { var blob = new Blob([bytes], { type: "application/pdf" }), u = URL.createObjectURL(blob); if (!window.open(u, "_blank")) msg("Pop-up blocked - allow pop-ups for this page to open the PDF."); setTimeout(function () { URL.revokeObjectURL(u); }, 60000); } catch (e) { msg("Could not open PDF: " + (e && e.message || e)); } } else if (a === "preview-print") { printCertItems([it]); }
       else if (a === "preview-link") {
         var key = b.getAttribute("data-key"), ccode = b.getAttribute("data-code");
         C.links[ccode] = key;
@@ -480,7 +591,7 @@
     var closeBtn = back.querySelector('button[data-mc="preview-close"]'); if (closeBtn) try { closeBtn.focus(); } catch (x) {}
     // Render the PDF page
     QBR.mos._pdfLib().then(function (lib) {
-      return lib.getDocument({ data: bytes, isEvalSupported: false, verbosity: 0 }).promise;
+      return lib.getDocument({ data: bytes.slice(), isEvalSupported: false, verbosity: 0 }).promise;   // copy: pdf.js detaches the buffer it gets, and "Open original PDF" still needs it
     }).then(function (doc) {
       return doc.getPage(it.page || 1);
     }).then(function (pg) {
@@ -619,7 +730,7 @@
     host.addEventListener("change", function (e) {
       var t = e.target, a = t.getAttribute && t.getAttribute("data-mc");
       if (a === "sel") { C.sel[t.getAttribute("data-code")] = t.checked; render(); }
-      else if (a === "sel-all") { items().filter(function (i) { return inScope(i, false) && i.kind !== "nocert"; }).slice(0, C.limit).forEach(function (i) { C.sel[i.code] = t.checked; }); render(); }
+      else if (a === "sel-all") { var elig2 = selectableShown(); var target = elig2.some(function (i) { return !C.sel[i.code]; }); elig2.forEach(function (i) { C.sel[i.code] = target; }); render(); }
       else if (a === "folder-pick") { setFolder(t.value); render(); }
       else if (a === "scope") { C.scope = t.value; }
       else if (a === "link") {
@@ -661,6 +772,7 @@
       }
       else if (a === "reprint") markPrinted([byCode(code)], { reprint: true });
       else if (a === "mark-sel") markPrinted(items().filter(function (i) { return C.sel[i.code] && inScope(i, false) && i.status !== "printed"; }));
+      else if (a === "print-sel") printCertItems(items().filter(function (i) { return C.sel[i.code] && inScope(i, false); }));
       else if (a === "mark-file") {
         var sel = host.querySelector('[data-mc="file-pick"]'), file = sel ? sel.value : "";
         var list = items().filter(function (i) { return i.kind === "cert" && i.file === file && i.status === "pending"; });
