@@ -1906,11 +1906,27 @@ function renderDrTable(q) {
     const raw = d.action || d.remarks || "";
     const short = raw.length > 64 ? raw.slice(0, 61) + "…" : raw;
     const act = raw ? `<span class="${d.action ? "" : "text-muted"}" title="${escAttr(raw)}">${esc(short)}</span>` : "—";
-    return `<tr><td>${esc(d.schoolRaw)}</td><td class="small">${esc(d.domain || "—")}</td>
-      <td>${drDate(d.regMs)}</td><td>${drDate(d.expMs)}</td>
+    return `<tr><td>${esc(d.schoolRaw)}</td><td class="small">${esc(d.domain || "—")}
+        ${d.domain ? `<br><button type="button" class="btn btn-link btn-sm p-0 dr-copy" data-domain="${escAttr(d.domain)}" title="Copy domain">Copy</button>` : ""}</td>
+      <td data-dr-edit="reg" data-dr-key="${escAttr(drEditKey(d))}" title="Click to edit registration date" style="cursor:pointer">${drDate(d.regMs)} <span class="text-muted">✎</span></td>
+      <td data-dr-edit="valid" data-dr-key="${escAttr(drEditKey(d))}" title="Click to edit validity (years)" style="cursor:pointer">${d.validYr ? d.validYr + (d.validYr === 1 ? " yr" : " yrs") : "—"} <span class="text-muted">✎</span></td>
+      <td>${drDate(d.expMs)}</td>
       <td class="text-end">${daysCell}</td><td>${badge}</td><td class="small">${act}</td></tr>`;
-  }).join("") || '<tr><td colspan="7" class="text-muted">No domains match.</td></tr>';
+  }).join("") || '<tr><td colspan="8" class="text-muted">No domains match.</td></tr>';
 }
+
+/* One school can have several domains: the edit key is the record's position in the model (stable until the next load). */
+function drEditKey(d) { const i = ((APP.model && APP.model.domainreg) || []).indexOf(d); return i >= 0 ? "i" + i : d.key + "|" + (d.domain || ""); }
+
+/* Domain copy button */
+if (typeof document !== "undefined") document.addEventListener("click", function (e) {
+  var b = e.target && e.target.closest ? e.target.closest(".dr-copy") : null;
+  if (!b) return;
+  var t = b.getAttribute("data-domain") || "";
+  var done = function () { var o = b.textContent; b.textContent = "Copied!"; setTimeout(function () { b.textContent = o; }, 1200); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, done);
+  else { var ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch (x) {} ta.remove(); done(); }
+});
 
 /* ==================== EXECUTIVE REPORT ==================== */
 function renderReport() {
@@ -2256,6 +2272,8 @@ const TAB_FILTERS = {
   "dash-audit":      [],                          // audit editor; own month picker inside the panel
   "dash-todo":       [],                          // My To-Do: per-user, not scoped by the shared period/org/school filters
   "dash-gtickets":   [],                          // General tickets: per-user queue, own table
+  "dash-mos":        [],                          // v1.37.0 MOS results: own school/section/period filters inside the panel
+  "dash-trainers":   [],                          // Trainers: own upload pills + session filters inside the panel
   "dash-soc":        [],                          // v1.32.0 SOC investigation: standalone, own Tenant/Month inputs
   "dash-admin":      [],                          // v1.31.0 admin panel (feature flags, appearance)
 };
@@ -2272,7 +2290,7 @@ function applyFilterVisibility(tabId) {
   const bar = document.querySelector(".filter-bar");
   if (bar) bar.style.display = NO_FILTER_BAR.includes(tabId) ? "none" : "";
 }
-const NO_FILTER_BAR = ["dash-todo", "dash-gtickets"];
+const NO_FILTER_BAR = ["dash-todo", "dash-gtickets", "dash-mos", "dash-trainers"];
 
 function wireFilters() {
   // dropdown/select filters
@@ -2416,10 +2434,11 @@ function renderFileList() {
       const linked = (typeof QBR !== "undefined" && typeof QBR.fsIsLinkedByName === "function") ? QBR.fsIsLinkedByName(it.name) : false;
       const lk = linked ? (QBR._fsLinks || []).filter(l => fileKey(l.name) === fileKey(it.name))[0] : null;
       const viewOnly = !!(lk && !(lk.kinds || []).length); // v1.33.0: folder-linked, no editable sheets → ↻ reload only
-      const canLink = (typeof QBR !== "undefined" && typeof QBR.fsSupported === "function") ? QBR.fsSupported() : false;
+      const isCsv = /\.csv$/i.test(it.name || "");  // v1.39.0: folder links are Excel-only — say why
+      const canLink = !isCsv && ((typeof QBR !== "undefined" && typeof QBR.fsSupported === "function") ? QBR.fsSupported() : false);
       const editBox = `<input type="checkbox" class="loaded-file-edit" data-fk="${k}" data-fname="${escAttr(it.name)}"` +
         (linked ? " checked" : "") + (canLink ? "" : " disabled") +
-        ` title="${canLink ? (linked ? (viewOnly ? "Linked — ↻ reloads it from the file. It has no sheets the dashboard edits, so nothing is ever written to it. Uncheck to unlink" : "Direct save ON — uncheck to unlink") : "Check to enable direct save to this Excel file") : "Direct save needs Chrome or Edge"}" aria-label="Direct save">`;
+        ` title="${isCsv ? "CSV files can\u2019t be linked to a folder \u2014 save it as .xlsx (e.g. GDAP.xlsx) and link that instead" : canLink ? (linked ? (viewOnly ? "Linked — ↻ reloads it from the file. It has no sheets the dashboard edits, so nothing is ever written to it. Uncheck to unlink" : "Direct save ON — uncheck to unlink") : "Check to enable direct save to this Excel file") : "Direct save needs Chrome or Edge"}" aria-label="Direct save">`;
       return `<div class="loaded-file">${editBox}<span class="loaded-file-name" title="${escAttr(it.name)}">${esc(it.name)}</span>` +
         `<button type="button" class="loaded-file-r" data-fk="${k}" title="${linked ? "Reload this workbook from the file (picks up edits made in Excel)" : "Refresh this workbook — re-pick the file to load its latest data"}">↻</button>` +
         `<button type="button" class="loaded-file-x" data-fk="${k}" title="Remove this workbook">×</button></div>`;
@@ -2476,7 +2495,7 @@ function gdapLinked() {
 function gdapChip() {
   const on = gdapLinked();
   return `<span class="badge bg-${on ? "success" : "secondary"}" data-gdap-chip style="cursor:pointer" ` +
-    `title="GranularAdministerRelationship.csv \u2014 tenant IDs for script pre-fill \u2014 optional (click to link)">gdap</span>`;
+    `title="GDAP mapping workbook (e.g. GDAP.xlsx: Name + Microsoft ID columns) \u2014 tenant IDs for script pre-fill \u2014 optional (click to link)">gdap</span>`;
 }
 function wireGdapChip() {
   const c = document.querySelector("[data-gdap-chip]");
@@ -2542,13 +2561,26 @@ function processBuffers(buffers, meta) {
 
 // Parse + render a full item set, committing APP.files only on a clean parse
 // (rolls back on failure so a bad file never wipes the loaded session).
-// If a loaded file is a GDAP mapping CSV (Name,Microsoft ID), store it for the
-// tenant-ID lookup and refresh the gdap pill — no separate overlay linking
-// needed. The CSV stays in the workbook list; it contributes no workbook sources.
-function detectGdapCsv(items) {
+// If a loaded file is a GDAP mapping (Name + Microsoft ID columns), store it for the
+// tenant-ID lookup and refresh the gdap pill — no separate overlay linking needed.
+// v1.39.0: .xlsx/.xlsm whose name says GDAP/Granular (GDAP.xlsx, a folder-linked copy
+// re-read on ↻) is parsed from the bytes already read; the legacy .csv still works.
+// The file stays in the workbook list; it contributes no workbook sources.
+function detectGdap(items, buffers) {
   if (typeof QBR === "undefined" || typeof QBR.gdapParseCsv !== "function") return;
-  (items || []).forEach(it => {
-    if (!/\.csv$/i.test(it.name || "")) return;
+  const done = rows => {
+    if (!rows || !rows.length) return;
+    QBR.gdapSave(rows);
+    if (typeof QBR.refreshGdapChip === "function") QBR.refreshGdapChip();
+  };
+  (items || []).forEach((it, i) => {
+    const nm = it.name || "";
+    if (/\.(xlsx|xlsm)$/i.test(nm)) {
+      if (typeof QBR.gdapParseWorkbook !== "function" || !QBR.gdapIsMappingName(nm) || !buffers || !buffers[i]) return;
+      try { done(QBR.gdapParseWorkbook(buffers[i])); } catch (e) { console.warn("[QBR] " + nm + ": not a GDAP mapping \u2014 " + e.message); }
+      return;
+    }
+    if (!/\.csv$/i.test(nm)) return;
     const rd = new FileReader();
     rd.onload = () => {
       try {
@@ -2581,7 +2613,7 @@ function loadItems(items, meta) {
     try { if (typeof QBR !== "undefined" && QBR.fsRememberBase) QBR.fsRememberBase(items, buffers); } catch (e) {}
     const ok = processBuffers(buffers, meta || {});
     if (!ok) { APP.files = prev; return ok; }
-    try { detectGdapCsv(items); } catch (e) {}
+    try { detectGdap(items, buffers); } catch (e) {}
     // Replay any journaled entries recorded against these exact files
     // (covers both fresh uploads and session restores after Ctrl+R).
     try {
@@ -2789,6 +2821,11 @@ function swapChartsForPrint(scope) {
   return remove;
 }
 
+// Admin > Reports toggle (v1.42.0): whether printed reports carry the "Generated" date. Default ON.
+function stampShown() {
+  try { return !(window.QBR && QBR.reportStampOn) || QBR.reportStampOn(); } catch (e) { return true; }
+}
+
 // Human-readable snapshot of the filters an export was taken under, so a deck
 // is never ambiguous out of context.
 function exportMeta() {
@@ -2801,7 +2838,7 @@ function exportMeta() {
     ["Organization", nice(f.org)],
     ["School", nice(f.school)],
     ["Schools in scope", String(m ? m.master.size : 0)],
-    ["Generated", new Date().toLocaleString()],
+    ...(stampShown() ? [["Generated", new Date().toLocaleString()]] : []),
   ];
   if (m && m.usermgmt.length) rows.splice(4, 0, ["School Year", nice(f.sy)]);
   return rows;
@@ -3049,6 +3086,7 @@ function initShell() {
   initStickyBars();
   if ($("app-version") && QBR.VERSION) $("app-version").textContent = "v" + QBR.VERSION;  // header ← single version constant
   wireFilters();   // once — the controls are static in index.html
+  if (window.QBR && QBR.domainEdit && QBR.domainEdit.wire) QBR.domainEdit.wire();  // domain registration inline edit
   const tb = $("btn-theme");
   if (tb) tb.addEventListener("click", () => setTheme(document.body.getAttribute("data-theme") === "dark" ? "light" : "dark"));
   $("file-input").addEventListener("change", e => { handleFiles(e.target.files); e.target.value = ""; });
@@ -3138,6 +3176,8 @@ function initShell() {
     // Per-user panels: refresh on open so they reflect the current user and latest tickets.
     if (APP.activeTab === "dash-todo" && window.QBR && QBR.todo) QBR.todo.render();
     if (APP.activeTab === "dash-gtickets" && window.QBR && QBR.gtickets) QBR.gtickets.render();
+    if (APP.activeTab === "dash-mos" && window.QBR && QBR.mos) QBR.mos.render(); // v1.37.0: size charts once visible
+    if (APP.activeTab === "dash-trainers" && window.QBR && QBR.trainers) QBR.trainers.render();
   }));
 
   // User management sub-tabs: Readiness | Bulk generator (lazy-init the generator on first open)

@@ -24,3 +24,9 @@ QBR_Source_Fix_List*
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# v1.37.0 MOS: Certiport score reports hold minors' names, emails and addresses — never commit them.
+# Only the synthetic fixtures (tests/make-mos-fixture.py) are allowed.
+*.pdf
+!tests/mos-fixture/**/*.pdf
+!docs/guides/*.pdf
