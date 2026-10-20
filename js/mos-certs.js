@@ -417,11 +417,74 @@
       "<td>" + esc(it.name) + (it.kind === "cert" && C.log && !it.inLog ? ' <span class="badge bg-info text-dark" title="Not in the log yet">new</span>' : "") +
         '<div class="tr-hint">' + esc([it.school, it.examNo ? "Exam " + it.examNo : ""].filter(Boolean).join(" · ")) + "</div></td>" +
       "<td>" + esc(it.cert) + '<div class="tr-hint" title="' + esc(it.version || "") + '">' + esc(fmtDate(it.date)) + (it.version ? " · " + esc(it.version) : "") + "</div></td>" +
-      '<td><code>' + esc(it.code || "—") + "</code>" + (it.fileName ? '<div class="tr-hint mos-cert-file" title="' + esc(it.file + (it.page ? " · page " + it.page : "")) + '">' + esc(it.fileName) + (it.page ? " · p." + esc(it.page) : "") + "</div>" : "") + "</td>" +
+      '<td><code>' + esc(it.code || "—") + "</code>" + (it.fileName ? '<div class="tr-hint mos-cert-file" title="' + esc(it.file + (it.page ? " · page " + it.page : "")) + '">' + esc(it.fileName) + (it.page ? " · p." + esc(it.page) : "") + "</div>" : "") +
+        (it.file && it.how !== "auto" ? ' <button type="button" class="btn btn-link btn-sm p-0" data-mc="preview" data-code="' + esc(it.code) + '">Preview</button>' : "") + "</td>" +
       "<td>" + res + "</td>" +
       '<td><span class="risk-badge ' + b[0] + '">' + b[1] + "</span></td>";
   }
 
+  /* ---------------- certificate preview ---------------- */
+  async function previewCert(code) {
+    try {
+    var it = byCode(code);
+    if (!it) { msg("Preview: certificate not found (" + code + ")."); return; }
+    if (!it.file) { msg("Preview: no PDF file for this certificate."); return; }
+    var ms = M(), fr = ms && ms.fileRefs ? ms.fileRefs : {};
+    var fo = fr[it.file];
+    if (!fo && it.fileName) {
+      var keys = Object.keys(fr);
+      for (var i = 0; i < keys.length; i++) { if (keys[i].split("/").pop() === it.fileName) { fo = fr[keys[i]]; break; } }
+    }
+    if (!fo) { msg("Preview: PDF not in memory — reload the certificates folder (" + it.fileName + ")."); return; }
+    var bytes;
+    try { bytes = new Uint8Array(await fo.arrayBuffer()); }
+    catch (e) { msg("Preview: could not read PDF (" + (e && e.message || e) + ")."); return; }
+    var s = M(), pool = it.cands.length ? it.cands : (s && s.model ? s.model.rows.filter(function (r) { return r.pass && (!it.school || it.school === "Unassigned school" || r.school === it.school) && P().examFamily(r.exam) === it.family; }).slice(0, 60) : []);
+    var h = '<div class="mos-prev-back" data-mc="preview-close">' +
+      '<div class="mos-prev-modal" role="dialog" aria-label="Certificate preview">' +
+      '<div class="mos-prev-head"><div><b>' + esc(it.name) + '</b> · ' + esc(it.cert) + ' · ' + esc(fmtDate(it.date)) + '<div class="tr-hint">' + esc(it.code) + (it.page ? " · page " + it.page : "") + " · " + esc(it.fileName) + "</div></div>" +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-mc="preview-close">Close</button></div>' +
+      '<div class="mos-prev-body"><div class="mos-prev-wrap"><canvas id="mos-prev-canvas"></canvas></div>' +
+      '<div class="mos-prev-cands"><h6>Exam results — pick the match</h6>' +
+      pool.map(function (r) { return '<button type="button" class="btn btn-outline-primary btn-sm d-block w-100 text-start mb-1" data-mc="preview-link" data-code="' + esc(it.code) + '" data-key="' + esc(r.key) + '">' + esc(attemptLabel(r)) + "</button>"; }).join("") +
+      '<button type="button" class="btn btn-outline-secondary btn-sm d-block w-100 text-start" data-mc="preview-link" data-code="' + esc(it.code) + '" data-key="none">No matching result</button>' +
+      "</div></div></div>";
+    var wrap = document.createElement("div"); wrap.innerHTML = h;
+    document.body.appendChild(wrap.firstChild);
+    var modal = document.querySelector(".mos-prev-modal");
+    modal.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var b = e.target.closest && e.target.closest("button[data-mc]");
+      if (!b) return;
+      var a = b.getAttribute("data-mc");
+      if (a === "preview-close") { var m = document.querySelector(".mos-prev-back"); if (m) m.remove(); }
+      else if (a === "preview-link") {
+        var key = b.getAttribute("data-key"), ccode = b.getAttribute("data-code");
+        C.links[ccode] = key;
+        var it2 = byCode(ccode);
+        if (it2 && it2.inLog) { var s2 = M(), r2 = s2 && s2.model ? s2.model.rows.filter(function (x) { return x.key === key; })[0] : null;
+          commit([{ t: "link", code: ccode, ref: key === "none" ? "none" : (r2 && r2.ref) || "" }], "Link saved"); }
+        else render();
+        var m2 = document.querySelector(".mos-prev-back"); if (m2) m2.remove();
+      }
+    });
+    // Backdrop click closes
+    document.querySelector(".mos-prev-back").addEventListener("click", function (e) {
+      if (e.target.classList && e.target.classList.contains("mos-prev-back")) e.target.remove();
+    });
+    // Render the PDF page
+    QBR.mos._pdfLib().then(function (lib) {
+      return lib.getDocument({ data: bytes, isEvalSupported: false, verbosity: 0 }).promise;
+    }).then(function (doc) {
+      return doc.getPage(it.page || 1);
+    }).then(function (pg) {
+      var cv = document.getElementById("mos-prev-canvas");
+      var vp = pg.getViewport({ scale: 1.2 });
+      cv.width = vp.width; cv.height = vp.height;
+      return pg.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+    }).catch(function (e) { msg("Preview failed: " + (e && e.message || e)); });
+    } catch (err) { console.log("[preview] ERROR:", err && err.message || err); msg("Preview error: " + (err && err.message || err)); }
+  }
   /* ---------------- actions ---------------- */
   // Why a passing result shows "Not generated": no certificate PDF of that school read yet, or none with that name.
   function whyNoCert(it) {
@@ -493,7 +556,7 @@
         want: function (rel) {
           var n = rel[rel.length - 1];
           if (/\.xlsx$/i.test(n)) return n.toLowerCase() === LOG_NAME.toLowerCase();
-          if (!rel.some(function (p) { return /certif/i.test(p); })) return false;
+          if (![d.name].concat(rel).some(function (p) { return /certif/i.test(p); })) return false;
           if (!scoped) return true;
           var sch = P().fileMeta(d.name + "/" + rel.join("/")).school;
           if (sch === "Unassigned school" || resSchools.some(function (x) { return P().schoolRelated(sch, x); })) return true;
@@ -507,6 +570,9 @@
       if (logs.length && !C.log) await openLogHandle(logs[0].handle, d.id, d.name + "/" + logs[0].rel.join("/"));
       var pdfs = res.files.filter(function (x) { return /\.pdf$/i.test(x.name); }), fl = [], perSchool = {};
       pdfs.forEach(function (x) { var sc = P().fileMeta(d.name + "/" + x.rel.join("/")).school; perSchool[sc] = (perSchool[sc] || 0) + 1; });
+      // Cache File objects for ALL PDFs (even already-read ones) so Preview can read them on demand.
+      var _ms = M(), _fr = _ms ? _ms.fileRefs : null;
+      if (_fr) { for (var _i = 0; _i < pdfs.length; _i++) { try { var _fo = (await readHandle(pdfs[_i].handle)).file; var _p = d.name + "/" + pdfs[_i].rel.join("/"); try { _fo._path = _p; } catch (e) {} _fr[_p] = _fo; } catch (e) {} } }
       pdfs = pdfs.filter(function (x) { return !already[d.name + "/" + x.rel.join("/")]; });
       for (var i = 0; i < pdfs.length; i++) {
         try { var fo = (await readHandle(pdfs[i].handle)).file; try { fo._path = d.name + "/" + pdfs[i].rel.join("/"); } catch (e) {} fl.push(fo); } catch (e) {}
@@ -534,6 +600,7 @@
     finally { C.busy = false; render(); }
   }
   function wire(host) {
+    // Filter inputs are recreated on every render — always re-wire them.
     host.querySelectorAll("[data-mcf]").forEach(function (el) {
       el.addEventListener(el.tagName === "INPUT" ? "input" : "change", function () {
         C.f[el.getAttribute("data-mcf")] = el.value; C.limit = 300;
@@ -541,6 +608,8 @@
         else render();
       });
     });
+    // Host-level delegation: attach once (host persists across renders).
+    if (host._mcWired) return; host._mcWired = true;
     host.addEventListener("change", function (e) {
       var t = e.target, a = t.getAttribute && t.getAttribute("data-mc");
       if (a === "sel") { C.sel[t.getAttribute("data-code")] = t.checked; render(); }
@@ -573,6 +642,17 @@
           plural(fo.length, "folder print") + " recorded");
       }
       else if (a === "print") markPrinted([byCode(code)]);
+      else if (a === "preview") previewCert(code);
+      else if (a === "preview-close") { var m = document.querySelector(".mos-prev-back"); if (m) m.remove(); }
+      else if (a === "preview-link") {
+        var key = b.getAttribute("data-key");
+        C.links[code] = key;
+        var it2 = byCode(code);
+        if (it2 && it2.inLog) { var s2 = M(), r2 = s2 && s2.model ? s2.model.rows.filter(function (x) { return x.key === key; })[0] : null;
+          commit([{ t: "link", code: code, ref: key === "none" ? "none" : (r2 && r2.ref) || "" }], "Link saved"); }
+        else render();
+        var m2 = document.querySelector(".mos-prev-back"); if (m2) m2.remove();
+      }
       else if (a === "reprint") markPrinted([byCode(code)], { reprint: true });
       else if (a === "mark-sel") markPrinted(items().filter(function (i) { return C.sel[i.code] && inScope(i, false) && i.status !== "printed"; }));
       else if (a === "mark-file") {

@@ -29,6 +29,7 @@
   var S = {
     attempts: [], files: [], exports: [], roster: [], rosterFiles: [], overrides: {},
     certs: [], certDupPages: 0, view: "results",   // v1.41.0: certificate pages (one per verification code)
+    fileRefs: {},  // v1.41.0: File objects by path, for certificate preview (bytes read on demand)
     model: null, built: false, busy: false, progress: "",
     f: { school: "", section: "", exam: "", examNo: "", proctor: "", outcome: "", min: "", max: "", pmode: "all", pval: "", q: "", firstOnly: false },
     sort: "score-desc", groupBy: "auto", limit: 200, trend: "month", open: {}, charts: {}
@@ -74,6 +75,7 @@
     var rec = { file: meta.file, name: meta.fileName, school: meta.school, pages: 0, attempts: 0, certs: 0, skipped: 0, bad: 0, err: "" };
     try {
       var lib = await pdfLib();
+      S.fileRefs[path] = file;
       var buf = new Uint8Array(await file.arrayBuffer());
       var doc = await lib.getDocument({ data: buf, isEvalSupported: false, verbosity: 0 }).promise;
       rec.pages = doc.numPages;
@@ -1012,6 +1014,7 @@
     addPdfs: addPdfs, addRoster: addRoster, clear: clearAll,
     // test seams (no DOM file pickers in headless tests)
     _state: function () { return S; },
+    _pdfLib: function () { return pdfLib(); },
     _rebuild: function () { rebuild(); },
     addCertFiles: function (list) { return addPdfs(list); },
     _summary: function () { return buildSummary(rows()); }, printSummary: printSummary, openProfile: openProfile,

@@ -2595,3 +2595,11 @@ body.mos-resizing,body.mos-resizing *{cursor:col-resize !important;user-select:n
 #tr-print .row-cols-md-3>*{flex:0 0 auto;width:33.333%}
 #tr-print .tr-trainers,#tr-print .tr-courses{font-size:8.5pt}
 #tr-print .tr-print-foot{display:flex;justify-content:space-between;margin-top:10px;padding-top:4px;border-top:1px solid #D1D1D1;font-size:8pt;color:#555}
+/* MOS certificate preview modal */
+.mos-prev-back{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1050;display:flex;align-items:center;justify-content:center;padding:20px}
+.mos-prev-modal{background:#fff;border-radius:10px;max-width:1100px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+.mos-prev-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid #dee2e6}
+.mos-prev-body{display:flex;gap:16px;padding:16px;overflow:auto;flex:1;align-items:flex-start}
+.mos-prev-body canvas{border:1px solid #dee2e6;border-radius:4px;display:block;max-width:640px;width:100%;height:auto;object-fit:contain}.mos-prev-wrap{flex:1 1 auto;min-width:0;display:flex;justify-content:center;align-items:flex-start;overflow:auto}
+.mos-prev-cands{flex:0 0 320px;overflow-y:auto}
+.mos-prev-cands h6{margin:0 0 8px;font-size:14px}
