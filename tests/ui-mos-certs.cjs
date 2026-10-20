@@ -126,6 +126,67 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   ok(await page.evaluate(() => { const m = document.querySelector(".mos-prev-modal"), st = getComputedStyle(m); return st.backgroundColor === getComputedStyle(document.querySelector("#mos-view-certs .card-box")).backgroundColor; }), "modal uses the theme's card colour");
   await page.keyboard.press("Escape"); await page.waitForTimeout(200);
   ok(await page.evaluate(() => !document.querySelector(".mos-prev-back")), "Escape closes the preview");
+  /* ---- S: select-all reflects the real selection ---- */
+  const sa = () => page.$eval('[data-mc="sel-all"]', el => ({ c: el.checked, i: el.indeterminate }));
+  const nSel = () => page.evaluate(() => Object.keys(QBR.mosCerts._state.sel).filter(k => QBR.mosCerts._state.sel[k]).length);
+  await page.click('[data-mc="sel-all"]'); await page.waitForTimeout(150);
+  ok((await nSel()) === 4 && (await sa()).c, "select-all selects every printable row on screen (4) and stays checked");
+  await page.click('[data-mc="sel-all"]'); await page.waitForTimeout(150);
+  ok((await nSel()) === 0 && !(await sa()).c && !(await sa()).i, "select-all again clears the selection");
+  await page.click('tr:has(td:text-is("Alex Cruz Demo")) input[data-mc="sel"]'); await page.waitForTimeout(150);
+  ok((await sa()).i && !(await sa()).c, "one row selected → header shows the dash (indeterminate)");
+  await page.click('[data-mc="sel-all"]'); await page.waitForTimeout(150);
+  ok((await nSel()) === 4, "from partial, select-all selects all (does not clear)");
+  /* ---- PR: print selected / preview print / open original ---- */
+  await page.evaluate(() => {
+    window.__pr = []; window.__opened = [];
+    window.open = function (u) { window.__opened.push(u || "(blank print window)"); return {}; };   // print must not need a pop-up
+    QBR.mosCerts._printHook = w => { const st = w.document.querySelector("style"); window.__pr.push({ n: w.document.images.length, loaded: Array.from(w.document.images).every(i => i.complete && i.naturalWidth > 500), css: st ? st.textContent : "", hidden: document.hidden }); };
+  });
+  // background tab: requestAnimationFrame never fires (the root cause of "Rendering 1 of 1…" → timed out)
+  await page.evaluate(() => { window.__raf = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; });
+  ok(/Print selected \(4\)/.test(await page.textContent('[data-mc="print-sel"]')), "Print selected shows the count");
+  await page.click('[data-mc="print-sel"]');
+  await page.waitForFunction(() => window.__pr.length >= 1, null, { timeout: 30000 }).catch(() => {});
+  let pr = await page.evaluate(() => window.__pr[0]);
+  ok(pr && pr.n === 4 && pr.loaded, "Print selected with the tab in the background (no requestAnimationFrame) → ONE print frame, one page per certificate (4), all rendered " + JSON.stringify(pr && { n: pr.n, loaded: pr.loaded }));
+  await page.evaluate(() => { window.requestAnimationFrame = window.__raf; });
+  ok(await page.evaluate(() => window.__opened.length === 0 && !document.getElementById("mos-print-prog") && !!document.getElementById("mos-print-frame")), "printing renders in this tab (no print window that would background it and stall pdf.js); progress overlay gone");
+  ok(/Printing 4 certificates/.test(await page.evaluate(() => QBR.mosCerts._state.msg)), "message: printing N · confirm with Mark selected as printed");
+  const orient = await page.evaluate(async () => { const lib = await QBR.mos._pdfLib(); const st = QBR.mos._state(); const c = st.certs[0], f = st.fileRefs[c.file]; const d = await lib.getDocument({ data: new Uint8Array(await f.arrayBuffer()) }).promise; const v = (await d.getPage(c.page || 1)).getViewport({ scale: 1 }); return v.width > v.height ? "landscape" : "portrait"; });
+  ok(pr && pr.css.indexOf("size:" + orient) >= 0 && /object-fit:contain/.test(pr.css), "print page follows the certificate orientation (" + orient + ") and fits the page");
+  await page.click('[data-mc="sel-all"]'); await page.waitForTimeout(150);
+  ok(await page.$eval('[data-mc="print-sel"]', b => b.disabled), "nothing selected → Print selected disabled");
+  await page.click('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="preview"]');
+  await page.waitForFunction(() => { const c = document.getElementById("mos-prev-canvas"); return c && c.width > 100; }, null, { timeout: 10000 }).catch(() => {});
+  await page.click('.mos-prev-modal [data-mc="preview-print"]');
+  await page.waitForFunction(() => window.__pr.length >= 2, null, { timeout: 30000 }).catch(() => {});
+  pr = await page.evaluate(() => window.__pr[1]);
+  ok(pr && pr.n === 1, "Preview → Print prints just that certificate");
+  await page.click('.mos-prev-modal [data-mc="preview-open"]'); await page.waitForTimeout(200);
+  const pdfLen = await page.evaluate(async () => { const u = window.__opened.filter(x => /^blob:/.test(x))[0]; if (!u) return -1; const b = await (await fetch(u)).arrayBuffer(); return new TextDecoder().decode(new Uint8Array(b).slice(0, 5)) === "%PDF-" ? b.byteLength : 0; });
+  ok(pdfLen > 100, "Open original PDF opens the full file after the preview was drawn (" + pdfLen + " bytes; pdf.js may detach the buffer it renders from)");
+  await page.keyboard.press("Escape"); await page.waitForTimeout(150);
+  // a render that never finishes (the reported "Rendering 1 of 1…" hang) → times out, is reported, nothing stuck
+  await page.evaluate(async () => {
+    const lib = await QBR.mos._pdfLib(), st = QBR.mos._state(), c = st.certs[0];
+    const d = await lib.getDocument({ data: new Uint8Array(await st.fileRefs[c.file].arrayBuffer()) }).promise;
+    const proto = Object.getPrototypeOf(await d.getPage(1));
+    window.__realRender = proto.render; proto.render = function () { return { promise: new Promise(() => {}), cancel() { window.__cancelled = (window.__cancelled || 0) + 1; } }; };
+    QBR.mosCerts._renderTimeout = 300; window.__pr = [];
+  });
+  await page.click('tr:has(td:text-is("Alex Cruz Demo")) input[data-mc="sel"]'); await page.waitForTimeout(100);
+  await page.click('[data-mc="print-sel"]');
+  await page.waitForFunction(() => !document.getElementById("mos-print-prog"), null, { timeout: 10000 }).catch(() => {});
+  const hang = await page.evaluate(() => ({ m: QBR.mosCerts._state.msg, pr: window.__pr.length, c: window.__cancelled }));
+  ok(/Could not render any certificate/.test(hang.m) && /timed out/.test(hang.m) && /Open original PDF/.test(hang.m) && hang.pr === 0 && hang.c >= 2, "stalled render: times out (scale 3, then 2), cancels the task, says so + workaround — no endless “Rendering 1 of 1” " + JSON.stringify(hang).slice(0, 200));
+  await page.evaluate(async () => { const lib = await QBR.mos._pdfLib(), st = QBR.mos._state(), c = st.certs[0]; const d = await lib.getDocument({ data: new Uint8Array(await st.fileRefs[c.file].arrayBuffer()) }).promise; Object.getPrototypeOf(await d.getPage(1)).render = window.__realRender; QBR.mosCerts._renderTimeout = 0; });
+  // cancel while preparing
+  await page.click('[data-mc="print-sel"]'); await page.click('[data-mc-print="cancel"]').catch(() => {});
+  await page.waitForFunction(() => !document.getElementById("mos-print-prog"), null, { timeout: 15000 }).catch(() => {});
+  ok(await page.evaluate(() => /cancelled|Printing 1/.test(QBR.mosCerts._state.msg) && !document.getElementById("mos-print-prog")), "Cancel stops the print preparation");
+  await page.click('tr:has(td:text-is("Alex Cruz Demo")) input[data-mc="sel"]'); await page.waitForTimeout(100);
+  ok(!page._errs || !page._errs.length, "no page errors (print) " + (page._errs || []).join(" | "));
   /* ---- B ---- */
   await dialogs(page, [true]);   // "create the log?"
   await page.click('tr:has(td:text-is("Alex Cruz Demo")) [data-mc="print"]');

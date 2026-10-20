@@ -6,6 +6,18 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-20 — v1.41.0 (patch, no version bump) MOS › Certificates: print from the tab
+  - "Print selected (N)" next to "Mark selected as printed": every ticked certificate in ONE print window, one page
+    per certificate (each rendered at ~300 DPI, fitted to the page in the certificate's own orientation), one print
+    dialog, no pop-up needed. The same certificate selected twice prints once. A progress bar (with Cancel) shows
+    while the pages are prepared — about 3 s for 34 certificates; a page that cannot be rendered is skipped and listed.
+  - Fix (found while testing): printing stalled at "Rendering 1 of N…" and ended in "render timed out (30s)". Cause:
+    the print window put the dashboard tab in the background, where Chrome pauses the animation frames the PDF
+    renderer waits for. Pages are now rendered in print mode (no animation frames) inside the dashboard tab.
+  - Preview gains "Print" (just that certificate) and "Open original PDF" (the untouched file in a new tab).
+  - Printing does NOT mark anything as printed — confirm with "Mark selected as printed" after the sheets come out.
+  - Fix: the select-all box now shows the real selection (checked / dash / empty) and acts on exactly the rows shown.
+
 UPDATE — 2026-10-19 — v1.41.0 [PREVIEW feature/mos-certificates] MOS › Certificates: generated → printed tracker
   - Certificate PDFs exported from Certiport (one certificate per page: name, certification, version, date,
     verification code) are read like score reports — drop them, pick them, or "📁 Load from folder", which scans the
@@ -29,7 +41,7 @@ UPDATE — 2026-10-19 — v1.41.0 [PREVIEW feature/mos-certificates] MOS › Cer
     own formats are kept ("VALIDPD: 02", the date with its time of day). Expiration is never written: a formula
     recalculates when Excel opens the file; a typed Expiration is flagged so you can update it in Excel. A school with
     several domains edits the right row. "Copy" under each domain copies it.
-  - Not in this version: printing the selected certificates from the tab and the pending-print checklist PDF (next).
+  - Not in this version: the pending-print checklist PDF (next). (Printing from the tab: see the 2026-10-20 entry.)
 
 UPDATE — 2026-10-19 — v1.40.0 [PREVIEW feature/co-trainers] Trainers: co-trained sessions + duplicate-session warning
   - Co-trained sessions = ONE tracker row with every trainer in the Trainer cell, e.g.

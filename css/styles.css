@@ -2597,6 +2597,8 @@ body.mos-resizing,body.mos-resizing *{cursor:col-resize !important;user-select:n
 #tr-print .tr-print-foot{display:flex;justify-content:space-between;margin-top:10px;padding-top:4px;border-top:1px solid #D1D1D1;font-size:8pt;color:#555}
 /* MOS certificate preview modal */
 .mos-prev-back{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1050;display:flex;align-items:center;justify-content:center;padding:20px}
+.mos-print-prog{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:1060;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 32px);padding:10px 14px;background:var(--card);color:var(--ink);box-shadow:var(--shadow16);border:1px solid var(--stroke,var(--grid));border-radius:8px}
+@media print{.mos-print-prog,#mos-print-frame{display:none !important}}
 .mos-prev-modal{background:var(--card);color:var(--ink);box-shadow:var(--shadow16);border-radius:10px;max-width:1100px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
 .mos-prev-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid var(--stroke,var(--grid))}
 .mos-prev-body{display:flex;gap:16px;padding:16px;overflow:auto;flex:1;align-items:flex-start}
