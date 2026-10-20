@@ -19,7 +19,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = path.join(ROOT, "libs/pdfjs/pdf.worker.min
 
 let pass = 0, fail = 0;
 function ok(c, m, d) { if (c) { pass++; _log("  ✓ " + m); } else { fail++; _log("  ✗ " + m + (d !== undefined ? "  (" + JSON.stringify(d) + ")" : "")); } }
-function walk(d) { let o = []; for (const f of fs.readdirSync(d)) { const p = path.join(d, f); if (fs.statSync(p).isDirectory()) o = o.concat(walk(p)); else if (/\.pdf$/i.test(f)) o.push(p); } return o.sort(); }
+function walk(d) { let o = []; for (const f of fs.readdirSync(d)) { const p = path.join(d, f); if (fs.statSync(p).isDirectory()) { if (!/^(Archive Files|Certificates)$/.test(f)) o = o.concat(walk(p)); } else if (/\.pdf$/i.test(f)) o.push(p); } return o.sort(); }
 
 (async () => {
   console.log("== pure helpers");
@@ -31,7 +31,7 @@ function walk(d) { let o = []; for (const f of fs.readdirSync(d)) { const p = pa
   ok(M.examFamily("SC-900: Microsoft Security, Compliance, and Identity Fundamentals") === "SC-900", "family by exam code");
   ok(M.parseDate("September 9, 2025") === "2025-09-09", "date parse");
   ok(M.schoolYear("2025-06-01") === "SY 2025-2026" && M.schoolYear("2026-05-31") === "SY 2025-2026", "school year June–May");
-  const fm = M.fileMeta("Course 400/03 - St. Example/SY 25-26/Exam 1234.2 Retake GR11 11B.pdf");
+  const fm = M.fileMeta("MOS Courses/03 - St. Example/SY 25-26/Exam 1234.2 Retake GR11 11B.pdf");
   ok(fm.school === "St. Example" && fm.examNo === "1234.2" && fm.examBase === "1234" && fm.retakeFile && fm.sectionHint === "11B" && fm.gradeHint === "11", "fileMeta hints", fm);
   ok(M.fileMeta("Exam 1119 Results.pdf", "Typed School").school === "Typed School", "school from the input when the path has no school folder");
   ok(M.fileMeta("Exam 1119 Results.pdf").school === "Unassigned school", "unassigned fallback");
@@ -158,6 +158,53 @@ function walk(d) { let o = []; for (const f of fs.readdirSync(d)) { const p = pa
   ok(M.buildModel(xa, [], {}, { acronyms: { "Demo Education Network": "dnet" } }).rows.every(r => !r.date || r.batch.indexOf("DNET-") === 0), "profile acronym overrides the automatic one");
   ok(M.acronym("Sisters of Silver Pine of Crestview Learning Ministry") === "SSPCLM" && M.acronym("Riverside Peace School (RPS)") === "RPS", "school acronyms");
   ok(M.parseAnyDate("10/8/2026 1:05 PM").date === "2026-10-08" && M.parseAnyDate("10/8/2026 1:05 PM").time === "13:05" && M.parseAnyDate(new Date(2026, 9, 8, 11, 40)).time === "11:40", "date formats (text, US, Date object)");
+
+
+  console.log("== v1.41.0 certificates (synthetic, one certificate per page)");
+  const certFiles = [];
+  (function w(d) { for (const f of fs.readdirSync(d)) { const p = path.join(d, f); if (fs.statSync(p).isDirectory()) w(p); else if (/Certificates/.test(p) && /\.pdf$/i.test(f)) certFiles.push(p); } })(FX);
+  const certs = [], seenCode = {}; let certDup = 0, fakeCertPages = 0;
+  for (const f of certFiles.sort()) {
+    const rel = path.relative(FX, f).split(path.sep).join("/"), meta = M.fileMeta(rel);
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(f)), isEvalSupported: false, verbosity: 0 }).promise;
+    for (let i = 1; i <= doc.numPages; i++) {
+      const items = (await (await doc.getPage(i)).getTextContent()).items;
+      const c = M.parseCertificatePage(items);
+      if (M.parseScorePage(items)) ok(false, "a certificate page read as a score report: " + rel);
+      if (!c) { fakeCertPages++; continue; }
+      if (seenCode[c.code]) { certDup++; continue; }
+      seenCode[c.code] = 1; certs.push(Object.assign(c, meta, { page: i }));
+    }
+  }
+  ok(certs.length === 4 && certDup === 1, "4 certificates (one per verification code); the repeated page is not added twice", [certs.length, certDup]);
+  ok(fakeCertPages === 2, "pages without a verification code are not certificates (old placeholder file)", fakeCertPages);
+  const ca = certs.find(c => c.code === "a1b2-C3d4");
+  ok(ca && ca.name === "Alex Cruz Demo" && ca.certName === "Excel Associate" && ca.family === "Excel" && ca.level === "Associate" && ca.version === "Microsoft 365 Apps" && ca.date === "2026-03-03", "certificate fields: name · certification · version · date · code", ca);
+  ok(ca && ca.school === "Demo High School" && ca.examBase === "9001", "school from the numbered folder (4 levels up) · Exam No. from the file name", ca && [ca.school, ca.examBase]);
+  ok(M.parseCertificatePage([]) === null && M.parseCertificatePage([{ str: "Excel Associate", transform: [1, 0, 0, 1, 50, 200], width: 80 }]) === null, "empty / partial pages are not certificates");
+  ok(M.nameScore("Alex Cruz Demo", "alex cruz demo") === 3 && M.nameScore("Alex Cruz Demo", "Alex Demo") === 2 && M.nameScore("Alex Cruz Demo", "Bea Lopez") === 0, "name score: same · contained · different");
+  ok(M.dayDiff("2026-03-03", "2026-03-10") === 7 && M.dayDiff("", "2026-03-03") === null, "day difference");
+  const mc = M.matchCertificates(certs, m.rows);
+  const st = c => mc.certs.find(x => x.code === c);
+  ok(st("a1b2-C3d4").status === "linked" && m.rows.find(r => r.key === st("a1b2-C3d4").attemptKey).ref === "90000001", "Alex's certificate → his passing Excel attempt (90000001)");
+  ok(st("b2c3D-4e5f").status === "linked" && m.rows.find(r => r.key === st("b2c3D-4e5f").attemptKey).ref === "90000004", "Bea's certificate → the retake she passed (not the failed first take)");
+  ok(st("z9y8-X7w6").status === "unmatched", "certificate with no matching pass → unmatched");
+  ok(st("d4e5-F6g7").status === "linked", "other school's certificate linked within its own school");
+  ok(!Object.keys(mc.byAttempt).some(k => m.rows.find(r => r.key === k).ref === "90000003"), "Carl's PowerPoint pass has no certificate (→ not generated)");
+  const mo = M.matchCertificates(certs, m.rows, { "z9y8-X7w6": "90000002" });
+  ok(mo.certs.find(x => x.code === "z9y8-X7w6").how === "manual", "manual link by Exam reference # (as stored in the log)");
+  const dupc = M.matchCertificates(certs.concat([Object.assign({}, ca, { code: "q1q1-Q2q2" })]), m.rows);
+  ok(dupc.certs.find(x => x.code === "q1q1-Q2q2").status === "duplicate", "a second certificate for the same pass is flagged (reissue / duplicate)");
+  const twin = M.matchCertificates([Object.assign({}, ca, { examBase: "", school: "Unassigned school" })], m.rows.concat([Object.assign({}, m.rows.find(r => r.ref === "90000001"), { key: "x2", ref: "x2" })]));
+  ok(twin.certs[0].status === "ambiguous" && twin.certs[0].cands.length === 2, "two equally good passes → ambiguous (picked by hand)");
+  const LP = M.parseLogRows([["MOS Certificate Log"], M.LOG_COLS, ["a1b2-C3d4", "Alex Cruz Demo", "Excel Associate", "", "", "", "", "", "", "", "90000001", "Yes", "", "", "", 2, ""], ["", "", ""], ["b2c3D-4e5f", "Bea", "Excel Associate", "", "", "", "", "", "", "", "", "No"]]);
+  ok(LP.headerRow === 1 && LP.order.length === 2 && LP.rows["a1b2-C3d4"].r === 2 && LP.last === 4 && M.logPrinted(LP.rows["a1b2-C3d4"].v) && !M.logPrinted(LP.rows["b2c3D-4e5f"].v), "log rows: header found below a title, keyed by verification code, Printed Yes/No");
+
+  ok(M.schoolMatch("Demo High School (DHS)", "Demo High School") && M.schoolMatch("Demo High School (DHS)", "DHS") && !M.schoolMatch("Demo High School", "Sample Academy"), "school match: spelling with acronym in ( ), acronym alone, different school");
+  ok(M.schoolRelated("St. Example College Westbrook (SECW)", "Sisters of St Example of Riverdale Education Ministry") && !M.schoolRelated("Demo High School", "Sisters of St Example of Riverdale Education Ministry"), "test-center group ~ its school folders (shared distinctive word), not other schools");
+  const pf = M.printedFromPath("X/Certificates SY 25-26/PRINTED (FEB 13, 2026)/Exam 1.pdf"), pf2 = M.printedFromPath("X/Y/(printed)Exam 2.pdf");
+  ok(pf && pf.date === "2026-02-13" && pf.folder === "PRINTED (FEB 13, 2026)" && pf2 && pf2.printed && M.printedFromPath("X/Certificates/Exam 3.pdf") === null && M.printedFromPath("X/PRINTED (MARCH 11, 2026)/a.pdf").date === "2026-03-11", "printed from a PRINTED (date) folder or a (printed) file name");
+  ok(M.fileMeta("Certificates SY 25-26/Exam 9001 Excel Certificates.pdf").school === "Unassigned school", "a certificates folder linked on its own is not taken as a school");
 
   _log("\n" + pass + " passed, " + fail + " failed");
   process.exit(fail ? 1 : 0);

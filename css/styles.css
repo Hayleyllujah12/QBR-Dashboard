@@ -2485,6 +2485,17 @@ body.mos-resizing,body.mos-resizing *{cursor:col-resize !important;user-select:n
 #dash-trainers .tr-qsel{min-width:260px;max-width:420px}
 #dash-trainers .tr-picking{margin:4px 0 6px;padding:6px 10px;border-radius:var(--radius);background:var(--brand-tint);color:var(--brand-fg)}
 #dash-trainers .tr-pending{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px;padding:8px 12px;border-radius:var(--radius);background:var(--warn-bg);color:var(--warn-fg);font-size:13px;line-height:20px}
+/* v1.41.0 MOS > Certificates */
+#dash-mos .mos-viewbar{margin:12px 0 0}
+#dash-mos .mos-cert-folder{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
+#dash-mos .mos-cert-pend{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px;padding:8px 12px;border-radius:var(--radius);background:var(--warn-bg);color:var(--warn-fg)}
+#dash-mos .mos-cert-tbl td{vertical-align:middle}
+#dash-mos .mos-cert-tbl select{min-width:150px;max-width:220px}
+#dash-mos .mos-cert-tbl .mos-cert-file{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dash-mos .mos-cert-tbl .risk-badge{white-space:nowrap}
+#dash-mos .mos-cert-tbl td:nth-child(3) .tr-hint{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dash-mos .mos-cert-tbl .tr-hint{color:var(--muted);font-size:12px}
+#dash-mos .mos-cert-tbl code{color:var(--ink)}
 #dash-trainers .tr-dupwarn{padding:8px 12px;border-radius:var(--radius);background:var(--warn-bg);color:var(--warn-fg)}
 #dash-trainers .tr-dupwarn ul{padding-left:18px}
 #dash-trainers .tr-viewbar{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px}
@@ -2584,3 +2595,11 @@ body.mos-resizing,body.mos-resizing *{cursor:col-resize !important;user-select:n
 #tr-print .row-cols-md-3>*{flex:0 0 auto;width:33.333%}
 #tr-print .tr-trainers,#tr-print .tr-courses{font-size:8.5pt}
 #tr-print .tr-print-foot{display:flex;justify-content:space-between;margin-top:10px;padding-top:4px;border-top:1px solid #D1D1D1;font-size:8pt;color:#555}
+/* MOS certificate preview modal */
+.mos-prev-back{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1050;display:flex;align-items:center;justify-content:center;padding:20px}
+.mos-prev-modal{background:var(--card);color:var(--ink);box-shadow:var(--shadow16);border-radius:10px;max-width:1100px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+.mos-prev-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid var(--stroke,var(--grid))}
+.mos-prev-body{display:flex;gap:16px;padding:16px;overflow:auto;flex:1;align-items:flex-start}
+.mos-prev-body canvas{background:#fff;border:1px solid var(--stroke,var(--grid));border-radius:4px;display:block;max-width:640px;width:100%;height:auto;object-fit:contain}.mos-prev-wrap{flex:1 1 auto;min-width:0;display:flex;justify-content:center;align-items:flex-start;overflow:auto}
+.mos-prev-cands{flex:0 0 320px;overflow-y:auto}
+.mos-prev-cands h6{margin:0 0 8px;font-size:14px}

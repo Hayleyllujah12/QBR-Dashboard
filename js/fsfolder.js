@@ -311,6 +311,57 @@
     if (p !== "granted") return null;
     try { return (await scan(d.handle)).books; } catch (x) { return null; }
   };
+  /* v1.41.0: configurable scan for other file types / deeper trees (MOS certificate PDFs live 4–5 folders deep).
+   * opts: { ext: RegExp (default .xlsx/.xlsm), maxDepth (default 3), maxEntries (1500), maxFiles (80),
+   *         want(relParts) -> bool (filter files), prefer(name) -> bool (folders scanned first),
+   *         skipDir(name) -> bool (folders not entered) }
+   * -> { files: [{name, path, rel, handle, size, lastModified}], truncated, scanned, folders, depthCapped } */
+  var SKIP_DIRS = /^(images?|photos?|pictures?|videos?|screenshots?|recordings?|node_modules|\$recycle\.bin|system volume information)$/i;
+  async function scanFiles(dir, opts) {
+    opts = opts || {};
+    var re = opts.ext || /\.(xlsx|xlsm)$/i, maxDepth = opts.maxDepth == null ? MAX_DEPTH : opts.maxDepth;
+    var maxEntries = opts.maxEntries || MAX_ENTRIES, maxFiles = opts.maxFiles || MAX_BOOKS;
+    var out = [], seen = 0, folders = 0, capped = 0, stop = false;
+    async function walk(h, path, depth) {
+      var dirs = [];
+      for await (var entry of h.values()) {
+        if (++seen > maxEntries) { stop = true; break; }
+        var n = entry.name || "";
+        if (n.charAt(0) === "." || n.indexOf("~$") === 0) continue;
+        if (entry.kind === "directory") { if (!SKIP_DIRS.test(n) && !(opts.skipDir && opts.skipDir(n))) dirs.push(entry); continue; }
+        if (!re.test(n) || out.length >= maxFiles) { if (out.length >= maxFiles && re.test(n)) stop = true; continue; }
+        var rel = path.concat(n);
+        if (opts.want && !opts.want(rel)) continue;
+        var f = null; try { f = await entry.getFile(); } catch (x) {}
+        out.push({ name: n, path: path, rel: rel, handle: entry, size: f ? f.size : 0, lastModified: f ? f.lastModified : 0 });
+      }
+      if (stop) return;
+      if (depth >= maxDepth) { capped += dirs.length; return; }
+      if (opts.prefer) dirs.sort(function (a, b) { return (opts.prefer(b.name) ? 1 : 0) - (opts.prefer(a.name) ? 1 : 0); });
+      for (var i = 0; i < dirs.length && !stop; i++) { folders++; await walk(dirs[i], path.concat(dirs[i].name), depth + 1); }
+    }
+    await walk(dir, [], 0);
+    out.sort(function (a, b) { return a.rel.join("/").localeCompare(b.rel.join("/")); });
+    return { files: out, truncated: stop, scanned: seen, folders: folders, depthCapped: capped };
+  }
+  QBR._fsScanFiles = scanFiles;
+  async function grant(id, opts) {
+    var d = dirById(id); if (!d) return null;
+    var p;
+    try {
+      p = await d.handle.queryPermission({ mode: "readwrite" });
+      if (p !== "granted" && opts && opts.ask) p = await d.handle.requestPermission({ mode: "readwrite" });
+    } catch (x) { p = "denied"; }
+    QBR._fsDirState[id] = p;
+    return p === "granted" ? d : null;
+  }
+  QBR.fsFolderFiles = async function (id, opts) {
+    var d = await grant(id, opts); if (!d) return null;
+    try { return await scanFiles(d.handle, opts); } catch (x) { return null; }
+  };
+  // The folder's own handle (create / write files at its top level, e.g. a log workbook). -> handle | null
+  QBR.fsFolderDir = async function (id, opts) { var d = await grant(id, opts); return d ? d.handle : null; };
+
   // Pick a folder and remember it WITHOUT loading anything into the dashboard. -> id | null
   QBR.fsFolderPickOnly = async function () {
     if (!QBR.fsFolderSupported()) return null;

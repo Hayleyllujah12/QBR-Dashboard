@@ -781,6 +781,7 @@ function parseDomainRegistration(wb, model) {
     if (srcDays == null && cCF >= 0) { const cf = toNum(row[cCF]); if (cf != null) srcDays = cf; }
     // Expiration: explicit column, else registration + validity years (default 1).
     let expMs = parseRegTimestamp(cExp >= 0 ? row[cExp] : null);
+    const hadExplicitExp = expMs != null;
     let validYr = cValidYr >= 0 ? toNum(row[cValidYr]) : null;
     if (validYr == null && cValidPD >= 0) { const vm = String(row[cValidPD] || "").match(/(\d+)/); if (vm) validYr = parseInt(vm[1], 10); }
     if (expMs == null && regMs != null) { let e = regMs; const yrs = validYr || 1; for (let i = 0; i < yrs; i++) e = addOneYear(e); expMs = e; }
@@ -794,6 +795,11 @@ function parseDomainRegistration(wb, model) {
       statusRaw: cStatus >= 0 ? (row[cStatus] || null) : null,
       remarks: cRemarks >= 0 && row[cRemarks] != null && String(row[cRemarks]).trim() ? String(row[cRemarks]).trim() : null,
       validYr: validYr || null,
+      validPdRaw: cValidPD >= 0 && row[cValidPD] != null ? String(row[cValidPD]).trim() : null,
+      // Edit write-back coordinates: sheet name + identity; row re-located by school+domain on write
+      _hadExplicitExp: hadExplicitExp,
+      _sheet: name,
+      _regCol: cReg, _validPdCol: cValidPD, _validYrCol: cValidYr,
     };
     const st = QBR.domainStatus(rec);
     rec.status = st.status; rec.tier = st.tier; rec.action = st.action; rec.days = st.days; rec.group = st.group;

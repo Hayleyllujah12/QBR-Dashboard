@@ -662,7 +662,7 @@
           </div>
           <div class="small text-muted mt-1" id="dr-note"></div>
           <div class="table-responsive"><table class="table table-sm mt-2"><thead><tr>
-            <th>School</th><th>Domain</th><th>Registration Date</th><th>Expiration Date</th>
+            <th>School</th><th>Domain</th><th>Registration Date</th><th>Validity</th><th>Expiration Date</th>
             <th class="text-end">Days</th><th>Status</th><th>Action / Remarks</th>
           </tr></thead><tbody id="tbl-dr"></tbody></table></div>
         </div></div>
@@ -1150,11 +1150,13 @@
   <script src="js/todo.js"></script>
   <script src="js/mos-parse.js"></script>  <!-- v1.37.0: MOS score-report parser (pure; pdf.js loads on demand from libs/pdfjs) -->
   <script src="js/mos.js"></script>  <!-- v1.37.0: MOS tab (Certification > MOS results) -->
+  <script src="js/mos-certs.js"></script>  <!-- v1.41.0: MOS > Certificates (generated / printed log) -->
   <script src="js/trainers-parse.js"></script>  <!-- Trainers tab: pure eval/score logic (Node-testable) -->
   <script src="js/trainers.js"></script>  <!-- Trainers tab: tracker sessions + MS Forms eval scoring -->
   <script src="js/gentickets.js"></script>
   <script src="js/identity.js"></script>  <!-- v1.31.0: Netlify Identity login on *.netlify.app only (loads its widget there; no-op offline/live) -->
   <script src="js/admin.js"></script>  <!-- v1.31.0: discreet admin panel (feature flags) -->
+  <script src="js/domain-edit.js"></script>  <!-- Domain registration inline edit (surgical write-back) -->
   <script src="js/app.js"></script>
   <script src="js/xlsx-surgical.js"></script>  <!-- 2026-10-06: format-safe Save to Excel -->
   <script src="js/xlsx-merge.js"></script>  <!-- 2026-10-06: merge edits with changes made in Excel -->
