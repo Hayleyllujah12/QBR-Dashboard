@@ -439,7 +439,8 @@
     var bytes;
     try { bytes = new Uint8Array(await fo.arrayBuffer()); }
     catch (e) { msg("Preview: could not read PDF (" + (e && e.message || e) + ")."); return; }
-    var s = M(), pool = it.cands.length ? it.cands : (s && s.model ? s.model.rows.filter(function (r) { return r.pass && (!it.school || it.school === "Unassigned school" || r.school === it.school) && P().examFamily(r.exam) === it.family; }).slice(0, 60) : []);
+    var s = M(), pool = it.cands.length ? it.cands : (s && s.model ? s.model.rows.filter(function (r) { return r.pass && (!it.school || it.school === "Unassigned school" || r.schoolFromCenter || P().schoolMatch(r.school, it.school)) && P().examFamily(r.exam) === it.family; }).slice(0, 60) : []);
+    var old = document.querySelector(".mos-prev-back"); if (old) old.remove();   // one preview at a time
     var h = '<div class="mos-prev-back" data-mc="preview-close">' +
       '<div class="mos-prev-modal" role="dialog" aria-label="Certificate preview">' +
       '<div class="mos-prev-head"><div><b>' + esc(it.name) + '</b> · ' + esc(it.cert) + ' · ' + esc(fmtDate(it.date)) + '<div class="tr-hint">' + esc(it.code) + (it.page ? " · page " + it.page : "") + " · " + esc(it.fileName) + "</div></div>" +
@@ -468,10 +469,15 @@
         var m2 = document.querySelector(".mos-prev-back"); if (m2) m2.remove();
       }
     });
-    // Backdrop click closes
-    document.querySelector(".mos-prev-back").addEventListener("click", function (e) {
+    // Backdrop click or Escape closes
+    var back = document.querySelector(".mos-prev-back");
+    var onKey = function (e) { if (e.key === "Escape") { back.remove(); } };
+    back.addEventListener("click", function (e) {
       if (e.target.classList && e.target.classList.contains("mos-prev-back")) e.target.remove();
     });
+    document.addEventListener("keydown", onKey);
+    new MutationObserver(function (_, ob) { if (!document.body.contains(back)) { document.removeEventListener("keydown", onKey); ob.disconnect(); } }).observe(document.body, { childList: true });
+    var closeBtn = back.querySelector('button[data-mc="preview-close"]'); if (closeBtn) try { closeBtn.focus(); } catch (x) {}
     // Render the PDF page
     QBR.mos._pdfLib().then(function (lib) {
       return lib.getDocument({ data: bytes, isEvalSupported: false, verbosity: 0 }).promise;

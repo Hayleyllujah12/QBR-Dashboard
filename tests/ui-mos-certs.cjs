@@ -116,6 +116,16 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   // disabled box on a pass without a certificate (was: no box at all)
   ok(await page.$eval('tr:has(td:text-is("Carl Reyes Test")) input[type=checkbox]', el => el.disabled && /nothing to print/.test(el.title)), "Not generated row: disabled checkbox with an explanation");
   ok(/no certificate PDF read for this school yet|no PowerPoint certificate|none for PowerPoint/.test(await page.textContent('tr:has(td:text-is("Carl Reyes Test"))')), "Not generated row says why");
+  /* ---- P: preview (only on rows that were not matched automatically) ---- */
+  ok(!(await page.$('tr:has(td:text-is("Alex Cruz Demo")) [data-mc="preview"]')) && !!(await page.$('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="preview"]')), "Preview only on unmatched rows, not on automatic matches");
+  await page.click('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="preview"]');
+  await page.waitForFunction(() => { const c = document.getElementById("mos-prev-canvas"); return c && c.width > 100; }, null, { timeout: 10000 }).catch(() => {});
+  ok(await page.evaluate(() => { const c = document.getElementById("mos-prev-canvas"); return !!c && c.width > 100 && document.querySelectorAll(".mos-prev-back").length === 1; }), "Preview: certificate page drawn in one modal");
+  await page.evaluate(() => { document.querySelector('tr [data-mc="preview"]').click(); }); await page.waitForTimeout(500);
+  ok(await page.evaluate(() => document.querySelectorAll(".mos-prev-back").length === 1), "Preview twice → still one modal");
+  ok(await page.evaluate(() => { const m = document.querySelector(".mos-prev-modal"), st = getComputedStyle(m); return st.backgroundColor === getComputedStyle(document.querySelector("#mos-view-certs .card-box")).backgroundColor; }), "modal uses the theme's card colour");
+  await page.keyboard.press("Escape"); await page.waitForTimeout(200);
+  ok(await page.evaluate(() => !document.querySelector(".mos-prev-back")), "Escape closes the preview");
   /* ---- B ---- */
   await dialogs(page, [true]);   // "create the log?"
   await page.click('tr:has(td:text-is("Alex Cruz Demo")) [data-mc="print"]');

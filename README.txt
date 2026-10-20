@@ -22,6 +22,13 @@ UPDATE — 2026-10-19 — v1.41.0 [PREVIEW feature/mos-certificates] MOS › Cer
     page, first seen, linked Exam ref #, printed, first / last printed, printed by, print count, remarks). The log is
     re-read before every save (format-safe), so edits made in Excel meanwhile are kept. A new session shows the
     printed / pending status from the log alone. No student data is stored in the browser.
+  - Certificates that were not matched automatically have a "Preview" button: the certificate page next to the
+    possible exam results — pick the right one (or "No matching result").
+  - Domains & email › Domain registration: click a Registration date or the new Validity column to edit it in place.
+    Saved into DOMAIN_REGISTRATION_TRACKER.xlsx (picked on the first edit) — only that cell, format-safe; the tracker's
+    own formats are kept ("VALIDPD: 02", the date with its time of day). Expiration is never written: a formula
+    recalculates when Excel opens the file; a typed Expiration is flagged so you can update it in Excel. A school with
+    several domains edits the right row. "Copy" under each domain copies it.
   - Not in this version: printing the selected certificates from the tab and the pending-print checklist PDF (next).
 
 UPDATE — 2026-10-19 — v1.40.0 [PREVIEW feature/co-trainers] Trainers: co-trained sessions + duplicate-session warning

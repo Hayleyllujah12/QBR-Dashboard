@@ -80,12 +80,19 @@
   }
 
   /* ---------- row location ---------- */
+  // Header = first non-empty row (the loader skips blank rows, so a title-less sheet may start lower down).
+  function headerIndex(rows) {
+    for (var i = 0; i < rows.length; i++) if ((rows[i] || []).some(function (v) { return v != null && String(v).trim() !== ""; })) return i;
+    return -1;
+  }
   // Find the Excel row (1-based) for a domain record by school+domain match.
   function locateRow(wb, sheet, rec) {
     var ws = wb.Sheets[sheet];
     var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
     if (!rows.length) return -1;
-    var hdr = rows[0].map(function (h) { return String(h || "").toLowerCase().trim(); });
+    var o = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]).s : { r: 0, c: 0 };   // sheets need not start at A1
+    var hi = headerIndex(rows); if (hi < 0) return -1;
+    var hdr = rows[hi].map(function (h) { return String(h || "").toLowerCase().trim(); });
     var cSchool = -1, cDomain = -1;
     hdr.forEach(function (h, i) {
       if (cSchool < 0 && /school/.test(h)) cSchool = i;
@@ -94,9 +101,9 @@
     if (cSchool < 0) return -1;
     var key = function (s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); };
     var wantSchool = key(rec.schoolRaw), wantDomain = key(rec.domain);
-    for (var r = 1; r < rows.length; r++) {
+    for (var r = hi + 1; r < rows.length; r++) {
       if (key(rows[r][cSchool]) === wantSchool) {
-        if (cDomain < 0 || wantDomain === "" || key(rows[r][cDomain]) === wantDomain) return r + 1; // 1-based
+        if (cDomain < 0 || wantDomain === "" || key(rows[r][cDomain]) === wantDomain) return o.r + r + 1; // 1-based Excel row
       }
     }
     return -1;
@@ -113,13 +120,16 @@
   async function surgicalWrite(bytes, wb, sheet, row1, colIdx, value) {
     var SG = QBR.xlsxSurgical;
     if (!SG) throw new Error("Format-safe saver not loaded.");
-    // Clone workbook, apply the single-cell change
-    var work = XLSX.read(bytes, { type: "array", cellDates: true });
+    // base and work MUST be parsed with the same options, or untouched cells (dates…) look changed and get rewritten
+    var opt = { type: "array", cellStyles: true };
+    wb = XLSX.read(bytes, opt);
+    var work = XLSX.read(bytes, opt);
     var ws = work.Sheets[sheet];
     var addr = colLetter(colIdx) + row1;
     var cell = ws[addr] || {};
-    // Preserve the cell's number format; write as string to match the tracker's text format
-    ws[addr] = { t: "s", v: String(value) };
+    if (cell.f) throw new Error("That cell is a formula in the tracker — edit it in Excel.");
+    // keep the cell's own type: a number stays a number (e.g. an Excel date serial), text stays text
+    ws[addr] = typeof value === "number" ? { t: "n", v: value } : { t: "s", v: String(value) };
     if (cell.z) ws[addr].z = cell.z;
     if (cell.s) ws[addr].s = cell.s;
     var rng = XLSX.utils.decode_range(ws["!ref"] || "A1");
@@ -129,6 +139,7 @@
     ws["!ref"] = XLSX.utils.encode_range(rng);
 
     var res = await SG.surgicalSave(bytes, wb, work);
+    if (res && res.ok && !res.noChanges && res.stats && res.stats.cells > 1) throw new Error("Safety stop: the save would change " + res.stats.cells + " cells.");
     if (!res || !res.ok) throw new Error("Surgical save failed.");
     if (res.noChanges) return bytes;
     var why = await SG.verifySurgical(bytes, res.bytes, work);
@@ -163,26 +174,53 @@
 
       // Resolve column indices in the CURRENT file (headers may differ from load time)
       var ws = wb.Sheets[sheet];
-      var hdr = (XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true })[0] || [])
-        .map(function (h) { return String(h || "").toLowerCase().trim(); });
-      var cReg = -1, cValidPd = -1, cValidYr = -1;
-      hdr.forEach(function (h, i) {
-        if (cReg < 0 && /registration/.test(h)) cReg = i;
-        if (cValidPd < 0 && /valid\s*pd|validpd/.test(h)) cValidPd = i;
-        if (cValidYr < 0 && /valid.*year|validity/.test(h) && !/valid\s*pd/.test(h)) cValidYr = i;
-      });
+      var c0 = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]).s.c : 0;
+      var allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
+      var hdr = (allRows[headerIndex(allRows)] || []).map(function (h) { return String(h || "").toLowerCase().trim(); });
+      // same column choice as the loader: exact header first, then contains
+      var pick = function (names, not) {
+        for (var k = 0; k < names.length; k++) { var e = hdr.indexOf(names[k]); if (e >= 0) return e; }
+        for (k = 0; k < names.length; k++) for (var j = 0; j < hdr.length; j++) if (hdr[j].indexOf(names[k]) >= 0 && !(not && not.test(hdr[j]))) return j;
+        return -1;
+      };
+      var cReg = pick(["registration status", "registration"]);
+      var cValidPd = pick(["validpd", "valid pd"]);
+      var cValidYr = pick(["validy in year", "validity in year", "validity period", "validity"], /valid\s*pd/);
+      var here = function (c) { return c < 0 ? -1 : c + c0; };   // header index → sheet column
+      cReg = here(cReg); cValidPd = here(cValidPd); cValidYr = here(cValidYr);
+      var cur = function (c) { var a = ws[colLetter(c) + row1]; return a || null; };
 
       var out = bytes, changed = [];
       if (field === "reg") {
         if (cReg < 0) return { ok: false, error: "Registration column not found." };
-        out = await surgicalWrite(out, XLSX.read(out, { type: "array" }), sheet, row1, cReg, value);
+        var rc = cur(cReg), v = value;
+        if (rc && rc.t === "n") { var dp = parseDateParts(value); v = (Date.UTC(dp.y, dp.mo - 1, dp.d, dp.hh, dp.mm, dp.ss) / 864e5) + 25569; }  // the cell holds an Excel date
+        out = await surgicalWrite(out, null, sheet, row1, cReg, v);
         changed.push("Registration DATE");
       } else if (field === "valid") {
-        var cV = cValidPd >= 0 ? cValidPd : cValidYr;
+        var cV = cValidPd >= 0 && !(cur(cValidPd) || {}).f ? cValidPd : cValidYr;
         if (cV < 0) return { ok: false, error: "Validity column not found." };
-        out = await surgicalWrite(out, XLSX.read(out, { type: "array" }), sheet, row1, cV, value);
-        changed.push(cValidPd >= 0 ? "VALIDPD" : "Validity");
+        var vc = cur(cV), yrs = +value, vv;
+        if (vc && vc.t === "n") vv = yrs;
+        else {   // keep the tracker's own text format: "VALIDPD: 01" → "VALIDPD: 02", "01" → "02"
+          var t = vc && vc.v != null ? String(vc.v) : "", m = t.match(/^(.*?)(\d+)(\D*)$/);
+          vv = m ? m[1] + (m[2].length > 1 ? ("0000" + yrs).slice(-m[2].length) : String(yrs)) + m[3] : String(yrs);
+        }
+        out = await surgicalWrite(out, null, sheet, row1, cV, vv);
+        changed.push(cV === cValidPd ? "VALIDPD" : "Validity");
+        // a plain (non-formula) "Validity in year" next to VALIDPD must agree, or the dashboard keeps reading the old value
+        if (cV === cValidPd && cValidYr >= 0 && cValidYr !== cValidPd) {
+          var yc = XLSX.read(out, { type: "array" }).Sheets[sheet][colLetter(cValidYr) + row1];
+          if (yc && !yc.f) {
+            var yt = String(yc.v == null ? "" : yc.v), ym = yt.match(/^(.*?)(\d+)(\D*)$/);
+            var yv = yc.t === "n" ? yrs : ym ? ym[1] + (ym[2].length > 1 ? ("0000" + yrs).slice(-ym[2].length) : String(yrs)) + ym[3] : String(yrs);
+            out = await surgicalWrite(out, null, sheet, row1, cValidYr, yv);
+            changed.push("Validity in year");
+          }
+        }
       }
+      var ex = pick(["expiration"]), exCell = ex >= 0 ? cur(here(ex)) : null;
+      var expTyped = !!(exCell && !exCell.f && exCell.v != null && String(exCell.v).trim());
 
       // Write back to the file
       var w = null;
@@ -194,7 +232,7 @@
         try { if (w && w.abort) await w.abort(); } catch (x) {}
         return { ok: false, error: "Couldn't write — is the file open in Excel? Close it and try again." };
       }
-      return { ok: true, changed: changed.join(", "), file: S.name || handle.name };
+      return { ok: true, changed: changed.join(", "), file: S.name || handle.name, expTyped: expTyped };
     } catch (e) {
       return { ok: false, error: (e && e.message) || String(e) };
     } finally {
@@ -221,9 +259,13 @@
     });
   }
 
+  // key = "i<index>" (position in APP.model.domainreg) or "<school key>|<domain>"; never the school alone
+  // (a school can have several domains — the first one used to be edited).
   function findRec(key) {
     var rows = (typeof APP !== "undefined" && APP.model && APP.model.domainreg) || [];
-    for (var i = 0; i < rows.length; i++) if (rows[i].key === key) return rows[i];
+    var m = /^i(\d+)$/.exec(key || "");
+    if (m) return rows[+m[1]] || null;
+    for (var i = 0; i < rows.length; i++) if (rows[i].key + "|" + (rows[i].domain || "") === key) return rows[i];
     return null;
   }
 
@@ -285,10 +327,10 @@
         }
       }
       if (result.ok) {
-        if (typeof renderDrTable === "function") {
-          var q = (document.getElementById("dr-search") || {}).value || "";
-          renderDrTable(q);
-        }
+        // KPIs, status chart and table all follow the new dates
+        if (typeof renderAll === "function") { try { renderAll(); } catch (x) {} }
+        else if (typeof renderDrTable === "function") renderDrTable((document.getElementById("dr-search") || {}).value || "");
+        if (result.expTyped) alert("Saved (" + result.changed + ").\n\nNote: this row's Expiration in the tracker is a typed value, not a formula, so Excel will keep showing the old expiration. Update that cell in Excel.");
       } else if (result.error !== "cancelled") {
         alert("Could not save: " + result.error);
         cleanup();
@@ -304,10 +346,10 @@
     for (var i = 0; i < yrs; i++) {
       var d = new Date(e); d.setFullYear(d.getFullYear() + 1); e = d.getTime();
     }
-    // Only override if there was no explicit expiration column value
+    // Always recompute here: an Expiration FORMULA in the file only updates when Excel recalculates (on next open)
     if (typeof QBR !== "undefined" && typeof QBR.domainStatus === "function") {
-      var hadExplicit = rec._hadExplicitExp;
-      if (!hadExplicit) rec.expMs = e;
+      rec.expMs = e;
+      rec.srcDays = null;   // the file's "N days remaining" text is stale after an edit
       var st = QBR.domainStatus(rec);
       rec.status = st.status; rec.tier = st.tier; rec.action = st.action; rec.days = st.days; rec.group = st.group;
     } else {
