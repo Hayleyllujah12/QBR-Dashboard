@@ -242,7 +242,7 @@
     }
     var bad = [], dup = 0, encoded = 0;
     for (var i = 0; i < files.length; i++) {
-      note("Reading " + (i + 1) + " of " + files.length + ": " + files[i].name + "…");
+      progressNote("Reading file " + (i + 1) + " of " + files.length + " · " + files[i].name, i / files.length);
       try {
         var wb = await readWorkbook(files[i]);
         var q = makeEval(files[i], wb);
@@ -397,6 +397,12 @@
   function note(msg) {
     if (typeof QBR.persistNote === "function") { try { QBR.persistNote("trainers", esc(msg), 6000); } catch (e) {} }
     var el = $("tr-status"); if (el) el.textContent = msg;
+  }
+  function progressNote(label, frac) {   // determinate bar, same pattern as MOS Results
+    var el = $("tr-status"); if (!el) return;
+    var pct = Math.max(0, Math.min(100, Math.round((frac || 0) * 100)));
+    el.innerHTML = '<div class="progress" style="height:14px" role="progressbar" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:' + pct + '%"></div></div>' +
+      '<div class="small text-muted mt-1">' + esc(label) + ' · ' + pct + '%</div>';
   }
   /* In place only when the linked file is unchanged since it was opened (Excel or
    * OneDrive may have saved it meanwhile — overwriting would lose those edits). */
@@ -1617,6 +1623,9 @@
     S.lastFit = { changed: changed, pages: pages };
     return S.lastFit;
   }
+  function stampShown() {   // Admin > Reports toggle; default ON (keep old behaviour)
+    try { return !(window.QBR && QBR.reportStampOn) || QBR.reportStampOn(); } catch (e) { return true; }
+  }
   function printReport(srcId) {
     var src = $(srcId);
     if (!src) return false;
@@ -1637,7 +1646,8 @@
     });
     // No separate footer block: on its own it could spill onto an otherwise empty last page.
     var ph = doc.querySelector(".tr-print-head");
-    if (ph) ph.insertAdjacentHTML("beforeend", '<div class="tr-ph-by">RCT OpsDesk · Trainer evaluations · printed ' + esc(new Date().toLocaleString()) + '</div>');
+    if (ph) { var stampOn = stampShown();
+      ph.insertAdjacentHTML("beforeend", '<div class="tr-ph-by">RCT OpsDesk · Trainer evaluations' + (stampOn ? ' · printed ' + esc(new Date().toLocaleString()) : '') + '</div>'); }
     host.innerHTML = '<div class="tr-print-doc">' + doc.outerHTML + '</div>';
     document.body.appendChild(host);
     document.body.classList.add("tr-printing");

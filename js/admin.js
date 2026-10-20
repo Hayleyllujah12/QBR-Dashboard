@@ -71,6 +71,17 @@
     try { localStorage.removeItem(PW_KEY); } catch (e) {}
   };
 
+  /* ---------- report stamp (printed "Generated ..." line) ----------------- */
+  // Local per-browser setting: whether PDF/print reports carry the
+  // "report generated" date & time. Default ON (reports unchanged until
+  // an admin turns it off here). Read at report-build time by trainers.js,
+  // mos.js and app.js via QBR.reportStampOn().
+  const STAMP_KEY = "qbr-report-stamp";
+  QBR.reportStampOn = function () {
+    try { const v = localStorage.getItem(STAMP_KEY); return v == null ? true : v === "1"; } catch (e) { return true; }
+  };
+  function setReportStamp(on) { try { localStorage.setItem(STAMP_KEY, on ? "1" : "0"); } catch (e) {} }
+
   /* ---------- appearance (theme, colours, text sizes) ---------------------- */
   const THEME_KEY = "qbr-theme-custom";
   const THEME_DEFAULTS = { pageBg: "", cardBg: "", accent: "", headerText: "", textScale: 100, headScale: 100, chartScale: 100 };
@@ -327,6 +338,7 @@
     });
     renderRemoteSection(host); // v1.36.0
     renderThemeSection(host);
+    renderReportsSection(host);
     if (keepScripts) host.appendChild(keepScripts); else renderScriptsSection(host);
   }
 
@@ -344,6 +356,22 @@
     const box = sec.querySelector("#admin-scripts-host");
     if (box && typeof QBR.scriptsRenderInline === "function") QBR.scriptsRenderInline(box);
     else if (box) box.innerHTML = `<div class="small text-muted">Script library not loaded.</div>`;
+  }
+
+  function renderReportsSection(host) {
+    const on = QBR.reportStampOn();
+    const sec = document.createElement("div");
+    sec.className = "admin-reports";
+    sec.innerHTML =
+      `<h4 class="mb-1 mt-4">Admin &middot; Reports</h4>` +
+      `<div class="small text-muted mb-2">Applies to this browser only.</div>` +
+      `<div class="admin-list">` +
+      `<div class="admin-row"><span class="admin-row-txt"><span class="admin-row-label">&quot;Report generated&quot; date &amp; time on PDF reports</span><br>` +
+      `<span class="admin-row-desc">When off, printed reports omit the generated date and time: Trainers reports, MOS Exam Summary, Export Deck cover and Export Images sheet. Excel exports are not affected.</span></span>` +
+      `<button type="button" class="btn btn-sm ${on ? "btn-success" : "btn-outline-secondary"}" data-report-stamp aria-pressed="${on}">${on ? "ON" : "OFF"}</button></div></div>`;
+    host.appendChild(sec);
+    const b = sec.querySelector("[data-report-stamp]");
+    if (b) b.addEventListener("click", () => { setReportStamp(!QBR.reportStampOn()); renderAdminPanel(); });
   }
 
   function renderThemeSection(host) {

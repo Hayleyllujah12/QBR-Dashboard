@@ -6,6 +6,13 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-20 — v1.42.0 Admin › Reports: "report generated" stamp toggle + loading progress bars
+  - Admin › Reports: new switch for the "Report generated" date & time on printed reports (Trainers reports, MOS Exam
+    Summary, Export Deck cover, Export Images sheet). ON by default; OFF removes only the date and time, the "RCT OpsDesk"
+    attribution stays. Saved in this browser only. Excel exports are not affected.
+  - Progress bars while loading: MOS results PDFs (fills 0 → 100%, also moves inside large files), Trainers eval exports
+    (one step per file), and Risky sign-ins source files (sliding bar while the workbook is read).
+
 UPDATE — 2026-10-20 — Docs: Trainers tab quick guide
   - New docs/guides/Trainers_Tab_Quick_Guide.pdf (8 pages): open the tab, load the tracker + evaluations (or a linked
     folder), confirm columns, match + generate, write to the tracker, add a training log (incl. co-trainer), and the

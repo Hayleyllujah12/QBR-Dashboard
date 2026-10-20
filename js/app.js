@@ -2821,6 +2821,11 @@ function swapChartsForPrint(scope) {
   return remove;
 }
 
+// Admin > Reports toggle (v1.42.0): whether printed reports carry the "Generated" date. Default ON.
+function stampShown() {
+  try { return !(window.QBR && QBR.reportStampOn) || QBR.reportStampOn(); } catch (e) { return true; }
+}
+
 // Human-readable snapshot of the filters an export was taken under, so a deck
 // is never ambiguous out of context.
 function exportMeta() {
@@ -2833,7 +2838,7 @@ function exportMeta() {
     ["Organization", nice(f.org)],
     ["School", nice(f.school)],
     ["Schools in scope", String(m ? m.master.size : 0)],
-    ["Generated", new Date().toLocaleString()],
+    ...(stampShown() ? [["Generated", new Date().toLocaleString()]] : []),
   ];
   if (m && m.usermgmt.length) rows.splice(4, 0, ["School Year", nice(f.sy)]);
   return rows;

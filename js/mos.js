@@ -69,7 +69,7 @@
   }
   function tick() { return new Promise(function (r) { setTimeout(r, 0); }); }
 
-  async function readPdf(file, schoolInput) {
+  async function readPdf(file, schoolInput, onprog) {
     var path = file.webkitRelativePath || file._path || file.name;
     var meta = P().fileMeta(path, schoolInput);
     var rec = { file: meta.file, name: meta.fileName, school: meta.school, pages: 0, attempts: 0, certs: 0, skipped: 0, bad: 0, err: "" };
@@ -91,7 +91,7 @@
         for (var k in meta) if (Object.prototype.hasOwnProperty.call(meta, k)) r[k] = meta[k];
         r.page = i;
         S.attempts.push(r); rec.attempts++;
-        if (i % 4 === 0) { S.progress = "Reading " + rec.name + " · page " + i + "/" + doc.numPages; status(); await tick(); }
+        if (i % 4 === 0 && onprog) { onprog(i / doc.numPages, "Reading " + rec.name + " · page " + i + "/" + doc.numPages); await tick(); }
       }
       try { await doc.destroy(); } catch (e) {}
     } catch (e) { rec.err = String((e && e.message) || e); }
@@ -115,11 +115,12 @@
     for (var i = 0; i < files.length; i++) {
       var f = files[i], id = (f.webkitRelativePath || f._path || f.name) + "|" + f.size;
       if (S.files.some(function (x) { return x.id === id; })) continue;
-      S.progress = "Reading file " + (i + 1) + " of " + files.length + " · " + f.name; status(); await tick();
-      var rec = await readPdf(f, school); rec.id = id;
+      var setProg = function (pf, lbl) { S.progress = { label: "Reading file " + (i + 1) + " of " + files.length + " · " + (lbl || f.name), frac: (i + (pf || 0)) / files.length }; status(); };
+      setProg(0); await tick();
+      var rec = await readPdf(f, school, setProg); rec.id = id;
       S.files.push(rec); done++;
     }
-    S.busy = false; S.progress = "";
+    S.busy = false; S.progress = null;
     rebuild();
   }
 
@@ -327,7 +328,12 @@
 
   function status() {
     var el = $("mos-status"); if (!el) return;
-    if (S.progress) { el.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>' + esc(S.progress); return; }
+    if (S.progress) {
+      var pct = Math.max(0, Math.min(100, Math.round((S.progress.frac || 0) * 100)));
+      el.innerHTML = '<div class="progress" style="height:16px" role="progressbar" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100" aria-label="' + esc(S.progress.label || "Loading") + '"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:' + pct + '%"></div></div>' +
+        '<div class="small text-muted mt-1">' + esc(S.progress.label || "") + ' · ' + pct + '%</div>';
+      return;
+    }
     if (!S.files.length && !S.rosterFiles.length && !S.exports.length) { el.textContent = ""; return; }
     var pages = 0, att = 0; S.files.forEach(function (f) { pages += f.pages; att += f.attempts; });
     var t = S.files.length ? S.files.length + " PDF" + (S.files.length === 1 ? "" : "s") + " · " + num(att) + " score pages" : "No PDFs";
@@ -973,9 +979,12 @@
       (areas.length ? '<div class="mos-sum-legend"><b>Skill areas</b> (section analysis %, red below 50%): ' + areas.map(function (a, i) { return "<span><b>" + romans(i) + "</b> " + esc(a) + "</span>"; }).join("") + "</div>" : "") +
       Object.keys(altSigs).map(function (g) { return '<div class="mos-sum-legend"><b>† Other exam version:</b> ' + g.split("|").map(function (a, i) { return "<span><b>" + romans(i) + "</b> " + esc(a) + "</span>"; }).join("") + "</div>"; }).join("") +
       '<div class="mos-sum-foot"><span>Passing score: 700 / 1000 (700 passes). Up to 2 takes per exam: a first-time taker who fails is eligible for one retake (matched by email).</span>' +
-        "<span>Source: Certiport score reports" + (S.exports.length ? " and results export" : "") + " · Filters: " + esc(describeFilters()) + "</span><span>Generated " + esc(new Date().toLocaleString()) + " · RCT OpsDesk</span></div>" +
+        "<span>Source: Certiport score reports" + (S.exports.length ? " and results export" : "") + " · Filters: " + esc(describeFilters()) + "</span><span>" + (stampShown() ? "Generated " + esc(new Date().toLocaleString()) + " · " : "") + "RCT OpsDesk</span></div>" +
       "</div>";
     return { html: html, rows: rows.length, areas: areas.length, school: school, logo: !!pr.logo, partner: !!br.right, eligible: eligible, narrow: narrow };
+  }
+  function stampShown() {   // Admin > Reports toggle; default ON (keep old behaviour)
+    try { return !(window.QBR && QBR.reportStampOn) || QBR.reportStampOn(); } catch (e) { return true; }
   }
   function printSummary() {
     var R = rows();
