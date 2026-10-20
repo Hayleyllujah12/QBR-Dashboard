@@ -822,7 +822,7 @@ async function scanRowScan(id) {
   }
 }
 
-/* 1-based display position of a row (what Pedro sees in the table). */
+/* 1-based display position of a row (what the user sees in the table). */
 function scanRowNum(id) {
   const i = (QBR._scanUI.rows || []).findIndex(r => r.id === id);
   return i < 0 ? "?" : String(i + 1);

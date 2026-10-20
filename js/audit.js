@@ -2,7 +2,7 @@
  * QBR — Audit editing module (js/audit.js)
  * v1.26.0 — Report 1: Risky Sign-ins (RISKY_USERS_AND_DOMAIN.xlsx)
  *
- * Lets Pedro edit his audit workbooks directly in the dashboard:
+ * Lets the owner edit their audit workbooks directly in the dashboard:
  *  - Month picker (defaults to the current month, cycle through all 12)
  *  - Editable school table: Total Risky Users (number/text), Domain Health
  *    (dropdown from the workbook's Drop-Down sheet)
@@ -18,7 +18,7 @@
 (function () {
   "use strict";
 
-  QBR.AUDIT_VERSION = "1.36.0";
+  QBR.AUDIT_VERSION = "1.38.0";
   // Base used to resolve Excel-stored relative hyperlink targets (e.g.
   // "../../../../../../:x:/r/sites/..." -> "file:///C:/:x:/r/sites/..."). The
   // browser cannot see the workbook's local folder, so relative links are

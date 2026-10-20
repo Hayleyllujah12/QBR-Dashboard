@@ -143,7 +143,7 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
     ok(r.t === "Main", "live OneDrive folder QBR-Dashboard_<x.y.z> → 'Main'");
     await ctx.route(/azurestaticapps\.net\//, route => { const u = new URL(route.request().url()); const f = path.join(APPDIR, u.pathname === "/" ? "index.html" : decodeURIComponent(u.pathname)); route.fulfill(fs.existsSync(f) ? { path: f } : { status: 404, body: "" }); });
     r = await badge("https://lively-sea-0f1e2d3c4.5.azurestaticapps.net/");
-    ok(r.t === "Main", "Azure production site → 'Main'");
+    ok(r.t === "Beta version" && /env-beta/.test(r.c), "Azure site (deploys develop since 2026-10-19) → 'Beta version'");
     r = await badge("https://lively-sea-0f1e2d3c4-12.eastasia.5.azurestaticapps.net/");
     ok(r.t === "Staging · PR 12" && /env-preview/.test(r.c), "Azure PR staging site → 'Staging · PR 12' (not Main)");
     try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) {}
@@ -153,7 +153,7 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
   {
     const FAKE = `(function(){var h={},u=localStorage.getItem("fakeUser");function f(e,x){(h[e]||[]).forEach(function(c){c(x)})}
       window.netlifyIdentity={on:function(e,c){(h[e]=h[e]||[]).push(c)},init:function(){setTimeout(function(){f("init",u?{email:u}:null)},10)},
-      open:function(){window.__opened=1;localStorage.setItem("fakeUser","pedro@example.com");f("login",{email:"pedro@example.com"})},
+      open:function(){window.__opened=1;localStorage.setItem("fakeUser","tester@example.com");f("login",{email:"tester@example.com"})},
       currentUser:function(){var x=localStorage.getItem("fakeUser");return x?{email:x}:null},close:function(){},logout:function(){localStorage.removeItem("fakeUser");f("logout")}};})();`;
     const mk = async (blockWidget) => {
       const ctx = await b.newContext(); const reqs = [];

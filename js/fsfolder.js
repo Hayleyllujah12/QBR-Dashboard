@@ -58,7 +58,7 @@
 
   /* ---------------- storage ---------------- */
   function dirsSave() {
-    var slim = QBR._fsDirs.map(function (d) { return { id: d.id, name: d.name, handle: d.handle, picked: d.picked || [] }; });
+    var slim = QBR._fsDirs.map(function (d) { return { id: d.id, name: d.name, handle: d.handle, picked: d.picked || [], keep: !!d.keep }; });
     return persistIdbPut(DIRS_KEY, slim).catch(function (x) { console.warn("[QBR] folder store failed:", x && x.message); });
   }
   function dirsLoad() {
@@ -240,6 +240,7 @@
     // only UNUSED remembered folders are trimmed (keep at most 5 records in total).
     var usedIds = {};
     (QBR._fsLinks || []).forEach(function (l) { if (l.dirId) usedIds[l.dirId] = 1; });
+    (QBR._fsDirs || []).forEach(function (d) { if (d.keep) usedIds[d.id] = 1; }); // picked for another tab (Trainers)
     var others = QBR._fsDirs.filter(function (d) { return d !== rec; });
     var used = others.filter(function (d) { return usedIds[d.id]; });
     var spare = others.filter(function (d) { return !usedIds[d.id]; }).slice(0, Math.max(0, 4 - used.length));
@@ -279,12 +280,107 @@
       if (typeof renderAll === "function") { try { renderAll(); } catch (x) {} }
       if (typeof renderFileList === "function") { try { renderFileList(); } catch (x) {} }
       try { QBR.persistRefreshBadge(); } catch (x) {}
+      linked(rec.id);
       note("Loaded & linked ✓ " + picks.length + " workbook" + (picks.length === 1 ? "" : "s") + " from " + dir.name, 5000);
       return true;
     } catch (x) {
       alert("Could not load from the folder: " + (x && x.message || x));
       return false;
     }
+  };
+
+  /* ---------------- other tabs: read files in a linked folder (v1.39.0) ----------------
+   * The Trainers tab finds its tracker + eval exports in the same folder the dashboard
+   * workbooks are linked from, without loading them as dashboard workbooks. */
+  function linked(id) {
+    try { document.dispatchEvent(new CustomEvent("qbr:folder-linked", { detail: { id: id } })); } catch (x) {}
+  }
+  QBR.fsFolderList = function () {
+    return (QBR._fsDirs || []).map(function (d) { return { id: d.id, name: d.name, state: QBR._fsDirState[d.id] || "prompt" }; });
+  };
+  // Excel files in a remembered folder: [{name, path, rel, handle, size, lastModified}], or null
+  // when the folder isn't allowed. ask:true may prompt (must run inside a click).
+  QBR.fsFolderBooks = async function (id, opts) {
+    var d = dirById(id); if (!d) return null;
+    var p;
+    try {
+      p = await d.handle.queryPermission({ mode: "readwrite" });
+      if (p !== "granted" && opts && opts.ask) p = await d.handle.requestPermission({ mode: "readwrite" });
+    } catch (x) { p = "denied"; }
+    QBR._fsDirState[id] = p;
+    if (p !== "granted") return null;
+    try { return (await scan(d.handle)).books; } catch (x) { return null; }
+  };
+  /* v1.41.0: configurable scan for other file types / deeper trees (MOS certificate PDFs live 4–5 folders deep).
+   * opts: { ext: RegExp (default .xlsx/.xlsm), maxDepth (default 3), maxEntries (1500), maxFiles (80),
+   *         want(relParts) -> bool (filter files), prefer(name) -> bool (folders scanned first),
+   *         skipDir(name) -> bool (folders not entered) }
+   * -> { files: [{name, path, rel, handle, size, lastModified}], truncated, scanned, folders, depthCapped } */
+  var SKIP_DIRS = /^(images?|photos?|pictures?|videos?|screenshots?|recordings?|node_modules|\$recycle\.bin|system volume information)$/i;
+  async function scanFiles(dir, opts) {
+    opts = opts || {};
+    var re = opts.ext || /\.(xlsx|xlsm)$/i, maxDepth = opts.maxDepth == null ? MAX_DEPTH : opts.maxDepth;
+    var maxEntries = opts.maxEntries || MAX_ENTRIES, maxFiles = opts.maxFiles || MAX_BOOKS;
+    var out = [], seen = 0, folders = 0, capped = 0, stop = false;
+    async function walk(h, path, depth) {
+      var dirs = [];
+      for await (var entry of h.values()) {
+        if (++seen > maxEntries) { stop = true; break; }
+        var n = entry.name || "";
+        if (n.charAt(0) === "." || n.indexOf("~$") === 0) continue;
+        if (entry.kind === "directory") { if (!SKIP_DIRS.test(n) && !(opts.skipDir && opts.skipDir(n))) dirs.push(entry); continue; }
+        if (!re.test(n) || out.length >= maxFiles) { if (out.length >= maxFiles && re.test(n)) stop = true; continue; }
+        var rel = path.concat(n);
+        if (opts.want && !opts.want(rel)) continue;
+        var f = null; try { f = await entry.getFile(); } catch (x) {}
+        out.push({ name: n, path: path, rel: rel, handle: entry, size: f ? f.size : 0, lastModified: f ? f.lastModified : 0 });
+      }
+      if (stop) return;
+      if (depth >= maxDepth) { capped += dirs.length; return; }
+      if (opts.prefer) dirs.sort(function (a, b) { return (opts.prefer(b.name) ? 1 : 0) - (opts.prefer(a.name) ? 1 : 0); });
+      for (var i = 0; i < dirs.length && !stop; i++) { folders++; await walk(dirs[i], path.concat(dirs[i].name), depth + 1); }
+    }
+    await walk(dir, [], 0);
+    out.sort(function (a, b) { return a.rel.join("/").localeCompare(b.rel.join("/")); });
+    return { files: out, truncated: stop, scanned: seen, folders: folders, depthCapped: capped };
+  }
+  QBR._fsScanFiles = scanFiles;
+  async function grant(id, opts) {
+    var d = dirById(id); if (!d) return null;
+    var p;
+    try {
+      p = await d.handle.queryPermission({ mode: "readwrite" });
+      if (p !== "granted" && opts && opts.ask) p = await d.handle.requestPermission({ mode: "readwrite" });
+    } catch (x) { p = "denied"; }
+    QBR._fsDirState[id] = p;
+    return p === "granted" ? d : null;
+  }
+  QBR.fsFolderFiles = async function (id, opts) {
+    var d = await grant(id, opts); if (!d) return null;
+    try { return await scanFiles(d.handle, opts); } catch (x) { return null; }
+  };
+  // The folder's own handle (create / write files at its top level, e.g. a log workbook). -> handle | null
+  QBR.fsFolderDir = async function (id, opts) { var d = await grant(id, opts); return d ? d.handle : null; };
+
+  // Pick a folder and remember it WITHOUT loading anything into the dashboard. -> id | null
+  QBR.fsFolderPickOnly = async function () {
+    if (!QBR.fsFolderSupported()) return null;
+    var dir, last = (QBR._fsDirs || [])[0];
+    try {
+      var opt = { id: "qbr-workbooks", mode: "readwrite" };
+      if (last && last.handle) opt.startIn = last.handle;
+      dir = await window.showDirectoryPicker(opt);
+    } catch (x) { return null; }
+    var rec = null;
+    for (var i = 0; i < (QBR._fsDirs || []).length; i++) {
+      try { if (await QBR._fsDirs[i].handle.isSameEntry(dir)) { rec = QBR._fsDirs[i]; break; } } catch (x) {}
+    }
+    if (rec) { rec.handle = dir; QBR._fsDirs = [rec].concat(QBR._fsDirs.filter(function (d) { return d !== rec; })); }
+    else { rec = { id: newId(), name: dir.name, handle: dir, picked: [] }; QBR._fsDirs.unshift(rec); }
+    rec.keep = true;
+    try { QBR._fsDirState[rec.id] = await dir.queryPermission({ mode: "readwrite" }); } catch (x) { QBR._fsDirState[rec.id] = "prompt"; }
+    await dirsSave();
+    return rec.id;
   };
 
   /* ---------------- reconnect (next session) ---------------- */
@@ -308,6 +404,7 @@
     }
     await fsLinksSave();
     if (typeof renderFileList === "function") { try { renderFileList(); } catch (x) {} }
+    linked(id);
     if (missing.length) note("Reconnected " + d.name + " — not found (moved or renamed?): " + missing.join(", "), 12000);
     else note("Reconnected ✓ " + d.name + " — Direct save is on for every linked workbook in it", 5000);
     return true;
@@ -351,7 +448,7 @@
     (QBR._fsLinks || []).forEach(function (l) { if (l.dirId) used[l.dirId] = 1; });
     var before = QBR._fsDirs.length;
     // keep the most recent folder even when unused (picker starts there)
-    QBR._fsDirs = QBR._fsDirs.filter(function (d, i) { return i === 0 || used[d.id]; });
+    QBR._fsDirs = QBR._fsDirs.filter(function (d, i) { return i === 0 || used[d.id] || d.keep; });
     if (QBR._fsDirs.length !== before) dirsSave();
   };
 

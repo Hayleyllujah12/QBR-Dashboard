@@ -1,5 +1,5 @@
 /* MTM auto-detect tests (Node, no browser). Run: node tests/scan-mtm-tests.cjs
-   Mars 2026-10-11 (15 checks) + review additions (data identifiers, shape guard). */
+   Contributor 2026-10-11 (15 checks) + review additions (data identifiers, shape guard). */
 "use strict";
 const fs = require("fs"), vm = require("vm"), path = require("path");
 
@@ -21,7 +21,7 @@ function t(name, cond) {
 }
 const eq = (a, b) => a === b;
 
-// Pedro's label: (S)SN PF62SDPW, (31P)MTM 21M4S5VD00, (1S) 21M4S5VD00PF62SDPW
+// the owner's label: (S)SN PF62SDPW, (31P)MTM 21M4S5VD00, (1S) 21M4S5VD00PF62SDPW
 const SN = "PF62SDPW", MTM = "21M4S5VD00", ONE_S = "21M4S5VD00PF62SDPW";
 
 t("splitMtm extracts head", eq(vm.runInContext(`scanSplitMtm("${ONE_S}")`, sb), MTM));
@@ -46,7 +46,7 @@ t("pickMtm excludes picked serial", eq(
 t("pickMtm empty when none", eq(
   vm.runInContext(`scanPickMtm(${JSON.stringify([SN])}, "${SN}")`, sb), ""));
 
-// end-to-end merge on Pedro's full label
+// end-to-end merge on the owner's full label
 const m = vm.runInContext(
   `scanMergeFindings(${JSON.stringify([SN, MTM, ONE_S])}, null, "SN: ${SN} MTM: ${MTM}")`, sb);
 t("merge serial is SN", eq(m.serial, SN));

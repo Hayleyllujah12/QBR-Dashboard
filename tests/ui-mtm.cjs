@@ -1,4 +1,4 @@
-// 2026-10-11 Scan MTM (Mars's feature-scan-mtm + review fixes) + tenant pre-fill convention. Headless Chromium, file://.
+// 2026-10-11 Scan MTM (the contributor's feature-scan-mtm + review fixes) + tenant pre-fill convention. Headless Chromium, file://.
 // Usage: PW=<dir with node_modules/playwright> node tests/ui-mtm.cjs
 const { chromium } = require(process.env.PW + "/playwright");
 const path = require("path"), fs = require("fs");
