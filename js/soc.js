@@ -361,7 +361,7 @@ function atRiskUserKeys() {
 
 function parseWorkbookMainThread(buffer, opts) {
   return new Promise((resolve, reject) => {
-    // Yield one paint so the "reading…" spinner renders before we block.
+    // Yield one paint so the "reading…" progress bar renders before we block.
     setTimeout(() => {
       try {
         const data = new Uint8Array(buffer);
@@ -379,7 +379,7 @@ function showReadingState(slot, filename) {
   pill.classList.remove('hidden', 'done');
   pill.classList.add('reading');
   pill.querySelector('.filename').textContent = filename;
-  pill.querySelector('.rows').innerHTML = '<span class="spin"></span>reading…';
+  pill.querySelector('.rows').innerHTML = '<span class="readbar" role="progressbar" aria-label="Reading file"><i></i></span>reading…';
   $('card-' + slot).classList.remove('loaded');
 }
 
