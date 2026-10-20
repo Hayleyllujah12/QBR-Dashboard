@@ -6,6 +6,14 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-21 — Fix: Domain registration edits on a LINKED tracker (no version bump)
+  - With DOMAIN_REGISTRATION_TRACKER.xlsx linked (Direct save ticked or opened from a linked folder), clicking a Registration
+    date or Validity now saves straight into that file — no more "pick the DOMAIN_REGISTRATION_TRACKER.xlsx file" prompt.
+    The linked tracker counts as editable ("Direct save ON"). Only the domain tracker is opened for this, never the other
+    linked workbooks.
+  - After the edit the dashboard keeps the new values: reloading the page no longer shows the old date (the session copy
+    and the link are updated with the written file). Unlinked trackers still ask to pick the file once per session.
+
 UPDATE — 2026-10-21 — Domains & email › Domain registration: roomier layout
   - The "Domain Registration & Expiration Status" table now uses the full page width (was squeezed beside the chart), so
     school names, dates and remarks no longer wrap into tall rows. The "Registration Status" chart moved below it, full width.

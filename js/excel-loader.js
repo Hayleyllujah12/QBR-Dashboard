@@ -889,7 +889,8 @@ function captureRaw(wb, model) {
 QBR.loadWorkbooks = function (buffers) {
   const model = emptyModel();
   QBR._repUnknown = {};   // reset the unrecognised-reputation register for this load
-  for (const buf of buffers) {
+  for (let bi = 0; bi < buffers.length; bi++) {
+    const buf = buffers[bi];
     const wb = XLSX.read(buf, { type: "array" });
     parseRisky(wb, model);
     parseSecurity(wb, model);
@@ -898,7 +899,12 @@ QBR.loadWorkbooks = function (buffers) {
     parseCanva(wb, model);
     parsePostmaster(wb, model);
     parseUserManagement(wb, model);
+    const nDom = model.domainreg.length;
     parseDomainRegistration(wb, model);
+    if (model.domainreg.length > nDom) {   // register the kind so a LINKED tracker counts as editable (domain-edit writes to it) and fsGetLink("domainreg") works
+      const fp = (typeof QBR !== "undefined" && QBR._currentFps || [])[bi];
+      if (fp && typeof QBR !== "undefined") { const set = QBR._kindByFp[fp] || (QBR._kindByFp[fp] = new Set()); set.add("domainreg"); }
+    }
     captureRaw(wb, model);
   }
   canonicalizeOrgs(model);

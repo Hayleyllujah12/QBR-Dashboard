@@ -55,6 +55,8 @@ const F = [
   ["MOS certificate hooks (v1.41.0)", "js/mos.js", ["parseCertificatePage", "addCert", "data-mos-view"]],
   ["Domain registration edit (v1.41.0)", "js/domain-edit.js", ["QBR.domainEdit", "surgicalSave", "headerIndex", "Safety stop", "VALIDPD"]],
   ["Domain edit wired (v1.41.0)", "js/app.js", ["data-dr-edit", "drEditKey", "domainEdit.wire"]],
+  ["Domain edit uses the linked tracker (2026-10-21)", "js/domain-edit.js", ["linkedHandle", "isDomainLink", "afterWrite", "fsSetBase"]],
+  ["Loader registers the domainreg kind (2026-10-21)", "js/excel-loader.js", ["\"domainreg\"", "_kindByFp"]],
   ["MOS certificate preview (v1.41.0)", "js/mos-certs.js", ["previewCert", "mos-prev-canvas", "_mcWired"]],
   ["MOS certificate printing (v1.41.0 patch)", "js/mos-certs.js", ["printCertItems", "print-sel", "preview-print", "preview-open", "selectableShown"]],
   ["Report stamp toggle (v1.42.0)", "js/admin.js", ["qbr-report-stamp", "QBR.reportStampOn", "renderReportsSection", "data-report-stamp"]],

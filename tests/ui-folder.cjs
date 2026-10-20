@@ -11,11 +11,20 @@ const APPDIR = fs.existsSync(path.join(ROOT, "qbr-app/index.html")) ? path.join(
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("  ✓ " + m); } else { fail++; console.log("  ✗ " + m); } };
 const b64 = f => fs.readFileSync(path.join(__dirname, f)).toString("base64");
+// The tenant tracker as it normally ships: no Domain Registration sheet (since 2026-10-21 a workbook WITH that sheet
+// is editable — domain-edit writes to it — so the fixture's domain sheet is dropped here to keep a reload-only file).
+const XLSX = require(path.join(APPDIR, "libs/xlsx.full.min.js"));
+const trackerNoDomain = (() => {
+  const wb = XLSX.read(fs.readFileSync(path.join(__dirname, "fixture.xlsx")));
+  wb.SheetNames.filter(n => { const r = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1 })[0] || []; return r.some(c => /registration|remaining day/i.test(String(c))); })
+    .forEach(n => { delete wb.Sheets[n]; wb.SheetNames.splice(wb.SheetNames.indexOf(n), 1); });
+  return XLSX.write(wb, { bookType: "xlsx", type: "base64" });
+})();
 
 // folder layout (paths relative to the picked folder)
 const TREE = {
-  "Tracker/ALL TENANT AUTOMATED TRACKER.xlsx": { b: b64("fixture.xlsx"), t: 3000 },
-  "Old/ALL TENANT AUTOMATED TRACKER.xlsx": { b: b64("fixture.xlsx"), t: 1000 },          // same name, older
+  "Tracker/ALL TENANT AUTOMATED TRACKER.xlsx": { b: trackerNoDomain, t: 3000 },
+  "Old/ALL TENANT AUTOMATED TRACKER.xlsx": { b: trackerNoDomain, t: 1000 },          // same name, older
   "Audit/RISKY_USERS_AND_DOMAIN.xlsx": { b: b64("SAMPLE_AUDIT_RICH.xlsx"), t: 2000 },
   "Inventory/Lenovo Inventory.xlsx": { b: b64("SAMPLE_Lenovo_Inventory_SYNTH.xlsx"), t: 2000 },
   "Tracker/~$ALL TENANT AUTOMATED TRACKER.xlsx": { b: "", t: 1 },                         // Excel lock file
