@@ -28,6 +28,8 @@
 
   var S = {
     attempts: [], files: [], exports: [], roster: [], rosterFiles: [], overrides: {},
+    certs: [], certDupPages: 0, view: "results",   // v1.41.0: certificate pages (one per verification code)
+    fileRefs: {},  // v1.41.0: File objects by path, for certificate preview (bytes read on demand)
     model: null, built: false, busy: false, progress: "",
     f: { school: "", section: "", exam: "", examNo: "", proctor: "", outcome: "", min: "", max: "", pmode: "all", pval: "", q: "", firstOnly: false },
     sort: "score-desc", groupBy: "auto", limit: 200, trend: "month", open: {}, charts: {}
@@ -70,9 +72,10 @@
   async function readPdf(file, schoolInput) {
     var path = file.webkitRelativePath || file._path || file.name;
     var meta = P().fileMeta(path, schoolInput);
-    var rec = { file: meta.file, name: meta.fileName, school: meta.school, pages: 0, attempts: 0, skipped: 0, bad: 0, err: "" };
+    var rec = { file: meta.file, name: meta.fileName, school: meta.school, pages: 0, attempts: 0, certs: 0, skipped: 0, bad: 0, err: "" };
     try {
       var lib = await pdfLib();
+      S.fileRefs[path] = file;
       var buf = new Uint8Array(await file.arrayBuffer());
       var doc = await lib.getDocument({ data: buf, isEvalSupported: false, verbosity: 0 }).promise;
       rec.pages = doc.numPages;
@@ -80,7 +83,9 @@
         var pg = await doc.getPage(i);
         var tc = await pg.getTextContent();
         var r = P().parseScorePage(tc.items);
+        var cert = r ? null : P().parseCertificatePage(tc.items);
         try { pg.cleanup(); } catch (e) {}
+        if (cert) { addCert(cert, meta, i); rec.certs++; continue; }
         if (!r) { rec.skipped++; continue; }
         if (r._err) { rec.bad++; continue; }
         for (var k in meta) if (Object.prototype.hasOwnProperty.call(meta, k)) r[k] = meta[k];
@@ -93,6 +98,14 @@
     return rec;
   }
 
+  // One entry per verification code: the same certificate in another (or a renamed) file is counted, not added.
+  function addCert(c, meta, page) {
+    for (var k in meta) if (Object.prototype.hasOwnProperty.call(meta, k) && c[k] == null) c[k] = meta[k];
+    c.page = page;
+    var prev = S.certs.filter(function (x) { return x.code === c.code; })[0];
+    if (prev) { S.certDupPages++; prev.seenIn = (prev.seenIn || [prev.file]).concat(prev.seenIn && prev.seenIn.indexOf(c.file) >= 0 ? [] : [c.file]); return; }
+    S.certs.push(c);
+  }
   async function addPdfs(list) {
     var files = Array.prototype.slice.call(list || []).filter(function (f) { return /\.pdf$/i.test(f.name); });
     if (!files.length || S.busy) return;
@@ -100,7 +113,7 @@
     var school = ($("mos-school-in") || {}).value || "";
     var done = 0;
     for (var i = 0; i < files.length; i++) {
-      var f = files[i], id = (f.webkitRelativePath || f.name) + "|" + f.size;
+      var f = files[i], id = (f.webkitRelativePath || f._path || f.name) + "|" + f.size;
       if (S.files.some(function (x) { return x.id === id; })) continue;
       S.progress = "Reading file " + (i + 1) + " of " + files.length + " · " + f.name; status(); await tick();
       var rec = await readPdf(f, school); rec.id = id;
@@ -150,12 +163,14 @@
 
   function clearAll() {
     S.attempts = []; S.files = []; S.exports = []; S.roster = []; S.rosterFiles = []; S.overrides = {}; S.model = null; S.open = {};
+    S.certs = []; S.certDupPages = 0; S.view = "results";
+    if (QBR.mosCerts && QBR.mosCerts.reset) QBR.mosCerts.reset();
     S.f = { school: "", section: "", exam: "", examNo: "", proctor: "", outcome: "", min: "", max: "", pmode: "all", pval: "", q: "", firstOnly: false };
     render();
   }
 
   function rebuild() {
-    S.model = S.attempts.length ? P().buildModel(S.attempts, S.roster, S.overrides, { acronyms: acronymMap() }) : null;
+    S.model = S.attempts.length || S.certs.length ? P().buildModel(S.attempts, S.roster, S.overrides, { acronyms: acronymMap() }) : null;
     render();
   }
 
@@ -191,12 +206,18 @@
           '<input id="mos-school-in" class="form-control form-control-sm" list="mos-dl-school" placeholder="e.g. Demo High School" autocomplete="off">' +
           '<datalist id="mos-dl-school"></datalist>' +
           '<button id="mos-clear" class="btn btn-outline-secondary btn-sm" type="button">Clear</button>' +
+          '<button class="btn btn-outline-primary btn-sm" type="button" data-mos-view="certs" title="Generated / printed certificates: open the log, load certificate PDFs from the linked folder">📒 Certificate tracker</button>' +
         '</div>' +
         '<div id="mos-drop" class="mos-drop small text-muted">or drop PDFs, a Certiport export or a roster workbook here</div>' +
         '<div id="mos-status" class="small mt-1" role="status" aria-live="polite"></div>' +
       '</div>' +
       '<div id="mos-empty" class="card-box mos-empty"></div>' +
       '<div id="mos-main" class="d-none">' +
+        '<div class="mos-viewbar"><div class="btn-group btn-group-sm" role="group" aria-label="MOS view">' +
+          '<button type="button" class="btn btn-outline-secondary" data-mos-view="results">Results</button>' +
+          '<button type="button" class="btn btn-outline-secondary" data-mos-view="certs">Certificates <span id="mos-cert-n" class="badge bg-secondary"></span></button></div></div>' +
+        '<div id="mos-view-certs" class="d-none"></div>' +
+        '<div id="mos-view-results">' +
         '<div class="card-box mos-filters" role="search" aria-label="MOS filters">' +
           '<div class="mos-frow">' +
             fsel("mos-f-school", "School") + fsel("mos-f-section", "Section") + fsel("mos-f-exam", "Exam") + fsel("mos-f-examno", "Exam No. / batch") + fsel("mos-f-proctor", "Proctor") +
@@ -235,6 +256,7 @@
         '<div class="card-box mt-3"><div class="mos-ch-head"><h6 class="mb-0" id="mos-res-h">Results</h6><span class="small text-muted">Click a student to see every attempt.</span></div>' +
           '<button type="button" class="btn btn-link btn-sm p-0 mos-colreset d-none" data-mos-colreset="mos-res">Reset columns</button><div class="table-responsive"><table class="table table-sm mos-tbl mos-res" id="mos-res" data-resizable="mos"></table></div><div id="mos-more" class="mt-2"></div></div>' +
         '<details class="card-box mt-3 mos-check" id="mos-check"><summary><b>Check &amp; fix</b> <span id="mos-check-n" class="small"></span></summary><div id="mos-check-body" class="mt-2"></div></details>' +
+        '</div>' +
       '</div>';
     wire(host);
   }
@@ -298,6 +320,9 @@
     });
     $("mos-more").addEventListener("click", function (e) { if (e.target.closest("button")) { S.limit += 500; renderResults(rows()); } });
     $("mos-check-body").addEventListener("change", onCheckEdit);
+    host.querySelectorAll("[data-mos-view]").forEach(function (b) {
+      b.addEventListener("click", function () { S.view = b.getAttribute("data-mos-view"); render(); });
+    });
   }
 
   function status() {
@@ -311,6 +336,7 @@
     if (S.model && S.model.merged) t += " · " + num(S.model.merged) + " matched PDF ↔ export";
     if (S.model && S.model.pending) t += " · " + num(S.model.pending) + " in progress (no score yet)";
     if (S.roster.length) t += " · roster: " + num(S.roster.length) + " students";
+    if (S.certs.length) t += " · " + num(S.certs.length) + " certificate" + (S.certs.length === 1 ? "" : "s") + (S.certDupPages ? " (" + num(S.certDupPages) + " repeated pages ignored)" : "");
     el.textContent = t;
   }
 
@@ -323,10 +349,20 @@
     if (dl) dl.innerHTML = uniq(S.attempts.map(function (a) { return a.school; }).filter(function (s) { return s !== "Unassigned school"; }))
       .map(function (s) { return '<option value="' + esc(s) + '">'; }).join("");
     status();
-    var has = !!(S.model && S.model.rows.length);
+    var hasRows = !!(S.model && S.model.rows.length), certs = !!(QBR.mosCerts && QBR.mosCerts.has && QBR.mosCerts.has());
+    var has = hasRows || certs || S.view === "certs";
     $("mos-main").classList.toggle("d-none", !has);
     $("mos-empty").classList.toggle("d-none", has);
     if (!has) { renderEmpty(); destroyCharts(); return; }
+    if (!hasRows) S.view = "certs";
+    var cn = $("mos-cert-n"); if (cn) cn.textContent = S.certs.length ? String(S.certs.length) : "";
+    document.querySelectorAll(".mos-viewbar [data-mos-view]").forEach(function (b) {
+      var a = b.getAttribute("data-mos-view") === S.view; b.classList.toggle("active", a); b.setAttribute("aria-pressed", String(a));
+      if (b.getAttribute("data-mos-view") === "results") b.disabled = !hasRows;
+    });
+    $("mos-view-results").classList.toggle("d-none", S.view !== "results");
+    $("mos-view-certs").classList.toggle("d-none", S.view !== "certs");
+    if (S.view === "certs") { destroyCharts(); if (QBR.mosCerts) QBR.mosCerts.render($("mos-view-certs")); return; }
     update();
   }
 
@@ -628,7 +664,7 @@
     var rs = {}; S.roster.forEach(function (st) { rs[st.school] = 1; });   // only schools that have a roster need mapping
     // export rows still on the Test Center (no roster match yet) can belong to any loaded roster
     var needs = m.rows.filter(function (r) { return (rs[r.school] || (r.schoolFromCenter && S.roster.length)) && (r.match === "none" || r.match === "ambiguous"); });
-    var noScore = S.files.filter(function (f) { return !f.attempts; });
+    var noScore = S.files.filter(function (f) { return !f.attempts && !f.certs; });
     var chk = [needs.length ? needs.length + " to map" : "", m.pending ? m.pending + " in progress" : "",
       noScore.length ? noScore.length + " file" + (noScore.length === 1 ? "" : "s") + " without score pages" : ""].filter(Boolean).join(" · ");
     $("mos-check-n").textContent = chk ? "(" + chk + ")" : "";
@@ -662,8 +698,8 @@
     html += '<details class="mt-2"><summary class="small">Files read (' + S.files.length + ")</summary>" +
       '<div class="table-responsive"><table class="table table-sm small" data-resizable="static"><thead><tr><th>File</th><th>School</th><th class="num">Pages</th><th class="num">Score pages</th><th>Note</th></tr></thead><tbody>' +
       S.files.map(function (f) {
-        var note = f.err ? "Could not read: " + f.err : !f.attempts ? "No score-report pages (certificate or summary?) — skipped" : (f.skipped ? f.skipped + " other page(s) skipped" : "") + (f.bad ? " · " + f.bad + " page(s) without a score" : "");
-        return "<tr" + (!f.attempts ? ' class="table-warning"' : "") + "><td>" + esc(f.file) + "</td><td>" + esc(f.school) + '</td><td class="num">' + f.pages + '</td><td class="num">' + f.attempts + "</td><td>" + esc(note) + "</td></tr>";
+        var note = f.err ? "Could not read: " + f.err : f.certs && !f.attempts ? f.certs + " certificate page(s) → Certificates view" : !f.attempts ? "No score-report pages (certificate or summary?) — skipped" : (f.skipped ? f.skipped + " other page(s) skipped" : "") + (f.bad ? " · " + f.bad + " page(s) without a score" : "");
+        return "<tr" + (!f.attempts && !f.certs ? ' class="table-warning"' : "") + "><td>" + esc(f.file) + "</td><td>" + esc(f.school) + '</td><td class="num">' + f.pages + '</td><td class="num">' + f.attempts + "</td><td>" + esc(note) + "</td></tr>";
       }).join("") + "</tbody></table></div></details>";
     $("mos-check-body").innerHTML = html;
   }
@@ -978,6 +1014,9 @@
     addPdfs: addPdfs, addRoster: addRoster, clear: clearAll,
     // test seams (no DOM file pickers in headless tests)
     _state: function () { return S; },
+    _pdfLib: function () { return pdfLib(); },
+    _rebuild: function () { rebuild(); },
+    addCertFiles: function (list) { return addPdfs(list); },
     _summary: function () { return buildSummary(rows()); }, printSummary: printSummary, openProfile: openProfile,
     _loadAttempts: function (attempts, roster) { S.attempts = attempts.slice(); S.roster = (roster || []).slice(); rebuild(); }
   };

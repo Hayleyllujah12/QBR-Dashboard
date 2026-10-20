@@ -19,7 +19,7 @@ function serve() {
     srv.listen(0, "127.0.0.1", () => resolve(srv));
   });
 }
-function pdfs(dir) { let o = []; for (const f of fs.readdirSync(dir)) { const p = path.join(dir, f); if (fs.statSync(p).isDirectory()) o = o.concat(pdfs(p)); else if (/\.pdf$/i.test(f)) o.push(p); } return o.sort(); }
+function pdfs(dir) { let o = []; for (const f of fs.readdirSync(dir)) { const p = path.join(dir, f); if (fs.statSync(p).isDirectory()) { if (!/^(Archive Files|Certificates)$/.test(f)) o = o.concat(pdfs(p)); } else if (/\.pdf$/i.test(f)) o.push(p); } return o.sort(); }
 function rosterBuffer() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["SUMMARY"]]), "SUMMARY");

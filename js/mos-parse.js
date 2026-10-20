@@ -206,7 +206,7 @@
     }
     if (!school && schoolOverride) school = schoolOverride;
     // fallback: the top folder, unless it is a generic folder name ("Archive SY 2021 - 2022", "Exam Results", "SY 25-26")
-    if (!school && parts.length > 1 && !/^(archive|exam\s*results?|results?|sy\s*\d|school\s*year|\d{4})/i.test(parts[0])) school = parts[0];
+    if (!school && parts.length > 1 && !/^(archive|exam\s*results?|results?|sy\s*\d|school\s*year|\d{4}|certificates?|certs?\b)/i.test(parts[0])) school = parts[0];
     school = norm(school.replace(/^\d+\s*[-.]\s*/, ""));
     var m = base.match(/Exam\s*(\d{4}(?:\.\d+)?)/i);
     var examNo = m ? m[1] : "";
@@ -400,7 +400,7 @@
 
   // attempts: parsed pages with fileMeta merged in. roster: [{school, section, name, email, studentNo}]
   // overrides: { [ref]: {section, studentKey} } — manual fixes from the Check panel (memory only)
-  // opts.acronyms: { [school]: "SPCP" } from the school profiles (overrides the automatic acronym)
+  // opts.acronyms: { [school]: "ABCD" } from the school profiles (overrides the automatic acronym)
   function buildModel(attempts, roster, overrides, opts) {
     var acrs = (opts && opts.acronyms) || {};
     overrides = overrides || {};
@@ -496,6 +496,150 @@
       pending: rows.filter(function (r) { return r.pending; }).length };
   }
 
+  /* ---- certificates (v1.41.0) ----------------------------------------------
+   * Certiport certificate exports: one certificate per page, 5 text lines —
+   * name · certification ("Excel Associate") · version ("Microsoft 365 Apps") ·
+   * date ("April 20, 2023") · verification code (xxxx-xxxx / xxxxx-xxxx, unique per
+   * certificate). No email / Exam reference # on a certificate. */
+  var CERT_CODE = /^[A-Za-z0-9]{4,6}-[A-Za-z0-9]{4,6}$/;
+  var CERT_LEVEL = /\b(Associate|Expert|Master|Specialist|Fundamentals|Professional)\b/i;
+  var CERT_APP = /\b(Word|Excel|PowerPoint|Outlook|Access|Office|Azure|Security|Power Platform|[A-Z]{2}-\d{3})\b/;
+  function parseCertificatePage(rawItems) {
+    var lines = toLines(toItems(rawItems)).filter(function (l) { return l.text; });
+    if (lines.length < 4) return null;
+    if (lines.some(function (l) { return /EXAM SCORE REPORT|SECTION ANALYSIS|Exam reference/i.test(l.text); })) return null;
+    var ci = -1, di = -1, ki = -1, i;
+    for (i = lines.length - 1; i >= 0; i--) if (CERT_CODE.test(lines[i].text)) { ci = i; break; }
+    if (ci < 0) return null;
+    for (i = ci - 1; i >= 0; i--) if (parseDate(lines[i].text)) { di = i; break; }
+    if (di < 1) return null;
+    for (i = 1; i < di; i++) if (CERT_LEVEL.test(lines[i].text) && CERT_APP.test(lines[i].text)) { ki = i; break; }
+    if (ki < 1) return null;                                    // a name line must sit above the certification
+    var cert = cleanTitle(lines[ki].text);
+    var lv = cert.match(CERT_LEVEL);
+    return {
+      name: norm(lines.slice(0, ki).map(function (l) { return l.text; }).join(" ")),
+      certName: cert, family: examFamily(cert), level: lv ? lv[1].charAt(0).toUpperCase() + lv[1].slice(1).toLowerCase() : "",
+      version: norm(lines.slice(ki + 1, di).map(function (l) { return l.text; }).join(" ")),
+      dateText: lines[di].text, date: parseDate(lines[di].text), code: lines[ci].text
+    };
+  }
+  function dayDiff(a, b) { return a && b ? Math.round(Math.abs(Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10)) - Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10))) / 864e5) : null; }
+  // 3 = same name tokens · 2 = one name contains the other (≥2 tokens) · 1 = 2+ tokens shared · 0
+  function nameScore(a, b) {
+    var A = {}, B = {}; tokens(a).forEach(function (t) { A[t] = 1; }); tokens(b).forEach(function (t) { B[t] = 1; });
+    var ka = Object.keys(A), kb = Object.keys(B);
+    if (!ka.length || !kb.length) return 0;
+    var inter = ka.filter(function (t) { return B[t]; }).length, small = Math.min(ka.length, kb.length);
+    if (inter === ka.length && inter === kb.length) return 3;
+    if (inter === small && small >= 2) return 2;
+    return inter >= 2 ? 1 : 0;
+  }
+  /* Same school under different spellings: "St. Example College Westbrook (SECW)" (folder) ~ "St Example College Westbrook"
+   * (Certiport Test Center) ~ "SECW". Equal words, one name's words inside the other (2+ words), or an acronym. */
+  var SCH_STOP = { of: 1, the: 1, and: 1, de: 1, la: 1, del: 1, inc: 1, school: 0 };
+  function schoolWords(s) { return tokens(String(s || "").replace(/\(([^)]*)\)/g, " ")).filter(function (t) { return !SCH_STOP[t]; }); }
+  function schoolAcr(s) { var m = String(s || "").match(/\(([A-Za-z0-9]{2,10})\)/); return (m ? m[1] : acronym(s)).toLowerCase(); }
+  function schoolMatch(a, b) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    var A = schoolWords(a), B = schoolWords(b);
+    if (!A.length || !B.length) return false;
+    var inB = A.filter(function (t) { return B.indexOf(t) >= 0; }).length, inA = B.filter(function (t) { return A.indexOf(t) >= 0; }).length;
+    if (inB === A.length && inA === B.length) return true;
+    if ((inB === A.length && A.length >= 2) || (inA === B.length && B.length >= 2)) return true;
+    var aa = schoolAcr(a), ab = schoolAcr(b);
+    return aa.length >= 3 && (aa === ab || (A.length === 1 && A[0] === ab) || (B.length === 1 && B[0] === aa));
+  }
+  /* Loosely related (for choosing which folders to read, never for linking): a Certiport Test Center that groups
+   * several schools ("Sisters of St Example of Riverdale …") ~ its school folders ("St. Example College Westbrook") — they
+   * share a distinctive word. */
+  var SCH_GENERIC = /^(saint|sainte|santa|santo|school|schools|college|colleges|university|academy|education|educational|ministry|sisters|brothers|catholic|parish|high|integrated|elementary|institute|center|centre|foundation|incorporated|system|learning|group|test|campus|main|city|international|christian|montessori)$/;
+  function schoolRelated(a, b) {
+    if (schoolMatch(a, b)) return true;
+    var A = schoolWords(a).filter(function (t) { return t.length >= 4 && !SCH_GENERIC.test(t); });
+    var B = schoolWords(b).filter(function (t) { return t.length >= 4 && !SCH_GENERIC.test(t); });
+    return A.some(function (t) { return B.indexOf(t) >= 0; });
+  }
+  /* "…/PRINTED (FEB 13, 2026)/Exam 1343.2 … CERT.pdf" or "(printed)Exam 1339.1 …" → printed (date when the folder has one) */
+  function printedFromPath(path) {
+    var parts = String(path || "").replace(/\\/g, "/").split("/");
+    for (var i = parts.length - 1; i >= 0; i--) {
+      var p = parts[i], last = i === parts.length - 1;
+      if (last ? /^\((p|printed)\)/i.test(p) : /^printed\b/i.test(p)) {
+        var m = p.match(/\(([^)]*\d{4})\)/), iso = m ? parseDate(m[1].replace(/^([A-Za-z]{3})[a-z]*\.?/, "$1")) : "";
+        return { printed: true, date: iso, folder: last ? "" : p };
+      }
+    }
+    return null;
+  }
+  function famKey(f) { return String(f || "").toLowerCase().replace(/\s+/g, " ").trim(); }
+  /* certs: parsed certificates (+ fileMeta); rows: buildModel rows; links: { code: attemptKey | "none" } (manual / from the log).
+   * → { certs: [cert + {status: linked|ambiguous|unmatched|duplicate, attemptKey, how, cands:[{key, score, days}]}], byAttempt: {key: code} } */
+  function matchCertificates(certs, rows, links) {
+    links = links || {};
+    var byKey = {}; (rows || []).forEach(function (r) { byKey[r.key] = r; });
+    var byRef = {}; (rows || []).forEach(function (r) { if (r.ref) byRef[r.ref] = r.key; });
+    var out = [], taken = {};
+    (certs || []).forEach(function (c) {
+      var o = {}, p; for (p in c) if (Object.prototype.hasOwnProperty.call(c, p)) o[p] = c[p];
+      o.cands = []; o.attemptKey = ""; o.how = "";
+      (rows || []).forEach(function (r) {
+        if (!r.pass || r.pending) return;
+        if (famKey(r.exam) !== famKey(c.family)) return;
+        if (c.school && c.school !== "Unassigned school" && r.school && !r.schoolFromCenter && !schoolMatch(c.school, r.school)) return;
+        if (c.examBase && r.examBase && c.examBase !== r.examBase) return;
+        var d = dayDiff(c.date, r.date);
+        if (d != null && d > 14) return;
+        var sc = Math.max(nameScore(c.name, r.name), r.rosterName ? nameScore(c.name, r.rosterName) : 0);
+        if (sc < 1) return;
+        o.cands.push({ key: r.key, score: sc, days: d });
+      });
+      o.cands.sort(function (a, b) { return b.score - a.score || (a.days == null ? 99 : a.days) - (b.days == null ? 99 : b.days); });
+      var man = links[c.code];
+      if (man && man !== "none") { var mk = byKey[man] ? man : byRef[man]; if (mk) { o.attemptKey = mk; o.how = "manual"; } }
+      if (man === "none") o.how = "none";
+      if (!o.attemptKey && !o.how) {
+        var top = o.cands[0], second = o.cands[1];
+        if (top && top.score >= 2 && (top.days == null || top.days <= 7) && !(second && second.score === top.score)) { o.attemptKey = top.key; o.how = "auto"; }
+      }
+      // "none" = you confirmed there is no exam result for it (e.g. results from another school year not loaded)
+      o.status = o.attemptKey ? "linked" : o.how === "none" ? "unlinked" : (o.cands.length ? "ambiguous" : "unmatched");
+      out.push(o);
+    });
+    // one certificate per attempt: a second certificate on the same pass (another code) = possible reissue / duplicate
+    var byAttempt = {};
+    out.forEach(function (o) {
+      if (!o.attemptKey) return;
+      if (taken[o.attemptKey] && taken[o.attemptKey] !== o.code) { o.status = "duplicate"; o.dupOf = taken[o.attemptKey]; return; }
+      taken[o.attemptKey] = o.code; byAttempt[o.attemptKey] = o.code;
+    });
+    return { certs: out, byAttempt: byAttempt };
+  }
+  /* ---- certificate log workbook ("MOS Certificate Log.xlsx", sheet "Certificate Log") ---- */
+  var LOG_SHEET = "Certificate Log";
+  var LOG_COLS = ["Verification Code", "Name", "Certification", "Version", "Certificate Date", "School", "Exam No.", "Source File", "Page",
+    "First Seen", "Linked Exam Ref #", "Printed", "First Printed", "Last Printed", "Printed By", "Print Count", "Remarks"];
+  function logKey(h) { return norm(h).toLowerCase(); }
+  // aoa (header row first) → { header: [...], col: {name: idx}, rows: { code: {r: rowIdx, v: {colName: value}} }, last }
+  function parseLogRows(aoa) {
+    aoa = aoa || [];
+    var hi = -1, i;
+    for (i = 0; i < Math.min(10, aoa.length); i++) if ((aoa[i] || []).some(function (h) { return logKey(h) === "verification code"; })) { hi = i; break; }
+    var out = { headerRow: hi < 0 ? 0 : hi, header: hi < 0 ? [] : (aoa[hi] || []).map(norm), col: {}, rows: {}, last: hi < 0 ? 0 : hi, order: [] };
+    out.header.forEach(function (h, j) { LOG_COLS.forEach(function (n) { if (logKey(h) === logKey(n) && out.col[n] == null) out.col[n] = j; }); });
+    if (hi < 0) return out;
+    for (i = hi + 1; i < aoa.length; i++) {
+      var row = aoa[i] || [], code = out.col["Verification Code"] != null ? norm(row[out.col["Verification Code"]]) : "";
+      if (row.some(function (v) { return v !== "" && v != null; })) out.last = i;
+      if (!code || out.rows[code]) continue;
+      var v = {}; LOG_COLS.forEach(function (n) { if (out.col[n] != null) v[n] = row[out.col[n]]; });
+      out.rows[code] = { r: i, v: v }; out.order.push(code);
+    }
+    return out;
+  }
+  function logPrinted(v) { return !!v && /^(y|yes|true|1|printed)$/i.test(norm(v.Printed)); }
+
   /* ---- filters + summaries ----------------------------------------------- */
   // f: {school, section, q, exam, examNo, outcome('PASS'|'FAIL'|''), min, max, year, month, sy, firstOnly}
   function filterAttempts(rows, f) {
@@ -573,7 +717,9 @@
     parseRosterRows: parseRosterRows, tokens: tokens, matchRoster: matchRoster, buildModel: buildModel,
     filterAttempts: filterAttempts, parseExportRows: parseExportRows, exportHeader: exportHeader,
     parseAnyDate: parseAnyDate, nameCase: nameCase, acronym: acronym, summarize: summarize, groupRate: groupRate, skillAreas: skillAreas,
-    bandOf: bandOf, BANDS: BANDS, displayName: displayName
+    bandOf: bandOf, BANDS: BANDS, displayName: displayName,
+    parseCertificatePage: parseCertificatePage, matchCertificates: matchCertificates, nameScore: nameScore, dayDiff: dayDiff,
+    parseLogRows: parseLogRows, schoolMatch: schoolMatch, schoolRelated: schoolRelated, printedFromPath: printedFromPath, logPrinted: logPrinted, LOG_COLS: LOG_COLS, LOG_SHEET: LOG_SHEET
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else { root.QBR = root.QBR || {}; root.QBR.mosParse = api; }
