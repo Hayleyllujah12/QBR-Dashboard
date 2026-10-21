@@ -21,7 +21,10 @@ const $ = (id) => document.getElementById(id);
 const sum = (arr, f) => arr.reduce((a, x) => a + (f(x) || 0), 0);
 const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
 const byDesc = (f) => (a, b) => (f(b) || 0) - (f(a) || 0);
-function esc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+// 2026-10-20: also escape quotes. esc() is used inside value="…"/title="…" attributes
+// (scan.js, inventory.js, app.js), where an unescaped " let workbook cells or scanned
+// barcode text break out of the attribute and add event handlers (XSS).
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function escAttr(s) { return esc(s).replace(/"/g, "&quot;"); }
 function fmt(n, d = 0) { return n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d }); }
 function tb(gb) { return gb == null ? "—" : (gb / 1024).toFixed(1) + " TB"; }
