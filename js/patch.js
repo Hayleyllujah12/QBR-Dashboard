@@ -793,9 +793,50 @@ function pBumpRanges(wb, srcSheet, oldLast, newLast) {
 /* ============================ main entry ================================ */
 /* Replay the mutation journal for (kind, fp) as cell writes into the ORIGINAL
  * workbook. Returns {ok, applied, skipped, appended, notes[]}. */
+/* 2026-10-20 fix: a patch pass stamps _src on model rows so later ops in the SAME pass
+ * (intake → deploy, add ticket → update ticket) find the new rows. Those stamps used to stay
+ * on the live model even when the save then failed (file locked, merge cancelled, safety
+ * check, write error). The retry treated the rows as "already written" and the journal op
+ * was cleared, so appended rows were silently lost. Now each pass snapshots _src, keeps its
+ * stamps aside and restores the model; QBR.patchCommitStamps applies them only after the
+ * bytes are on disk (persist.js fsAfterSave). */
+function pModelRows() {
+  const out = [];
+  try {
+    const m = (typeof APP !== "undefined" && APP.model) || {};
+    [m.inventory, m.supplies].forEach(part => {
+      if (!part) return;
+      Object.keys(part).forEach(k => { const arr = part[k]; if (Array.isArray(arr)) arr.forEach(x => { if (x && typeof x === "object") out.push(x); }); });
+    });
+  } catch (e) {}
+  return out;
+}
+function pSnapSrc() { return pModelRows().map(x => [x, x._src]); }
+function pTakeStamps(snap) {
+  const stamps = [];
+  snap.forEach(([x, before]) => {
+    if (x._src !== before) stamps.push([x, x._src]);
+    if (before === undefined) delete x._src; else x._src = before;
+  });
+  return stamps;
+}
+QBR.patchCommitStamps = function (fp, kind) {
+  const lp = QBR._lastPatch;
+  if (!lp || !lp.stamps || (fp && lp.fp !== fp) || (kind && lp.kind !== kind)) return 0;
+  lp.stamps.forEach(([x, src]) => { x._src = src; });
+  const n = lp.stamps.length;
+  lp.stamps = null;
+  return n;
+};
+
 QBR.patchWorkbookFromJournal = function (kind, wb, fp) {
   const report = { ok: true, applied: 0, skipped: 0, appended: 0, bumped: 0, notes: [], ids: [] };
   if (!wb || !fp || typeof XLSX === "undefined") return Object.assign(report, { ok: false, error: "no workbook" });
+  const srcSnap = pSnapSrc();
+  try { return pPatchPass(kind, wb, fp, report); }
+  finally { if (QBR._lastPatch && QBR._lastPatch.fp === fp && QBR._lastPatch.kind === kind) QBR._lastPatch.stamps = pTakeStamps(srcSnap); else pTakeStamps(srcSnap); }
+};
+function pPatchPass(kind, wb, fp, report) {
   // v1.30.0: read through the journal module (in-memory store survives a full localStorage).
   if (typeof QBR.journalEntries !== "function") return Object.assign(report, { ok: false, error: "no journal" });
   const store = QBR.journalEntries() || {};
