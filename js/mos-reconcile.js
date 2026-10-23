@@ -109,6 +109,20 @@
     (row || []).forEach(function (v) { var t = norm(v); if (t.length > best.length) best = t; });
     return best;
   }
+  // Drop trailing empty cells. A sheet with a stray formatted cell far right
+  // (used range out to column XFA) makes SheetJS pad EVERY row to that
+  // width; keeping those rows verbatim blew a 512-student saved run to
+  // 8.4 MB — past the localStorage quota — and the save failed silently.
+  function trimRow(r) {
+    var a = (r || []).slice();
+    while (a.length && (a[a.length - 1] === "" || a[a.length - 1] == null)) a.pop();
+    return a;
+  }
+  function longestCellIdx(row) {
+    var bi = -1, bl = 0;
+    (row || []).forEach(function (v, j) { var t = norm(v); if (t && t.length > bl) { bl = t.length; bi = j; } });
+    return bi;
+  }
   function parseClassRosterBlocks(aoa, source) {
     var blocks = [], cur = null, pendingTitle = "";
     function newSegment(cols, headers, title) {
@@ -117,13 +131,15 @@
     }
     (aoa || []).forEach(function (row, i) {
       var cols = headerCols(row);
-      if (cols) { var inherit = pendingTitle || (cur && !cur.students.length ? cur.title : ""); newSegment(cols, (row || []).map(norm), inherit); cur.headerRow = i; pendingTitle = ""; return; }
+      if (cols) { var inherit = pendingTitle || (cur && !cur.students.length ? cur.title : ""); newSegment(cols, trimRow(row).map(norm), inherit); cur.headerRow = i; pendingTitle = ""; return; }
       var n = nonEmptyCount(row);
       if (!n) return;
       var titleRow = n <= 2 && !(cur && cur.cols.voucher != null && norm(row[cur.cols.voucher]));
       if (titleRow) {   // title / label row (section heading, sheet heading) — never a student
         var t = longestCell(row);
-        if (t) {
+        // a title labels the block from the left margin; a lone value deep in
+        // the sheet (e.g. a stray "FAILED" in the RESULT column) is not a title
+        if (t && longestCellIdx(row) <= 2 && !/^(PASSED|FAILED|PASS|FAIL)$/i.test(t)) {
           if (cur && cur.students.length) newSegment(cur.cols, cur.headers, t);   // title mid-sheet: new segment, same layout
           else pendingTitle = t;
         }
@@ -143,7 +159,7 @@
         oldScore: c.score != null ? cellNum(row[c.score]) : null,
         oldScoreRaw: c.score != null ? norm(row[c.score]) : "",
         oldResult: c.result != null ? mapResult(row[c.result]) : "",
-        raw: row.slice()
+        raw: trimRow(row)
       });
     });
     return blocks.filter(function (b) { return b.students.length; });
@@ -365,7 +381,7 @@
 
   var core = {
     norm: norm, tokens: tokens, examFamilyOf: examFamilyOf, mapResult: mapResult, rekeyDecisions: rekeyDecisions,
-    parseTSV: parseTSV, detectRosterHeader: detectRosterHeader, parseClassRoster: parseClassRoster, parseClassRosterBlocks: parseClassRosterBlocks,
+    parseTSV: parseTSV, detectRosterHeader: detectRosterHeader, parseClassRoster: parseClassRoster, parseClassRosterBlocks: parseClassRosterBlocks, trimRow: trimRow,
     detectExportHeader: detectExportHeader, parseCertExport: parseCertExport,
     nameCheck: nameCheck, isCandidate: isCandidate, reconcile: reconcile, filterPreview: filterPreview
   };
@@ -378,19 +394,20 @@
   var QBR = root.QBR;
   var LS_KEY = "qbr-mos-reconcile-v1";
   var FDEF = { section: "", exam: "", flag: "", q: "", min: "", max: "", sort: "roster" };
-  var RC = { blocks: [], exportRows: [], exportName: "", decisions: {}, draft: "", msg: "", appliedRefs: [], F: { section: "", exam: "", flag: "", q: "", min: "", max: "", sort: "roster" }, _applied: false };
+  var RC = { blocks: [], exportRows: [], exportName: "", decisions: {}, draft: "", msg: "", appliedRefs: [], F: { section: "", exam: "", flag: "", q: "", min: "", max: "", sort: "roster" }, _applied: false, saveFailed: false };
 
   function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
   function $(id) { return document.getElementById(id); }
 
   function persist() {
     try {
-      if (!RC.blocks.length && !RC.exportRows.length) { localStorage.removeItem(LS_KEY); return; }
+      if (!RC.blocks.length && !RC.exportRows.length) { localStorage.removeItem(LS_KEY); RC.saveFailed = false; return; }
       localStorage.setItem(LS_KEY, JSON.stringify({
         blocks: RC.blocks, exportRows: RC.exportRows, exportName: RC.exportName,
         decisions: RC.decisions, appliedRefs: RC.appliedRefs, savedAt: new Date().toISOString()
       }));
-    } catch (e) { /* storage full/blocked: the run still works for this session */ }
+      RC.saveFailed = false;
+    } catch (e) { RC.saveFailed = true; }   // surfaced in the view — silence here once cost a lost run
   }
   function restore() {
     try {
@@ -435,7 +452,7 @@
   async function readWorkbookAOAs(file) {
     var wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: "array", cellDates: true });
     return wb.SheetNames.map(function (sn) {
-      return { name: sn, aoa: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "", raw: true }) };
+      return { name: sn, aoa: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: "", raw: true }).map(trimRow) };
     });
   }
   async function addRosterFile(file) {
@@ -477,6 +494,7 @@
       'Certiport wins on conflicts — every change is flagged. Matched students also carry their <b>Section</b> into the Results view, where the Section filter, Excel export and Exam Summary PDF use it.</div>' +
       '<div class="small mos-rec-note">🔒 The last run is saved <b>in this browser only</b> so you can resume it — nothing is uploaded. <button type="button" class="btn btn-link btn-sm p-0" data-rec="clear">Clear saved run</button></div>' +
       (RC.msg ? '<div class="small text-danger mt-1" role="alert">' + esc(RC.msg) + "</div>" : "") +
+      (RC.saveFailed ? '<div class="small mt-1" role="alert" style="color:#b60">\u26a0 Auto-save failed \u2014 the browser storage is full or blocked, so this run will NOT survive a reload. Export a copy to keep it.</div>' : "") +
       '<div class="mos-rec-grid">' +
         '<div><div class="small fw-bold mb-1">1 · Class roster</div>' +
           '<textarea id="mos-rec-paste" class="form-control form-control-sm" rows="4" placeholder="Copy the roster rows in Excel (including the header row) and paste here…">' + esc(RC.draft) + "</textarea>" +

@@ -99,5 +99,28 @@ const sparse = C.parseClassRosterBlocks([
 ], "wb · Sparse");
 ok(sparse.length === 1 && sparse[0].students.length === 3, "sparse student rows (voucher filled, <=2 other cells) are students, not titles");
 
+/* ---- wide padded sheets + stray rows (shape of a real 512-student workbook) ---- */
+(function () {
+  var W = 16381;   // a stray formatted cell can stretch a sheet's used range to column XFA
+  function pad(r) { var a = r.slice(); while (a.length < W) a.push(""); return a; }
+  var H = FX.rosterAOA()[0];   // fixture header: voucher idx 7, score idx 8, result idx 9
+  var aoaW = [pad(H)];
+  for (var k = 1; k <= 30; k++) aoaW.push(pad([k, "Regular", "WIDE" + k + ", Dummy" + k, "12", "STEM", "WIDESEC", "wideuser" + k, "VCH-WIDE-" + k, "", ""]));
+  var bw = C.parseClassRosterBlocks(aoaW, "wide.xlsx · G12");
+  ok(bw.length === 1 && bw[0].students.length === 30, "wide sheet: all 30 dummy students parse");
+  ok(bw[0].students.every(function (x) { return x.raw.length <= H.length; }), "wide sheet: stored rows are trimmed to real width");
+  ok(JSON.stringify(bw).length < 50000, "wide sheet: saved-run payload stays small (" + JSON.stringify(bw).length + " bytes)");
+  ok(C.trimRow([1, "", 2, "", ""]).join() === "1,,2", "trimRow drops trailing empties only");
+
+  var stray = [H,
+    [1, "Regular", "STRAY1, Ann Poe", "12", "STEM", "STRAYSEC", "strayuser1", "VCH-STRAY-1", "", ""],
+    [2, "Regular", "STRAY2, Ben Poe", "12", "STEM", "STRAYSEC", "strayuser2", "VCH-STRAY-2", "", ""]];
+  var strayRow = new Array(10).fill(""); strayRow[9] = "FAILED";   // lone value in the RESULT column
+  stray.push(strayRow);
+  stray.push([3, "Regular", "STRAY3, Cat Poe", "12", "STEM", "STRAYSEC", "strayuser3", "VCH-STRAY-3", "", ""]);
+  var bs = C.parseClassRosterBlocks(stray, "stray.xlsx · G10");
+  ok(bs.length === 1 && bs[0].students.length === 3, "a lone FAILED in the result column does NOT split the block");
+})();
+
 console.log("\nmos-reconcile: " + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
