@@ -447,7 +447,7 @@
         '<div class="tr-hint">' + esc([it.school, it.examNo ? "Exam " + it.examNo : ""].filter(Boolean).join(" · ")) + "</div></td>" +
       "<td>" + esc(it.cert) + '<div class="tr-hint" title="' + esc(it.version || "") + '">' + esc(fmtDate(it.date)) + (it.version ? " · " + esc(it.version) : "") + "</div></td>" +
       '<td><code>' + esc(it.code || "—") + "</code>" + (it.fileName ? '<div class="tr-hint mos-cert-file" title="' + esc(it.file + (it.page ? " · page " + it.page : "")) + '">' + esc(it.fileName) + (it.page ? " · p." + esc(it.page) : "") + "</div>" : "") +
-        (it.file && it.how !== "auto" ? ' <button type="button" class="btn btn-link btn-sm p-0" data-mc="preview" data-code="' + esc(it.code) + '">Preview</button>' : "") + "</td>" +
+        (it.file ? ' <button type="button" class="btn btn-link btn-sm p-0" data-mc="preview" data-code="' + esc(it.code) + '">Preview</button>' : "") + "</td>" +
       "<td>" + res + "</td>" +
       '<td><span class="risk-badge ' + b[0] + '">' + b[1] + "</span></td>";
   }

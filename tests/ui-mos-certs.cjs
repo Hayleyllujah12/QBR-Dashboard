@@ -116,8 +116,8 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   // disabled box on a pass without a certificate (was: no box at all)
   ok(await page.$eval('tr:has(td:text-is("Carl Reyes Test")) input[type=checkbox]', el => el.disabled && /nothing to print/.test(el.title)), "Not generated row: disabled checkbox with an explanation");
   ok(/no certificate PDF read for this school yet|no PowerPoint certificate|none for PowerPoint/.test(await page.textContent('tr:has(td:text-is("Carl Reyes Test"))')), "Not generated row says why");
-  /* ---- P: preview (only on rows that were not matched automatically) ---- */
-  ok(!(await page.$('tr:has(td:text-is("Alex Cruz Demo")) [data-mc="preview"]')) && !!(await page.$('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="preview"]')), "Preview only on unmatched rows, not on automatic matches");
+  /* ---- P: preview (every row with a certificate file, auto-matched or not) ---- */
+  ok(!!(await page.$('tr:has(td:text-is("Alex Cruz Demo")) [data-mc="preview"]')) && !!(await page.$('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="preview"]')), "Preview on every row with a file \u2014 automatic matches included");
   await page.click('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="preview"]');
   await page.waitForFunction(() => { const c = document.getElementById("mos-prev-canvas"); return c && c.width > 100; }, null, { timeout: 10000 }).catch(() => {});
   ok(await page.evaluate(() => { const c = document.getElementById("mos-prev-canvas"); return !!c && c.width > 100 && document.querySelectorAll(".mos-prev-back").length === 1; }), "Preview: certificate page drawn in one modal");
