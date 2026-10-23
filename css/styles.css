@@ -2611,3 +2611,17 @@ body.mos-resizing,body.mos-resizing *{cursor:col-resize !important;user-select:n
 .mos-prev-body canvas{background:#fff;border:1px solid var(--stroke,var(--grid));border-radius:4px;display:block;max-width:640px;width:100%;height:auto;object-fit:contain}.mos-prev-wrap{flex:1 1 auto;min-width:0;display:flex;justify-content:center;align-items:flex-start;overflow:auto}
 .mos-prev-cands{flex:0 0 320px;overflow-y:auto}
 .mos-prev-cands h6{margin:0 0 8px;font-size:14px}
+
+/* MOS > Reconcile (roster <-> Certiport export by voucher) */
+#dash-mos .mos-rec-note{background:var(--card-2, #f3f6fb);border:1px solid var(--border, #dbe2ec);border-radius:8px;padding:6px 10px}
+#dash-mos .mos-rec-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:10px}
+@media (max-width: 900px){#dash-mos .mos-rec-grid{grid-template-columns:1fr}}
+#dash-mos .mos-rec-chips{display:flex;gap:6px;flex-wrap:wrap}
+#dash-mos .mos-rec-chip{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;border:1px solid var(--border, #dbe2ec);background:var(--card-2, #f3f6fb);color:var(--text, #1b1b1b)}
+#dash-mos .mos-rec-ok{background:#e6f4ea;border-color:#a3d9b1}
+#dash-mos .mos-rec-warn{background:#fef7e0;border-color:#f5d67b}
+#dash-mos .mos-rec-bad{background:#fdecea;border-color:#f1a9a5}
+#dash-mos .mos-rec-mut{opacity:.85}
+#dash-mos #mos-rec-paste{font-family:Consolas, monospace;font-size:12px}
+#dash-mos .mos-rec-fbar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:10px}
+#dash-mos .mos-rec-fbar .btn{margin-bottom:2px}
