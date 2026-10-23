@@ -88,5 +88,16 @@ ok(fp({ min: 600, max: 900 }).length === 2, "filter: score 600-900 -> Alex + Car
 ok(fp({ sort: "score-desc" })[0].finalScore === 940 && fp({ sort: "name" })[0].student.name.indexOf("DEMO") === 0 && fp({ sort: "name" })[5].student.name.indexOf("TRIAL") === 0, "sort: score desc / name A-Z");
 ok(fp({})[0].idx === 0 && fp({ sort: "name" })[0].idx != null, "rows keep their roster position (idx) under filters");
 
+/* audit fixes (2026-10-23 verification pass) */
+const rk = C.rekeyDecisions({ "0:1": "11111", "1:0": "22222", "1:3": "rejected", "2:0": "33333" }, 1);
+ok(rk["0:1"] === "11111" && rk["1:0"] === "33333" && !("1:3" in rk) && Object.keys(rk).length === 2, "rekeyDecisions: removed block's decisions dropped, later blocks shift down");
+const sparse = C.parseClassRosterBlocks([
+  ["No.", "Display Name", "GMETRIX", "EXAM VOUCHER"],
+  [1, "SOLO, Una Paz", "demostud401", "VCH-DUMMY-401"],
+  [2, "PAIR, Dos Rey", "", "VCH-DUMMY-402"],
+  ["", "TRIO, Tres Sol", "", "VCH-DUMMY-403"]
+], "wb · Sparse");
+ok(sparse.length === 1 && sparse[0].students.length === 3, "sparse student rows (voucher filled, <=2 other cells) are students, not titles");
+
 console.log("\nmos-reconcile: " + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

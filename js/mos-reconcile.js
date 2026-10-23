@@ -120,7 +120,8 @@
       if (cols) { var inherit = pendingTitle || (cur && !cur.students.length ? cur.title : ""); newSegment(cols, (row || []).map(norm), inherit); cur.headerRow = i; pendingTitle = ""; return; }
       var n = nonEmptyCount(row);
       if (!n) return;
-      if (n <= 2) {   // title / label row (section heading, sheet heading) — never a student
+      var titleRow = n <= 2 && !(cur && cur.cols.voucher != null && norm(row[cur.cols.voucher]));
+      if (titleRow) {   // title / label row (section heading, sheet heading) — never a student
         var t = longestCell(row);
         if (t) {
           if (cur && cur.students.length) newSegment(cur.cols, cur.headers, t);   // title mid-sheet: new segment, same layout
@@ -256,7 +257,7 @@
         var o = { bi: bi, si: si, key: bi + ":" + si, student: st, status: "", hit: null, candidates: [], diffs: [], nameDiff: false, swapped: false, flag: "" };
         rows.push(o);
         if (st.voucher && seenVouchers[st.voucher]) { o.status = "duplicate"; o.flag = "DUPLICATE VOUCHER in roster (first used by roster entry " + seenVouchers[st.voucher] + ")"; return; }
-        if (st.voucher) seenVouchers[st.voucher] = si + 1;
+        if (st.voucher) seenVouchers[st.voucher] = rows.length;   // global preview row # (o was just pushed)
         var hit = st.voucher ? byVoucher[st.voucher] : null;
         if (hit) {
           o.hit = hit; matchedRefs[hit.ref] = 1;
@@ -350,8 +351,20 @@
     return rows;
   }
 
+  // Decisions are keyed "<bi>:<si>" — removing block `removedBi` drops its decisions and
+  // shifts later blocks' keys down, so a confirmation can never land on the wrong student.
+  function rekeyDecisions(decisions, removedBi) {
+    var out = {};
+    Object.keys(decisions || {}).forEach(function (k) {
+      var parts = k.split(":"), bi = +parts[0];
+      if (bi === removedBi) return;
+      out[(bi > removedBi ? bi - 1 : bi) + ":" + parts[1]] = decisions[k];
+    });
+    return out;
+  }
+
   var core = {
-    norm: norm, tokens: tokens, examFamilyOf: examFamilyOf, mapResult: mapResult,
+    norm: norm, tokens: tokens, examFamilyOf: examFamilyOf, mapResult: mapResult, rekeyDecisions: rekeyDecisions,
     parseTSV: parseTSV, detectRosterHeader: detectRosterHeader, parseClassRoster: parseClassRoster, parseClassRosterBlocks: parseClassRosterBlocks,
     detectExportHeader: detectExportHeader, parseCertExport: parseCertExport,
     nameCheck: nameCheck, isCandidate: isCandidate, reconcile: reconcile, filterPreview: filterPreview
@@ -576,7 +589,7 @@
           else RC.msg = "That paste doesn't look like a class roster — include the header row (it needs a name column and an EXAM VOUCHER column).";
           persist(); applyToMos(); render(host);
         } else if (a === "rmblock") {
-          RC.blocks.splice(+b.getAttribute("data-i"), 1); persist(); applyToMos(); render(host);
+          var rbi = +b.getAttribute("data-i"); RC.blocks.splice(rbi, 1); RC.decisions = rekeyDecisions(RC.decisions, rbi); persist(); applyToMos(); render(host);
         } else if (a === "accept") {
           RC.decisions[b.getAttribute("data-k")] = b.getAttribute("data-ref"); persist(); applyToMos(); render(host);
         } else if (a === "reject") {
@@ -643,6 +656,7 @@
       RC.appliedRefs.forEach(function (ref) { delete MS.overrides[ref]; });
     }
     RC.blocks = []; RC.exportRows = []; RC.exportName = ""; RC.decisions = {}; RC.draft = ""; RC.msg = ""; RC.appliedRefs = [];
+    RC.F = { section: FDEF.section, exam: FDEF.exam, flag: FDEF.flag, q: FDEF.q, min: FDEF.min, max: FDEF.max, sort: FDEF.sort };
     persist();
     if (QBR.mos && QBR.mos._rebuild) QBR.mos._rebuild();
   }
