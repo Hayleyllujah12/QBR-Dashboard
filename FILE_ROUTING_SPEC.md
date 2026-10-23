@@ -14,7 +14,7 @@
 - Async and sequential per module, in this order: **MOS Results → MOS Reconcile → Trainers → General tickets (stage) → Inventory Forms (stage)**.
 - Only `.xlsx` / `.xlsm` items are offered. PDFs, images, CSV, JSON are never routed (the app door is `.xlsx`-only; CSV ticket imports stay manual in v1).
 - Dedup is each module's own existing mechanism (below) — the router itself keeps no state, so re-loads and restore replays are naturally idempotent for the silent modules.
-- **Feedback:** the router returns a per-file summary; `loadItems` appends one line to the upload-status area for fresh loads, e.g. `Also routed: SPCP_…_Results_….xlsx → MOS results · CLASS_LISTS.xlsx → MOS roster + Reconcile · Training_Feedback_….xlsx → Trainers`. On session-restore replays (`meta.savedAt` set) the note is skipped — restore stays quiet — but badges/counts still update.
+- **Feedback:** the router returns a per-file summary; `loadItems` appends one line to the upload-status area for fresh loads, e.g. `Also routed: Results_Export_….xlsx → MOS results · Class_Lists_….xlsx → MOS roster + Reconcile · Training_Feedback_….xlsx → Trainers`. On session-restore replays (`meta.savedAt` set) the note is skipped — restore stays quiet — but badges/counts still update.
 
 ## Module contracts
 

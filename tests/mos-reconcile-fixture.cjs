@@ -51,11 +51,11 @@ function stackedAOA() {
   const st = (n, name, gm, v) => [n, "Regular", name, "11", "STEM", "", gm, v, "", ""];
   return [
     ["GRADE 11"],
-    ["RM 2- ST.PAUL (HUMSS)"], H,
+    ["G11-A ALPHA (HUMSS)"], H,
     st(1, "NORTH, Ana Reyes", "demostud101", "VCH-DUMMY-101"),
     st(2, "SOUTH, Ben Cruz", "demostud102", "VCH-DUMMY-102"),
     st(3, "EAST, Cora Lim", "demostud103", "VCH-DUMMY-103"),
-    ["RM 3- ST.JOHN (STEM)"], H,
+    ["G11-B BETA (STEM)"], H,
     st(1, "WEST, Dan Sy", "demostud104", "VCH-DUMMY-104"),
     st(2, "FIELD, Eva Tan", "demostud105", "VCH-DUMMY-105")
   ];
@@ -67,7 +67,7 @@ function midTitleAOA() {
   return [H,
     st(1, "HILL, Fay Yu", "demostud201", "VCH-DUMMY-201"),
     st(2, "LAKE, Gil Ong", "demostud202", "VCH-DUMMY-202"),
-    ["RM 4- ST.MARK (ABM)"],
+    ["G10-A GAMMA (ABM)"],
     st(3, "POND, Hal Diaz", "demostud203", "VCH-DUMMY-203"),
     st(4, "REEF, Ida Ko", "demostud204", "VCH-DUMMY-204")];
 }
@@ -77,8 +77,8 @@ function buildRosterWorkbook(XLSX) {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stackedAOA()), "Excel");
   const H = ["No.", "Student Type", "Display Name", "Grade Level", "Strand", "Section", "GMETRIX", "EXAM VOUCHER", "EXAM SCORE", "RESULT"];
   const g10 = [H,
-    [1, "Regular", "VALE, Jay Ruiz", "10", "STEM", "RM 5- ST.LUKE (STEM)", "demostud301", "VCH-DUMMY-301", "", ""],
-    [2, "Regular", "MESA, Kay Ford", "10", "STEM", "RM 5- ST.LUKE (STEM)", "demostud302", "VCH-DUMMY-302", "", ""]];
+    [1, "Regular", "VALE, Jay Ruiz", "10", "STEM", "G10-C DELTA (STEM)", "demostud301", "VCH-DUMMY-301", "", ""],
+    [2, "Regular", "MESA, Kay Ford", "10", "STEM", "G10-C DELTA (STEM)", "demostud302", "VCH-DUMMY-302", "", ""]];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(g10), "Grade 10");
   return Buffer.from(XLSX.write(wb, { type: "array", bookType: "xlsx" }));
 }

@@ -69,10 +69,10 @@ ok(dupRes.rows[0].status === "filled", "first voucher occurrence unaffected");
 const stk = C.parseClassRosterBlocks(FX.stackedAOA(), "wb · Excel");
 ok(stk.length === 2, "stacked worksheet -> 2 blocks (one per section)");
 ok(stk[0].students.length === 3 && stk[1].students.length === 2, "students split 3 + 2, headers/titles never become students");
-ok(stk[0].students.every(x => x.section === "RM 2- ST.PAUL (HUMSS)") && stk[1].students.every(x => x.section === "RM 3- ST.JOHN (STEM)"), "section taken from the block title row when the column is blank");
-ok(/RM 2- ST\.PAUL/.test(stk[0].source), "block label carries its section title");
+ok(stk[0].students.every(x => x.section === "G11-A ALPHA (HUMSS)") && stk[1].students.every(x => x.section === "G11-B BETA (STEM)"), "section taken from the block title row when the column is blank");
+ok(/G11-A ALPHA/.test(stk[0].source), "block label carries its section title");
 const mid = C.parseClassRosterBlocks(FX.midTitleAOA(), "wb · G10");
-ok(mid.length === 2 && mid[0].students.length === 2 && mid[1].students.length === 2 && mid[1].students[0].section === "RM 4- ST.MARK (ABM)", "mid-sheet title (no repeated header) starts a new section");
+ok(mid.length === 2 && mid[0].students.length === 2 && mid[1].students.length === 2 && mid[1].students[0].section === "G10-A GAMMA (ABM)", "mid-sheet title (no repeated header) starts a new section");
 const one = C.parseClassRosterBlocks(FX.rosterAOA(), "wb · CLASS ROSTER");
 ok(one.length === 1 && one[0].students.length === 6, "single-header worksheet still parses as one block");
 
