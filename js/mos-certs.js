@@ -21,7 +21,7 @@
   var BY_KEY = "qbr-mos-printedby";
   var C = {
     log: null,          // { name, where, handle, dirId, writable, bytes, parsed, dirty }
-    links: {}, sel: {}, folderId: "", busy: false, msg: "", limit: 300,
+    links: {}, sel: {}, folderId: "", busy: false, prog: null, msg: "", limit: 300,
     scope: "",          // "" = schools in the loaded results (all when none), "all" = every school folder
     f: { school: "", examNo: "", cert: "", status: "", q: "" }
   };
@@ -43,6 +43,21 @@
   function dateOf(iso) { return iso ? new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) : ""; }
   function M() { return QBR.mos && QBR.mos._state ? QBR.mos._state() : null; }
   function msg(t) { C.msg = t || ""; var el = $("mos-cert-msg"); if (el) el.textContent = C.msg; }
+  // Progress for the folder load: determinate bar where a real fraction
+  // exists (file reads), sliding bar where it doesn't (the folder scan).
+  // Without it a large folder looked hung and invited spam-clicking.
+  function progHtml() {
+    var p = C.prog; if (!p) return "";
+    if (p.frac == null) return '<div style="height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden"><i style="display:block;height:100%;width:40%;border-radius:3px;background:var(--amber,#e8a33d);animation:readslide 1.1s ease-in-out infinite"></i></div>' +
+      '<div class="small text-muted mt-1">' + esc(p.label || "Loading\u2026") + "</div>";
+    var pct = Math.max(0, Math.min(100, Math.round(p.frac * 100)));
+    return '<div class="progress" style="height:16px" role="progressbar" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:' + pct + '%"></div></div>' +
+      '<div class="small text-muted mt-1">' + esc(p.label || "") + " \u00b7 " + pct + "%</div>";
+  }
+  function setProg(label, frac) {
+    C.prog = label == null ? null : { label: label, frac: frac };
+    var el = $("mos-cert-prog"); if (el) el.innerHTML = progHtml();
+  }
 
   /* ---------------- log workbook ---------------- */
   function findLogSheet(wb) {
@@ -334,12 +349,12 @@
     if (fs) h += '<div class="mos-cert-folder"><span class="small text-muted">Certificates folder</span> ' +
       (fl.length > 1 ? '<select class="form-select form-select-sm d-inline-block w-auto" data-mc="folder-pick" aria-label="Certificates folder">' + fl.map(function (d) { return '<option value="' + esc(d.id) + '"' + (cf && cf.id === d.id ? " selected" : "") + ">📁 " + esc(d.name) + "</option>"; }).join("") + "</select>"
         : cf ? "<b>📁 " + esc(cf.name) + "</b>" : '<span class="small text-muted">none linked yet</span>') +
-      ' <button type="button" class="btn btn-outline-secondary btn-sm" data-mc="folder-choose" title="Pick the MOS folder (e.g. the course folder with the school folders). It is remembered and kept with your other linked folders.">' + (fl.length ? "Link another folder…" : "Choose folder…") + "</button>" +
+      ' <button type="button" class="btn btn-outline-secondary btn-sm" data-mc="folder-choose"' + (C.busy ? " disabled" : "") + ' title="Pick the MOS folder (e.g. the course folder with the school folders). It is remembered and kept with your other linked folders.">' + (fl.length ? "Link another folder…" : "Choose folder…") + "</button>" +
       ' <select class="form-select form-select-sm d-inline-block w-auto" data-mc="scope" aria-label="Schools to read" title="Which school folders to read certificate PDFs from">' +
         '<option value=""' + (C.scope !== "all" ? " selected" : "") + '>Schools in my results</option><option value="all"' + (C.scope === "all" ? " selected" : "") + ">All schools</option></select>" +
-      ' <button type="button" class="btn btn-primary btn-sm" data-mc="folder"' + (cf ? "" : " disabled") + ' title="Find certificate PDFs (folders and files with “Certificate” in the name, up to 6 levels deep) and the log in ' +
-      esc(cf ? cf.name : "the folder") + '">Load certificates</button></div>';
-    h += "</div>";
+      ' <button type="button" class="btn btn-primary btn-sm" data-mc="folder"' + (cf && !C.busy ? "" : " disabled") + ' title="Find certificate PDFs (folders and files with “Certificate” in the name, up to 6 levels deep) and the log in ' +
+      esc(cf ? cf.name : "the folder") + '">' + (C.busy ? "Loading\u2026" : "Load certificates") + '</button></div>';
+    h += "</div>" + '<div id="mos-cert-prog" class="mt-2">' + progHtml() + "</div>";
     var folderOnly = all.filter(function (i) { return i.kind === "cert" && i.inLog && i.pf && !i.logPrinted; }).length;
     if (folderOnly) h += '<div class="mos-cert-pend"><span><b>' + plural(folderOnly, "certificate") + "</b> " + (folderOnly === 1 ? "is" : "are") + " in a PRINTED folder but not marked printed in the log.</span>" +
       '<button type="button" class="btn btn-primary btn-sm" data-mc="record-folder">Record in log</button></div>';
@@ -661,6 +676,7 @@
     if (!list.length) { var id = QBR.fsFolderPickOnly ? await QBR.fsFolderPickOnly() : null; if (!id) return; setFolder(id); }
     var d = currentFolder(); if (!d) return;
     C.busy = true; msg("Scanning " + d.name + " for certificate PDFs…");
+    setProg("Scanning " + d.name + " for certificate PDFs…", null); render();
     // Read only the schools in the loaded results (a whole MOS folder can hold 700+ certificate PDFs);
     // "All schools" reads every school folder.
     var s0 = M(), rs = {};
@@ -689,13 +705,17 @@
       pdfs.forEach(function (x) { var sc = P().fileMeta(d.name + "/" + x.rel.join("/")).school; perSchool[sc] = (perSchool[sc] || 0) + 1; });
       // Cache File objects for ALL PDFs (even already-read ones) so Preview can read them on demand.
       var _ms = M(), _fr = _ms ? _ms.fileRefs : null;
-      if (_fr) { for (var _i = 0; _i < pdfs.length; _i++) { try { var _fo = (await readHandle(pdfs[_i].handle)).file; var _p = d.name + "/" + pdfs[_i].rel.join("/"); try { _fo._path = _p; } catch (e) {} _fr[_p] = _fo; } catch (e) {} } }
+      if (_fr && pdfs.length) setProg("Reading certificate files…", 0);
+      if (_fr) { for (var _i = 0; _i < pdfs.length; _i++) { try { var _fo = (await readHandle(pdfs[_i].handle)).file; var _p = d.name + "/" + pdfs[_i].rel.join("/"); try { _fo._path = _p; } catch (e) {} _fr[_p] = _fo; } catch (e) {} setProg("Reading certificate files \u00b7 " + (_i + 1) + " of " + pdfs.length, pdfs.length ? (_i + 1) / pdfs.length : 1); if (_i % 20 === 19) await sleep(0); } }
       pdfs = pdfs.filter(function (x) { return !already[d.name + "/" + x.rel.join("/")]; });
+      if (pdfs.length) setProg("Reading new certificate files…", 0);
       for (var i = 0; i < pdfs.length; i++) {
         try { var fo = (await readHandle(pdfs[i].handle)).file; try { fo._path = d.name + "/" + pdfs[i].rel.join("/"); } catch (e) {} fl.push(fo); } catch (e) {}
+        setProg("Reading new certificate files \u00b7 " + (i + 1) + " of " + pdfs.length, pdfs.length ? (i + 1) / pdfs.length : 1); if (i % 20 === 19) await sleep(0);
       }
       var before = (M() || { certs: [] }).certs.length;
       C.busy = false;
+      if (fl.length) setProg("Matching " + plural(fl.length, "certificate") + " — watch the progress bar above…", null);
       if (fl.length && QBR.mos && QBR.mos.addCertFiles) await QBR.mos.addCertFiles(fl);
       var added = (M() || { certs: [] }).certs.length - before;
       var otherN = Object.keys(other).reduce(function (a, k) { return a + other[k]; }, 0);
@@ -714,7 +734,7 @@
         (res.truncated ? " · stopped early (very large folder — link a narrower one if something is missing)" : "") +
         (res.depthCapped ? " · " + res.depthCapped + " folder(s) deeper than 6 levels not opened" : "") + ".");
     } catch (e) { msg("Could not read the folder: " + (e && e.message || e)); }
-    finally { C.busy = false; render(); }
+    finally { setProg(null); C.busy = false; render(); }
   }
   function wire(host) {
     // Filter inputs are recreated on every render — always re-wire them.

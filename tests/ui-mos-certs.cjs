@@ -275,6 +275,32 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   ok(/4 certificates · 3 printed/.test(await page.textContent(".mos-certlog")), "log bar counts from the workbook");
   ok(await page.evaluate(() => window.__scanOpts.id === "d1"), "with two linked folders, the MOS-named one is used by default");
   ok(!page._errs.length, "no page errors (H) " + page._errs.join(" | "));
+  /* ---- Load certificates progress: bar visible mid-load, button disabled ---- */
+  await page.evaluate(() => {
+    window.__origScan = QBR.fsFolderFiles;
+    window.__gate = null;
+    QBR.fsFolderFiles = (id, opts) => new Promise(res => { window.__gate = () => window.__origScan(id, opts).then(res); });
+  });
+  await page.click('[data-mc="folder"]');
+  await page.waitForFunction(() => QBR.mosCerts._state.busy === true, null, { timeout: 5000 });
+  await page.waitForTimeout(250);
+  const mid = await page.evaluate(() => ({
+    prog: (document.getElementById("mos-cert-prog") || { innerHTML: "" }).innerHTML.length > 10,
+    scanning: /Scanning/.test((document.getElementById("mos-cert-prog") || { textContent: "" }).textContent),
+    btnDisabled: document.querySelector('[data-mc="folder"]').disabled,
+    btnLabel: document.querySelector('[data-mc="folder"]').textContent.trim()
+  }));
+  ok(mid.prog && mid.scanning, "during the folder scan a progress indicator is visible (sliding bar + phase label)");
+  ok(mid.btnDisabled && /Loading/.test(mid.btnLabel), "Load certificates button is disabled and relabels while loading (no spam-clicking)");
+  await page.evaluate(() => window.__gate());
+  await page.waitForFunction(() => QBR.mosCerts._state.busy === false, null, { timeout: 15000 });
+  const done = await page.evaluate(() => ({
+    progEmpty: (document.getElementById("mos-cert-prog") || { innerHTML: "x" }).innerHTML === "",
+    btnDisabled: document.querySelector('[data-mc="folder"]').disabled
+  }));
+  ok(done.progEmpty && !done.btnDisabled, "progress clears and the button re-enables when the load finishes");
+  await page.evaluate(() => { QBR.fsFolderFiles = window.__origScan; });
+
   await page.close();
 
   await browser.close();
