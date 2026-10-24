@@ -50,6 +50,7 @@
     mapFor: null,          // queue item whose column mapper is open
     newFor: null,          // queue item being added as a new session
     maps: {},
+    trackerStale: null, trackerAllowed: false,   // stale-tracker lineage guard (see trCheckLineage)
     charts: {}, chartDefs: {}
   };
 
@@ -108,6 +109,31 @@
   function excelRow(s) { return s.rowIdx + 1 + ((S.tracker && S.tracker.origin) ? S.tracker.origin.r : 0); }
 
   /* ---------------- tracker ---------------- */
+  /* Stale-tracker lineage: the browser remembers the last tracker seen per
+   * file name (session count + content hash — no student data). Opening a
+   * copy with FEWER sessions than remembered (an older version) pauses
+   * writing until the user confirms it is the file they mean. */
+  var TR_LINEAGE_KEY = "qbr-trainers-lineage";
+  function trLineageMap() { try { return JSON.parse(localStorage.getItem(TR_LINEAGE_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function trHash(bytes) { try { return (typeof QBR.fsHashOf === "function" && bytes) ? QBR.fsHashOf(bytes) : 0; } catch (e) { return 0; } }
+  function trSaveLineage(t) {
+    if (!t) return;
+    try {
+      var m = trLineageMap();
+      m[t.name] = { sessions: t.sessions.length, hash: t.hash || trHash(t.bytes), savedAt: new Date().toISOString() };
+      localStorage.setItem(TR_LINEAGE_KEY, JSON.stringify(m));
+    } catch (e) {}
+  }
+  function trCheckLineage(t) {
+    S.trackerStale = null; S.trackerAllowed = false;
+    var rec = null;
+    try { rec = trLineageMap()[t.name] || null; } catch (e) {}
+    if (rec && rec.hash !== (t.hash || 0) && t.sessions.length < rec.sessions) {
+      S.trackerStale = { recSessions: rec.sessions, sessions: t.sessions.length };
+      return;                      // older copy: do NOT refresh the remembered lineage
+    }
+    trSaveLineage(t);
+  }
   function openTracker(file, handle) {
     return readWorkbook(file).then(function (wb) {
       var names = wb.SheetNames || [];
@@ -125,7 +151,7 @@
       var rows = sheetRows(wb, pick);
       S.tracker = {
         name: file.name, bytes: wb.__bytes, wb: wb, sheetName: pick, origin: sheetOrigin(wb, pick),
-        handle: handle || null, mtime: file.lastModified || 0, size: file.size || 0,
+        handle: handle || null, mtime: file.lastModified || 0, size: file.size || 0, hash: trHash(wb.__bytes),
         headerRow: rows[0] || [], lastRow: lastDataRow(rows),
         sessions: sessions, roster: P().buildRoster(sessions),
         addedRows: [], headerAdds: [],
@@ -138,6 +164,7 @@
       S.queue.forEach(function (q) { q.solo = null; matchItem(q); });
       dedupeTargets();
       S.pickFor = S.mapFor = S.newFor = null;
+      trCheckLineage(S.tracker);
       render();
     });
   }
@@ -410,7 +437,17 @@
     if (!t.handle) return "no-handle";
     try {
       var cur = await t.handle.getFile();
-      if (cur && ((t.mtime && cur.lastModified !== t.mtime) || (t.size && cur.size !== t.size))) return "changed";
+      if (cur && ((t.mtime && cur.lastModified !== t.mtime) || (t.size && cur.size !== t.size))) {
+        // Metadata moved — OneDrive touches lastModified on sync without changing
+        // a byte. Only a real content change should refuse: when the size still
+        // matches, compare content hashes before calling it "changed".
+        var sameContent = false;
+        if (t.hash && cur.size === t.size) {
+          try { sameContent = trHash(new Uint8Array(await cur.arrayBuffer())) === t.hash; } catch (e) {}
+        }
+        if (!sameContent) return "changed";
+        t.mtime = cur.lastModified; t.size = cur.size;   // metadata-only touch: adopt and write
+      }
     } catch (e) { return "unreadable"; }
     var w = null;
     try {
@@ -418,6 +455,7 @@
       await w.write(t.bytes);
       await w.close();
       try { var f = await t.handle.getFile(); t.mtime = f.lastModified; t.size = f.size; } catch (e) {}
+      t.hash = trHash(t.bytes); trSaveLineage(t);
       return "ok";
     } catch (e) {
       try { if (w && w.abort) await w.abort(); } catch (x) {}
@@ -430,6 +468,7 @@
   function writeback() {
     var t = S.tracker;
     if (!t) return Promise.resolve();
+    if (S.trackerStale && !S.trackerAllowed) { note("This tracker looks older than the last one used here — confirm \u2018Use this tracker anyway\u2019 in the warning above before writing into it."); return Promise.resolve(); }
     var plan = P().planWriteback(t.headerRow, t.sessions);
     if (!plan.edits.length && !t.addedRows.length) return Promise.resolve();
     var SG = QBR.xlsxSurgical, bytes = t.bytes, base = null, work = null;
@@ -784,6 +823,10 @@
       '<span class="tr-file' + (ev || S.queue.length ? " on" : "") + '" data-trfile="eval"><b>Evals</b> ' + (S.queue.length ? plural(S.queue.length, "file") + (ev ? " + " + esc(ev.name) : "") : ev ? esc(ev.name) + ' <span class="text-muted">· ' + plural(ev.rows.length - 1, "response") + '</span>' : '<span class="text-muted">none</span>') + '</span>' +
       '</span></div>' +
       '<div class="tr-drop small text-muted" id="tr-drop">or drop eval exports here — many at once is fine</div>';
+    if (S.trackerStale && t) {
+      h += '<div class="tr-pending tr-stale"><span>\u26a0 <b>This tracker looks older than the last one used here</b> — last seen ' + S.trackerStale.recSessions + " sessions. This file has " + S.trackerStale.sessions + " sessions. Writing is paused so nothing is written into the older copy.</span>" +
+        '<button type="button" class="btn btn-warning btn-sm" data-traction="tracker-anyway">Use this tracker anyway</button></div>';
+    }
     if (pend || added || fills) {
       h += '<div class="tr-pending"><span><b>Not written yet:</b> ' +
         [added ? plural(added, "new session") : "", pend ? plural(pend, "scored session") : "", fills ? plural(fills, "response count") : ""].filter(Boolean).join(" · ") + '</span>' +
@@ -1729,6 +1772,7 @@
       saveMaps(); render();
       return;
     }
+    if (name === "tracker-anyway") { S.trackerAllowed = true; S.trackerStale = null; if (S.tracker) trSaveLineage(S.tracker); render(); return; }
     if (name === "writeback") return confirmWriteback();
   }
 
