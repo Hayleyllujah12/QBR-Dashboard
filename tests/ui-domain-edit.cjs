@@ -110,6 +110,44 @@ async function edit(page, domain, field, value) {
     ok(!page._errs.length, "no page errors (E) " + page._errs.join(" | "));
     await page.close();
   }
+
+  /* F: stale-copy lineage — the browser remembers 99 rows for this tracker;
+   * this file has 4 → saving asks first; declining writes nothing. */
+  {
+    const file = tracker("A1");
+    let acceptLineage = false;
+    const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
+    page._errs = []; page.on("pageerror", e => page._errs.push(String(e.message).slice(0, 200)));
+    await page.goto(APP, { waitUntil: "domcontentloaded" }); await page.waitForTimeout(400);
+    await page.evaluate(() => localStorage.setItem("qbr-remember", "0"));
+    await page.setInputFiles("#file-input", [path.join(__dirname, "fixture.xlsx"), file]); await page.waitForTimeout(1500);
+    await page.evaluate((b64) => {
+      const s2 = atob(b64), u = new Uint8Array(s2.length); for (let i = 0; i < s2.length; i++) u[i] = s2.charCodeAt(i);
+      const h = window.__h = { name: "DOMAIN_REGISTRATION_TRACKER.xlsx", bytes: u, writes: 0,
+        getFile: async () => new File([h.bytes], h.name), queryPermission: async () => "granted", requestPermission: async () => "granted",
+        createWritable: async () => { let buf; return { write: async b => { buf = new Uint8Array(b.buffer ? b.buffer.slice(b.byteOffset || 0, (b.byteOffset || 0) + b.byteLength) : b); }, close: async () => { h.bytes = buf; h.writes++; }, abort: async () => {} }; } };
+      window.showOpenFilePicker = async () => [h];
+      localStorage.setItem("qbr-domainreg-lineage", JSON.stringify({ rows: 99, hash: "stale-test-bogus", savedAt: "2026-10-23T00:00:00.000Z" }));
+    }, fs.readFileSync(file).toString("base64"));
+    page._dlg = [];
+    page.on("dialog", async d => { const m = d.message(); page._dlg.push(m);
+      if (/looks older than the last one saved/.test(m) && !acceptLineage) await d.dismiss(); else await d.accept(); });
+    await page.click('[data-tab="dash-domainreg"]'); await page.waitForTimeout(300);
+    await edit(page, "alpha.edu.example", "reg", "2026-04-05");
+    ok(page._dlg.some(m => /looks older than the last one saved from this browser \(99 rows/.test(m)), "F: lineage warning shown for the older copy (99 remembered rows vs this file's 4)");
+    ok(page._dlg.some(m => /Could not save: Not saved \u2014 the picked file looks like an older copy/.test(m)), "F: declining the warning refuses the save with the reason");
+    ok(await page.evaluate(() => window.__h.writes) === 0, "F: nothing written into the older copy");
+    acceptLineage = true;
+    await edit(page, "alpha.edu.example", "reg", "2026-04-05");
+    ok(await page.evaluate(() => window.__h.writes) === 1, "F: confirming the warning saves the edit into the file");
+    const lin = await page.evaluate(() => { const r = JSON.parse(localStorage.getItem("qbr-domainreg-lineage") || "null"); return r && { rows: r.rows, match: r.hash === QBR.fsHashOf(window.__h.bytes) }; });
+    ok(!!lin && lin.rows === 4 && lin.match, "F: lineage refreshed to this file (4 rows, hash of the written bytes)");
+    page._dlg.length = 0; acceptLineage = false;
+    await edit(page, "beta.edu.example", "reg", "2026-05-06");
+    ok(await page.evaluate(() => window.__h.writes) === 2 && !page._dlg.some(m => /looks older/.test(m)), "F: once the lineage matches, later saves prompt no more");
+    ok(!page._errs.length, "F: no page errors " + page._errs.join(" | "));
+    await page.close();
+  }
   await browser.close();
   console.log("\n" + pass + " passed, " + fail + " failed");
   process.exit(fail ? 1 : 0);
