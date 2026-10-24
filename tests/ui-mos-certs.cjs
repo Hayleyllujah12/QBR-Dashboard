@@ -303,6 +303,34 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
 
   await page.close();
 
+  /* ---- L: stale-log lineage guard ---- */
+  page = await fresh(browser);
+  await page.evaluate((t) => {
+    const mk = (name, tt) => { const kids = {}; Object.keys(tt).forEach(k => { kids[k] = typeof tt[k] === "string" ? (() => { const s2 = tt[k], u = new Uint8Array(s2.length); for (let i = 0; i < s2.length; i++) u[i] = s2.charCodeAt(i); const h = { kind: "file", name: k, bytes: u, getFile: async () => new File([h.bytes], k), queryPermission: async () => "granted", requestPermission: async () => "granted", createWritable: async () => ({ write: async () => {}, close: async () => {} }) }; return h; })() : mk(k, tt[k]); }); return { kind: "directory", name, kids, values: async function* () { for (const k of Object.keys(kids)) yield kids[k]; }, getFileHandle: async n => kids[n] }; };
+    window.__root = mk("MOS Courses", t);
+    window.__folders = [{ id: "d0", name: "Dashboard workbooks", state: "granted" }, { id: "d1", name: "MOS Courses", state: "granted" }];
+  }, rootTree);
+  await page.evaluate(() => { const s = QBR.mos._state(); s.view = "certs"; });
+  await page.evaluate(() => { const strip = d => { Object.keys(d.kids).forEach(k => { const v = d.kids[k]; if (v.kind === "directory") strip(v); else if (/\.pdf$/i.test(k)) delete d.kids[k]; }); }; strip(window.__root); });
+  // the browser remembers a NEWER log for this folder than the file that is about to be opened
+  await page.evaluate(() => localStorage.setItem("qbr-mos-cert-log-lineage", JSON.stringify({ "dir:d1": { where: "MOS Courses/MOS Certificate Log.xlsx", rows: 999, printed: 999, hash: "stale-test-bogus", savedAt: "2026-10-23T00:00:00.000Z" } })));
+  await page.evaluate(() => QBR.mos.render());
+  await page.waitForTimeout(200);
+  await page.click('[data-mc="folder"]'); await page.waitForFunction(() => QBR.mosCerts._state.log && !QBR.mosCerts._state.busy, null, { timeout: 10000 }); await page.waitForTimeout(300);
+  const staleTxt = await page.textContent(".mos-certlog");
+  ok(/looks older than the last one used here/.test(staleTxt) && /999 rows \u00b7 999 printed/.test(staleTxt) && /This file has 4 rows \u00b7 3 printed/.test(staleTxt), "stale log: warning names last-seen vs this-file counts \u2014 " + staleTxt.replace(/\s+/g, " ").slice(0, 220));
+  ok(await page.evaluate(() => QBR.mosCerts._state.logViewOnly === true && !!QBR.mosCerts._state.logStale), "stale log: view-only engaged");
+  await page.click('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="print"]'); await page.waitForTimeout(400);
+  const refused = await page.evaluate(() => ({ m: QBR.mosCerts._state.msg, printed: QBR.mosCerts._state.log.parsed.rows["z9y8-X7w6"].v.Printed }));
+  ok(/older than the last one used here/.test(refused.m) && refused.printed !== "Yes", "stale log: mark-printed refused with the warning message, log unchanged");
+  await page.click('[data-mc="log-use-anyway"]'); await page.waitForTimeout(200);
+  ok(!(await page.$(".mos-cert-stale")) && await page.evaluate(() => QBR.mosCerts._state.logViewOnly === false && JSON.parse(localStorage.getItem("qbr-mos-cert-log-lineage"))["dir:d1"].rows === 4), "Use this file anyway: banner clears, view-only off, this file becomes the remembered lineage");
+  await page.click('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="print"]'); await page.waitForTimeout(500);
+  const afterOk = await page.evaluate(() => ({ printed: QBR.mosCerts._state.log.parsed.rows["z9y8-X7w6"].v.Printed, linPrinted: JSON.parse(localStorage.getItem("qbr-mos-cert-log-lineage"))["dir:d1"].printed }));
+  ok(afterOk.printed === "Yes" && afterOk.linPrinted === 4, "after confirming, mark-printed saves and the lineage record refreshes (4 printed)");
+  ok(!page._errs.length, "no page errors (L) " + page._errs.join(" | "));
+  await page.close();
+
   await browser.close();
   console.log("\n" + pass + " passed, " + fail + " failed");
   process.exit(fail ? 1 : 0);

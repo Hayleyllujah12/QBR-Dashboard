@@ -23,6 +23,7 @@
     log: null,          // { name, where, handle, dirId, writable, bytes, parsed, dirty }
     links: {}, sel: {}, folderId: "", busy: false, prog: null, msg: "", limit: 300,
     scope: "",          // "" = schools in the loaded results (all when none), "all" = every school folder
+    logStale: null, logViewOnly: false, justCreated: false,   // stale-log lineage guard (see useLog)
     f: { school: "", examNo: "", cert: "", status: "", q: "" }
   };
 
@@ -83,9 +84,45 @@
     XLSX.utils.book_append_sheet(wb, ws, P().LOG_SHEET);
     return new Uint8Array(XLSX.write(wb, { bookType: "xlsx", type: "array" }));
   }
+  /* Stale-log lineage: the browser remembers the last log seen per folder
+   * (path, row count, printed count, content hash — no student data). Opening
+   * a copy whose counts went BACKWARDS (an older version of the log) pauses
+   * saving (view-only) until the user confirms it is the file they mean. */
+  var LINEAGE_KEY = "qbr-mos-cert-log-lineage";
+  function lineageMap() { try { return JSON.parse(localStorage.getItem(LINEAGE_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function logStats(o) {
+    var rows = o.parsed ? o.parsed.order.length : 0;
+    var printed = o.parsed ? o.parsed.order.filter(function (c) { return P().logPrinted(o.parsed.rows[c].v); }).length : 0;
+    var hash = (typeof QBR.fsHashOf === "function" && o.bytes) ? QBR.fsHashOf(o.bytes) : (o.bytes ? o.bytes.length : 0);
+    return { rows: rows, printed: printed, hash: hash };
+  }
+  function saveLineage(o) {
+    if (!o || !o._lineageKey) return;
+    try {
+      var m = lineageMap(), st = logStats(o);
+      m[o._lineageKey] = { where: o.where || o.name, rows: st.rows, printed: st.printed, hash: st.hash, savedAt: new Date().toISOString() };
+      localStorage.setItem(LINEAGE_KEY, JSON.stringify(m));
+    } catch (e) {}
+  }
   function useLog(o) {
     o.parsed = parseLog(o.bytes);
+    o._lineageKey = o.dirId ? "dir:" + o.dirId : "file:" + o.name;
     C.log = o;
+    if (C.justCreated) {           // brand-new log: no check, it becomes the lineage
+      C.justCreated = false;
+      C.logStale = null; C.logViewOnly = false;
+      saveLineage(o);
+      return;
+    }
+    var st = logStats(o), rec = null;
+    try { rec = lineageMap()[o._lineageKey] || null; } catch (e) {}
+    if (rec && rec.hash !== st.hash && (st.rows < rec.rows || st.printed < rec.printed)) {
+      C.logStale = { recRows: rec.rows, recPrinted: rec.printed, recWhere: rec.where || "", rows: st.rows, printed: st.printed };
+      C.logViewOnly = true;
+      return;                      // do NOT refresh the record — the remembered (newer) lineage stands
+    }
+    C.logStale = null; C.logViewOnly = false;
+    saveLineage(o);
   }
   /* OneDrive / sync tools touch a file right after it is written: a File snapshot taken a moment earlier then
    * fails with NotReadableError ("…permission problems that have occurred after a reference to a file was
@@ -148,6 +185,7 @@
     await loadFromFolder();
   }
   async function createLog() {
+    C.justCreated = true;   // a log created here must not trip the stale-log check in useLog
     var d = currentFolder(), dir = d && QBR.fsFolderDir ? await QBR.fsFolderDir(d.id, { ask: true }) : null;
     if (dir) {
       var h = null;
@@ -227,6 +265,7 @@
   }
   async function commit(ops, label) {
     if (!ops.length || C.busy) return false;
+    if (C.logViewOnly) { msg("This log looks older than the last one used here — confirm \u2018Use this file anyway\u2019 in the warning above before saving changes into it."); return false; }
     if (!C.log) {
       var d = currentFolder();
       if (!window.confirm("No certificate log yet.\n\nCreate “" + LOG_NAME + "”" + (d ? " in " + d.name : " (download it afterwards)") + " to record this?")) return false;
@@ -257,6 +296,7 @@
         }
       } else C.log.dirty = true;
       C.log.bytes = out; C.log.parsed = parseLog(out);
+      saveLineage(C.log);
       msg(label + (saved ? " — saved to " + C.log.name + "." : " — not saved to a file yet: use “Download log”."));
       return true;
     } catch (e) {
@@ -360,6 +400,8 @@
       '<button type="button" class="btn btn-primary btn-sm" data-mc="record-folder">Record in log</button></div>';
     if (notIn) h += '<div class="mos-cert-pend"><span><b>' + plural(notIn, "certificate") + "</b> loaded here " + (notIn === 1 ? "is" : "are") + " not in the log yet (newly generated).</span>" +
       '<button type="button" class="btn btn-primary btn-sm" data-mc="add-log">Add to log</button></div>';
+    if (C.logStale && C.log) h += '<div class="mos-cert-pend mos-cert-stale"><span>\u26a0 <b>This log looks older than the last one used here</b> — last seen ' + C.logStale.recRows + " rows \u00b7 " + C.logStale.recPrinted + " printed (" + esc(C.logStale.recWhere) + "). This file has " + C.logStale.rows + " rows \u00b7 " + C.logStale.printed + " printed. Saving is paused (view-only) so nothing is written into the older copy.</span>" +
+      '<button type="button" class="btn btn-warning btn-sm" data-mc="log-use-anyway">Use this file anyway</button></div>';
     return h + '<div id="mos-cert-msg" class="small text-muted mt-1" role="status" aria-live="polite">' + esc(C.msg) + "</div>";
   }
   function render(host) {
@@ -769,6 +811,7 @@
       else if (a === "open-log") pickLog();
       else if (a === "create-log") createLog().then(render, function (er) { window.alert("Could not create the log: " + (er && er.message || er)); });
       else if (a === "download") { if (C.log) { download(C.log.bytes, C.log.name); C.log.dirty = false; } }
+      else if (a === "log-use-anyway") { C.logViewOnly = false; C.logStale = null; if (C.log) saveLineage(C.log); render(); }
       else if (a === "add-log") {
         var nw = items().filter(function (i) { return i.kind === "cert" && !i.inLog; });
         commit(nw.map(function (i) { return { t: "add", code: i.code, row: logRow(i) }; }), plural(nw.length, "certificate") + " added to the log");
