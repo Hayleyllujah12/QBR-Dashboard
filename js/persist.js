@@ -59,6 +59,32 @@ function fsHashBytes(u8) {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
 }
 
+// File lineage (live-edit safeguard): the browser remembers, per file name,
+// the fingerprint + content hash of the last version IT saved (qbr-lineage-v1).
+// Linking a different copy under the same name while journal edits are still
+// pending against the saved version earns an informational warning — the
+// journal replays by exact fingerprint, so edits can never land on the wrong
+// copy; this just stops the user wondering where their edits went. Records are
+// written ONLY on successful saves/rebases, never at link time, and every
+// access is guarded: a lineage failure must never break linking or saving.
+var LINEAGE_KEY = "qbr-lineage-v1";
+function lineageMap() { try { return JSON.parse(localStorage.getItem(LINEAGE_KEY) || "{}") || {}; } catch (e) { return {}; } }
+function lineageRecord(name, fp, hash) {
+  if (!name) return;
+  try {
+    var m = lineageMap();
+    m[name] = { fp: fp || "", hash: hash || "", savedAt: new Date().toISOString() };
+    localStorage.setItem(LINEAGE_KEY, JSON.stringify(m));
+  } catch (e) {}
+}
+async function lineageRecordFile(name, file) {
+  try {
+    var h = "";
+    try { h = fsHashBytes(new Uint8Array(await file.arrayBuffer())); } catch (e) {}
+    lineageRecord(name, QBR.fpOf(name, file), h);
+  } catch (e) {}
+}
+
 // APP is a top-level const in app.js: visible as a bare global, NOT as window.APP.
 function persistAppFiles() {
   try { return (typeof APP !== "undefined" && APP.files) || []; }
@@ -197,6 +223,19 @@ QBR.fsLinkFile = async function (expectName) {
   }
   QBR.persistRefreshBadge();
   if (typeof renderFileList === "function") { try { renderFileList(); } catch (e2) {} }
+      // Lineage warning: this name was saved from this browser before, the
+      // linked copy's content differs, and edits recorded against the saved
+      // version are still pending — they will not apply to this copy.
+      try {
+        const rec = lineageMap()[file.name];
+        if (rec && rec.hash && fileHash && fileHash !== rec.hash) {
+          let pending = 0;
+          try { pending = QBR.journalOpsFor(rec.fp).length; } catch (e) {}
+          if (pending > 0) {
+            QBR.persistNote((((QBR._fsLinks || []).find(l => l.name === file.name) || {}).kinds || [])[0] || "", `⚠ ${file.name}: this copy differs from the version last saved in this browser (${new Date(rec.savedAt).toLocaleString()}). Edits recorded against that version won't apply to this copy.`, 15000);
+          }
+        }
+      } catch (e) {}
   return true;
 };
 
@@ -639,6 +678,7 @@ QBR.fsRebaseLink = async function (link, freshFile) {
   try { if (QBR._auditMeta && QBR._auditMeta.fp === oldFp) QBR._auditMeta.fp = newFp; } catch (e) {}
   link.fp = newFp; link.size = freshFile.size; link.lastModified = freshFile.lastModified;
   try { await fsLinksSave(); } catch (e) {}
+  try { await lineageRecordFile(link.name, freshFile); } catch (e) {}
   try { if (typeof QBR.fsRefreshStatus === "function") QBR.fsRefreshStatus(); } catch (e) {}
 };
 
@@ -667,6 +707,7 @@ QBR.fsAfterSave = async function (kind, link, freshFile) {
     link.fp = newFp; link.size = freshFile.size; link.lastModified = freshFile.lastModified;
     try { link.hash = fsHashBytes(new Uint8Array(await freshFile.arrayBuffer())); } catch (e) {} // v1.25.1: keep the content hash in sync
     await fsLinksSave();
+    try { await lineageRecordFile(link.name, freshFile); } catch (e) {} // lineage: this browser saved this version
     // 3. kind map: move the entry to the new fingerprint so later mutations
     //    record against the right file
     if (QBR._kindByFp && QBR._kindByFp[oldFp]) {
