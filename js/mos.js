@@ -219,9 +219,10 @@
         '<div class="mos-viewbar"><div class="btn-group btn-group-sm" role="group" aria-label="MOS view">' +
           '<button type="button" class="btn btn-outline-secondary" data-mos-view="results">Results</button>' +
           '<button type="button" class="btn btn-outline-secondary" data-mos-view="certs">Certificates <span id="mos-cert-n" class="badge bg-secondary"></span></button>' +
-          '<button type="button" class="btn btn-outline-secondary" data-mos-view="reconcile">Reconcile <span id="mos-rec-n" class="badge bg-secondary"></span></button></div></div>' +
+          '<button type="button" class="btn btn-outline-secondary" data-mos-view="reconcile">Reconcile <span id="mos-rec-n" class="badge bg-secondary"></span></button><button type="button" class="btn btn-outline-secondary" data-mos-view="completion">Completion <span id="mos-comp-n" class="badge bg-secondary"></span></button></div></div>' +
         '<div id="mos-view-certs" class="d-none"></div>' +
         '<div id="mos-view-reconcile" class="d-none"></div>' +
+        '<div id="mos-view-completion" class="d-none"></div>' +
         '<div id="mos-view-results">' +
         '<div class="card-box mos-filters" role="search" aria-label="MOS filters">' +
           '<div class="mos-frow">' +
@@ -243,6 +244,7 @@
           '</div>' +
         '</div>' +
         '<div id="mos-kpi" class="row row-cols-2 row-cols-md-4 row-cols-xl-8 g-3 kpi-row mt-1"></div>' +
+        '<div id="mos-certtiles" class="mos-certtiles mt-1"></div>' +
         '<div class="row g-3 mt-1">' +
           '<div class="col-lg-7"><div class="card-box"><div class="mos-ch-head"><h6 class="mb-0">Pass rate over time</h6>' +
             '<div class="btn-group btn-group-sm" role="group" aria-label="Trend granularity">' +
@@ -365,18 +367,22 @@
     $("mos-main").classList.toggle("d-none", !has);
     $("mos-empty").classList.toggle("d-none", has);
     if (!has) { renderEmpty(); destroyCharts(); return; }
-    if (!hasRows && S.view === "results") S.view = (QBR.mosReconcile && QBR.mosReconcile.hasSaved()) ? "reconcile" : "certs";
+    if (!hasRows && (S.view === "results" || S.view === "completion")) S.view = (QBR.mosReconcile && QBR.mosReconcile.hasSaved()) ? "reconcile" : "certs";
     var cn = $("mos-cert-n"); if (cn) cn.textContent = S.certs.length ? String(S.certs.length) : "";
     var rn = $("mos-rec-n"); if (rn) rn.textContent = QBR.mosReconcile && QBR.mosReconcile.count() ? String(QBR.mosReconcile.count()) : "";
+    var cn2 = $("mos-comp-n"); if (cn2) cn2.textContent = (QBR.mosCompletion && QBR.mosCompletion.count) ? String(QBR.mosCompletion.count()) : "";
     document.querySelectorAll(".mos-viewbar [data-mos-view]").forEach(function (b) {
       var a = b.getAttribute("data-mos-view") === S.view; b.classList.toggle("active", a); b.setAttribute("aria-pressed", String(a));
       if (b.getAttribute("data-mos-view") === "results") b.disabled = !hasRows;
+      if (b.getAttribute("data-mos-view") === "completion") b.disabled = !hasRows;
     });
     $("mos-view-results").classList.toggle("d-none", S.view !== "results");
     $("mos-view-certs").classList.toggle("d-none", S.view !== "certs");
     $("mos-view-reconcile").classList.toggle("d-none", S.view !== "reconcile");
+    $("mos-view-completion").classList.toggle("d-none", S.view !== "completion");
     if (S.view === "reconcile") { destroyCharts(); if (QBR.mosReconcile) QBR.mosReconcile.render($("mos-view-reconcile")); return; }
     if (S.view === "certs") { destroyCharts(); if (QBR.mosCerts) QBR.mosCerts.render($("mos-view-certs")); return; }
+    if (S.view === "completion") { destroyCharts(); if (QBR.mosCompletion) QBR.mosCompletion.render($("mos-view-completion")); return; }
     update();
   }
 
@@ -427,7 +433,7 @@
       var a = b.getAttribute("data-mos-trend") === S.trend; b.classList.toggle("active", a); b.setAttribute("aria-pressed", String(a));
     });
     var R = rows();
-    renderKpis(R); renderCharts(R); renderSummary(R); renderResults(R); renderCheck();
+    renderKpis(R); renderCertTiles(); renderCharts(R); renderSummary(R); renderResults(R); renderCheck();
   }
 
   function kpi(label, val, tone, title) {
@@ -443,6 +449,63 @@
       kpi("First-attempt pass rate", pct(s.firstPassRate), rateTone(s.firstPassRate), "Pass rate counting each student's first try at each exam only (retakes excluded)") +
       kpi("Average score", num(s.avg), s.avg >= 700 ? "green" : "orange") +
       kpi("Highest / lowest", (s.high == null ? "—" : s.high) + " / " + (s.low == null ? "—" : s.low), "blue");
+  }
+
+  /* ---------------- MOS certification tiles ---------------- */
+  // One tile per exam; the tiles ARE the exam breakdown, so the tile set is
+  // computed from every filter EXCEPT Exam (filterObj({exam: ""}) clears it).
+  // Visibility persists per browser in localStorage; exams never seen before
+  // default to hidden unless they are one of the three default tiles, and
+  // stored keys for exams no longer in the data are simply never consulted.
+  var CERT_TILE_KEY = "qbr-mos-certtiles-v1";
+  var CERT_TILE_DEFAULTS = ["Excel", "Word", "PowerPoint"];
+  function certTileStore() {
+    try { var v = JSON.parse(localStorage.getItem(CERT_TILE_KEY) || "{}"); return (v && typeof v === "object") ? v : {}; }
+    catch (e) { return {}; }
+  }
+  function certTileSave(map) { try { localStorage.setItem(CERT_TILE_KEY, JSON.stringify(map)); } catch (e) {} }
+  function certTileVisible(name) {
+    var m = certTileStore();
+    if (Object.prototype.hasOwnProperty.call(m, name)) return !!m[name];
+    return CERT_TILE_DEFAULTS.indexOf(name) >= 0;
+  }
+  function certTileRows() { return S.model ? P().filterAttempts(S.model.rows, filterObj({ exam: "" })) : []; }
+  function certTileExams() { return uniq(certTileRows().map(function (r) { return r.exam; })); }
+  function certTileOrder(exams) {
+    var out = [];
+    CERT_TILE_DEFAULTS.forEach(function (d) { if (exams.indexOf(d) >= 0) out.push(d); });
+    exams.forEach(function (e) { if (out.indexOf(e) < 0) out.push(e); });
+    return out;
+  }
+  function certTileSet(name, on) {
+    var m = certTileStore(); m[name] = !!on; certTileSave(m); renderCertTiles();
+  }
+  function certTileSetAll(on) {
+    var m = certTileStore();
+    certTileExams().forEach(function (e) { m[e] = !!on; });
+    certTileSave(m); renderCertTiles();
+  }
+  function renderCertTiles() {
+    var host = $("mos-certtiles"); if (!host) return;
+    var tileRows = certTileRows();
+    var vis = certTileOrder(certTileExams()).filter(certTileVisible);
+    host.classList.toggle("d-none", !vis.length);
+    if (!vis.length) { host.innerHTML = ""; return; }
+    host.innerHTML = vis.map(function (e) {
+      var scored = tileRows.filter(function (r) { return r.exam === e && r.score != null; });
+      var passed = 0; scored.forEach(function (r) { if (r.pass) passed++; });
+      var rate = scored.length ? passed / scored.length : null;
+      return '<div class="mos-certtile"><div class="kpi kpi-' + rateTone(rate) + '">' +
+        '<div class="kpi-val">' + num(passed) + '</div>' +
+        '<div class="kpi-lbl">' + esc(e) + '</div>' +
+        '<div class="mos-certtile-sub">Out of ' + num(scored.length) + ' takers' +
+        // Pass-rate indicator, same line as the takers count. The span inherits
+        // the tile tone (--tone is set on the .kpi by rateTone), so the rate
+        // is orange exactly when the tile icon warns, green when it passes.
+        // No scored attempts -> no rate (never a NaN% line).
+        (rate == null ? '' : ' <span class="mos-certtile-rate">· ' + Math.round(rate * 100) + '% pass rate</span>') +
+        '</div></div></div>';
+    }).join("");
   }
 
   /* ---------------- charts ---------------- */
@@ -1037,6 +1100,12 @@
     _summary: function () { return buildSummary(rows()); }, printSummary: printSummary, openProfile: openProfile,
     _loadAttempts: function (attempts, roster) { S.attempts = attempts.slice(); S.roster = (roster || []).slice(); rebuild(); }
   };
+  // MOS certification tiles: Admin-panel toggles + test seams (explicit QBR exposure).
+  QBR.mosCertTiles = {
+    exams: certTileExams, visible: certTileVisible, set: certTileSet, setAll: certTileSetAll,
+    render: renderCertTiles, _key: function () { return CERT_TILE_KEY; }
+  };
+
   document.addEventListener("qbr:flags-ready", function () { if (S.built || $("mos-body")) render(); });
   function boot() { if ($("mos-body")) render(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();

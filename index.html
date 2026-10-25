@@ -1151,6 +1151,11 @@
   <script src="js/mos-parse.js"></script>  <!-- v1.37.0: MOS score-report parser (pure; pdf.js loads on demand from libs/pdfjs) -->
   <script src="js/mos.js"></script>  <!-- v1.37.0: MOS tab (Certification > MOS results) -->
   <script src="js/mos-certs.js"></script>  <!-- v1.41.0: MOS > Certificates (generated / printed log) -->
+  <script src="js/mos-completion-logos.js"></script>  <!-- MOS > Completion certificates: embedded exam badges -->
+  <script src="js/mos-completion.js"></script>  <!-- MOS > Completion certificates: failed-twice bulk generator -->
+  <script src="libs/jszip.min.js"></script>  <!-- MOS > Completion PPTX export: zip read/write (MIT) -->
+  <script src="js/mos-completion-template.js"></script>  <!-- MOS > Completion PPTX: scrubbed master template (base64 placeholders) -->
+  <script src="js/mos-completion-pptx.js"></script>  <!-- MOS > Completion PPTX: template fill + slide clone -->
   <script src="js/mos-reconcile.js"></script>  <!-- MOS > Reconcile: class roster ↔ Certiport export by exam voucher -->
   <script src="js/trainers-parse.js"></script>  <!-- Trainers tab: pure eval/score logic (Node-testable) -->
   <script src="js/trainers.js"></script>  <!-- Trainers tab: tracker sessions + MS Forms eval scoring -->
@@ -1158,6 +1163,7 @@
   <script src="js/identity.js"></script>  <!-- v1.31.0: Netlify Identity login on *.netlify.app only (loads its widget there; no-op offline/live) -->
   <script src="js/admin.js"></script>  <!-- v1.31.0: discreet admin panel (feature flags) -->
   <script src="js/domain-edit.js"></script>  <!-- Domain registration inline edit (surgical write-back) -->
+  <script src="js/load-progress.js"></script>  <!-- 2026-10-25: shared load progress bar (above app chrome) -->
   <script src="js/app.js"></script>
   <script src="js/xlsx-surgical.js"></script>  <!-- 2026-10-06: format-safe Save to Excel -->
   <script src="js/xlsx-merge.js"></script>  <!-- 2026-10-06: merge edits with changes made in Excel -->
@@ -1165,6 +1171,8 @@
   <script src="js/persist.js"></script>  <!-- v1.8: journal persistence + direct file save -->
   <script src="js/journal.js"></script>  <!-- v1.30.0: unsaved-edits journal (backup, orphans, export/import) -->
   <script src="js/fsfolder.js"></script>  <!-- v1.33.0: Open folder — one permission for every workbook -->
+  <!-- BRANCH BUILD ONLY: stamped label for the env-badge fallback (js/branding.js). DROP this line on merge to main — main shows "Main" via hostname anyway. -->
+  <script>window.QBR_BRANCH="MOS-RECON";</script>
   <script src="js/branding.js"></script>  <!-- 2026-10-05 RCT OpsDesk: custom logo upload (browser-local). No data logic. -->
   <script src="js/shell.js"></script>  <!-- v1.9.0 shell chrome only: nav state, drawer, menus. No data logic. -->
 </body>
