@@ -6,6 +6,10 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-27 — MOS › Completion certificates: accent colour follows the exam
+  - PowerPoint certificates use the PowerPoint badge colour (orange-red) and Word certificates the Word blue for the left
+    bar, stripe and wave art — in the print preview AND the PowerPoint export (Excel stays green). They were always green.
+
 UPDATE — 2026-10-21 — Domains & email › Domain registration: roomier layout
   - The "Domain Registration & Expiration Status" table now uses the full page width (was squeezed beside the chart), so
     school names, dates and remarks no longer wrap into tall rows. The "Registration Status" chart moved below it, full width.

@@ -2442,8 +2442,8 @@ body.identity-gated:not(.identity-authed) :is(.app-header,#app-sidebar,main,#det
 .mos-comp-cert{position:relative;width:11in;height:8.5in;background:#fff;color:#000;font-weight:400;font-family:Poppins,"Segoe UI",system-ui,sans-serif;overflow:hidden;page-break-after:always;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 #mos-completion-print .mos-comp-cert:last-child{page-break-after:auto}
 .mos-comp-bg{position:absolute;left:0;top:0;width:11in;height:8.5in;z-index:0}
-.mos-comp-bar{position:absolute;left:0;top:0;width:0.632in;height:8.5in;background:#048642;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.mos-comp-stripe{position:absolute;left:0.772in;top:0;width:0.170in;height:8.5in;background:#048642;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.mos-comp-bar{position:absolute;left:0;top:0;width:0.632in;height:8.5in;background:var(--mos-accent,#048642);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.mos-comp-stripe{position:absolute;left:0.772in;top:0;width:0.170in;height:8.5in;background:var(--mos-accent,#048642);-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .mos-comp-wave{position:absolute;left:4.255in;top:0.769in;width:10.579in;height:11.276in;background-size:100% 100%;background-repeat:no-repeat;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .mos-comp-rakso{position:absolute;left:7.523in;top:0.336in;width:2.006in;height:0.432in;z-index:1}
 .mos-comp-partner{position:absolute;left:9.629in;top:0;height:1.123in;width:1.224in;z-index:1}

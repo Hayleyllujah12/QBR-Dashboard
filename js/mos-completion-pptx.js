@@ -319,6 +319,14 @@
       srcXml.push(await zip.file("ppt/slides/slide" + s + ".xml").async("string"));
       srcRels.push(await zip.file("ppt/slides/_rels/slide" + s + ".xml.rels").async("string"));
     }
+    // 2026-10-27: the template's PowerPoint/Word slides already colour the bar + stripe to the badge;
+    // their wave art (own SVG copies) was still Excel green — recolour it to match.
+    var WAVE_COL = { 2: "B8482B", 3: "25589B" };
+    for (var ws = 2; ws <= 3; ws++) {
+      var svgT = (srcRels[ws - 1].match(/Target="\.\.\/media\/([^"]+\.svg)"/) || [])[1];
+      var sf = svgT && zip.file("ppt/media/" + svgT);
+      if (sf) zip.file("ppt/media/" + svgT, (await sf.async("string")).replace(/#048642/gi, "#" + WAVE_COL[ws]));
+    }
     var media = parseSigMedia(sig || {});
     media.forEach(function (md) {
       if (md) zip.file("ppt/media/" + md.name, md.data, { base64: true });
