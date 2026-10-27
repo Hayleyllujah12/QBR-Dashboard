@@ -6,6 +6,24 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-27 — Revision list (no version bump)
+  - Guided audit: with more than one copy of the storage or usage report loaded, the NEWEST file is used (it used to be
+    whichever was read last, so an older copy could hide a school's Q4 row). "No row for … in Q4" now says which file and
+    sheet were searched, and points to the other loaded copy if the row is there.
+  - Guided audit, step 1: the School field lets you pick from the list OR type part of the name.
+  - Inventory: PF-4XNZNY and PF4XNZNY (with or without a dash or space) are the same serial in look-up, intake, search,
+    filters and ticket links — no duplicate units. The serial is still stored exactly as typed.
+  - Scan: the MTM is read from more label variants (space or dash inside, glued to "SN:", "M/T/M", "Machine Type Model");
+    if the label still can't be read, the MTM already on file in Inventory for that serial is used. An empty MTM cell now
+    says "not read" (it used to show the grey word "MTM", which looked like a value).
+  - User management: "Updated Schools by Organization" has its own full-width row, as horizontal bars, largest first.
+  - Google Postmaster: All Domains table has dropdown filters — Verification, DNS, Reputation (Google's live states
+    included) and Organization, each with counts — plus search by school or domain, a match count and Reset.
+  - My To-Do and General tickets: "Open saved file…" re-opens a file saved with "Export my file" (merges: same ID /
+    Ticket # are updated, new items added, nothing is deleted). General tickets' Forms import is now labelled "Import Forms file".
+  - Loaded sources & files: opens as a pop-up window — files grouped by type (tracker, domains, storage & usage, inventory,
+    MOS, trainers, Canva…) with counts, a search box and collapsible groups; close with ×, Esc or by clicking outside.
+
 UPDATE — 2026-10-21 — Fixes from the code review (no version bump)
   - Save: if a save fails (file open in Excel, merge cancelled, safety check), new rows (intake, tickets, deployments,
     supplies) stay pending and are written on the next Save. Before, they could be skipped as "already saved" and lost.
