@@ -177,7 +177,7 @@ QBR.parseSuppliesBuffers = function (buffers, onFile) {
   const fps = QBR._currentFps || [];
   const one = (buf, bi) => {
     try {
-      const wb = XLSX.read(buf, { type: "array", cellStyles: true }); // cellStyles: keep !cols/styles for patch-in-place save
+      const wb = (QBR.readWorkbook ? QBR.readWorkbook(buf, { type: "array", cellStyles: true }) : XLSX.read(buf, { type: "array", cellStyles: true })); // cellStyles: keep !cols/styles for patch-in-place save
       const fp = fps[bi];
       if (fp) { (QBR._origWb || (QBR._origWb = {}))[fp] = wb; }
       const sheets = {};

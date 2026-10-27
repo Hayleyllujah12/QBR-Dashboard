@@ -308,7 +308,7 @@
     let rawAll = {};
     const one = (buf, bi) => {
       try {
-        const wb = XLSX.read(buf, { type: "array", cellStyles: true });
+        const wb = (QBR.readWorkbook ? QBR.readWorkbook(buf, { type: "array", cellStyles: true }) : XLSX.read(buf, { type: "array", cellStyles: true }));
         const fp = fps[bi];
         const sheets = {}, raw = {};
         wb.SheetNames.forEach(n => {
@@ -1173,7 +1173,7 @@
     const found = [];
     const one = (buf, bi) => {
       try {
-        const wb = XLSX.read(buf, { type: "array", cellStyles: true });
+        const wb = (QBR.readWorkbook ? QBR.readWorkbook(buf, { type: "array", cellStyles: true }) : XLSX.read(buf, { type: "array", cellStyles: true }));
         const fp = fps[bi];
         let fileName = "", lastModified = 0;
         try {
