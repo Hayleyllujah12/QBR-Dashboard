@@ -2455,14 +2455,35 @@ function updateSavedState(savedAt) {
 function fileKey(name) { return String(name || "workbook.xlsx").trim().toLowerCase(); }
 
 // Render the accumulated-workbook list (with per-file refresh ↻ and remove ×).
+/* 2026-10-27: the Loaded-files list is a pop-up window with the workbooks GROUPED by what they feed,
+ * a search box and collapsible groups (38 files in one vertical list were hard to scan). Rows,
+ * checkboxes and ↻/× buttons are unchanged, so linking/reload/remove work exactly as before. */
+const FILE_GROUPS = [
+  ["tracker",  "Tenant tracker",              n => /tenant|automated tracker/i.test(n)],
+  ["domain",   "Domain registration",         n => /domain/i.test(n)],
+  ["audit",    "Audit · risky sign-ins",      n => /risky|audit/i.test(n)],
+  ["storuse",  "Storage & usage reports",     n => /storage|usage/i.test(n)],
+  ["usermgmt", "User management",             n => /user\s*management/i.test(n)],
+  ["gdap",     "GDAP",                         n => /gdap|granular/i.test(n)],
+  ["inv",      "Inventory, tickets & printers", n => /lenovo|inventory|ticket|printer|suppl/i.test(n)],
+  ["mos",      "MOS / Certiport",             n => /certiport|\bmos\b|exam|roster/i.test(n)],
+  ["trainers", "Trainers & evaluations",      n => /train|feedback|evaluation|\beval\b/i.test(n)],
+  ["canva",    "Canva & onboarding",          n => /canva|onboarding/i.test(n)],
+  ["todo",     "My To-Do profiles",           n => /-todo\.xlsx$/i.test(n)],
+];
+function fileGroupOf(name) {
+  const n = String(name || "");
+  const g = FILE_GROUPS.find(x => x[2](n));
+  return g ? { id: g[0], label: g[1] } : { id: "other", label: "Other" };
+}
+QBR.fileGroupOf = fileGroupOf;
+APP._fileGroupsClosed = APP._fileGroupsClosed || {};
 function renderFileList() {
   const host = $("loaded-files"); if (!host) return;
   const files = APP.files || [];
   if (!files.length) { host.innerHTML = ""; return; }
   const foBar = (typeof QBR !== "undefined" && typeof QBR.fsFolderToolbarHtml === "function") ? QBR.fsFolderToolbarHtml() : "";
-  host.innerHTML =
-    `<div class="loaded-files-head">Workbooks (${files.length})</div>` + foBar +
-    files.map(it => {
+  const rowHtml = it => {
       const k = escAttr(fileKey(it.name));
       const linked = (typeof QBR !== "undefined" && typeof QBR.fsIsLinkedByName === "function") ? QBR.fsIsLinkedByName(it.name) : false;
       const lk = linked ? (QBR._fsLinks || []).filter(l => fileKey(l.name) === fileKey(it.name))[0] : null;
@@ -2475,7 +2496,44 @@ function renderFileList() {
       return `<div class="loaded-file">${editBox}<span class="loaded-file-name" title="${escAttr(it.name)}">${esc(it.name)}</span>` +
         `<button type="button" class="loaded-file-r" data-fk="${k}" title="${linked ? "Reload this workbook from the file (picks up edits made in Excel)" : "Refresh this workbook — re-pick the file to load its latest data"}">↻</button>` +
         `<button type="button" class="loaded-file-x" data-fk="${k}" title="Remove this workbook">×</button></div>`;
-    }).join("");
+  };
+  const order = FILE_GROUPS.map(g => g[0]).concat("other"), by = {};
+  files.forEach(it => { const g = fileGroupOf(it.name); (by[g.id] = by[g.id] || { label: g.label, items: [] }).items.push(it); });
+  const q = APP._fileSearch || "";
+  host.innerHTML =
+    `<div class="loaded-files-head">Workbooks (${files.length})</div>` + foBar +
+    `<input type="search" id="loaded-search" class="form-control form-control-sm loaded-search" placeholder="Search loaded files…" aria-label="Search loaded files" value="${escAttr(q)}">` +
+    order.filter(id => by[id]).map(id => {
+      const g = by[id], closed = !!APP._fileGroupsClosed[id];
+      return `<details class="loaded-group" data-group="${id}"${closed ? "" : " open"}><summary><span class="loaded-group-name">${esc(g.label)}</span>` +
+        `<span class="loaded-group-n">${g.items.length}</span></summary>` + g.items.map(rowHtml).join("") + `</details>`;
+    }).join("") +
+    `<div class="small text-muted loaded-nomatch d-none">No loaded file matches.</div>`;
+  applyFileSearch();
+}
+function applyFileSearch() {
+  const q = String(APP._fileSearch || "").trim().toLowerCase();
+  const host = $("loaded-files"); if (!host) return;
+  let shown = 0;
+  host.querySelectorAll(".loaded-group").forEach(g => {
+    let n = 0;
+    g.querySelectorAll(".loaded-file").forEach(r => {
+      const hit = !q || (r.querySelector(".loaded-file-name").textContent || "").toLowerCase().indexOf(q) >= 0;
+      r.classList.toggle("d-none", !hit); if (hit) n++;
+    });
+    g.classList.toggle("d-none", !n); shown += n;
+    if (q && n) g.open = true;
+  });
+  const nm = host.querySelector(".loaded-nomatch"); if (nm) nm.classList.toggle("d-none", shown > 0);
+}
+function setLoadedOpen(open) {
+  const box = $("loaded-chips"), lt = $("loaded-toggle"), scrim = $("loaded-scrim");
+  if (!box || !lt) return;
+  box.classList.toggle("d-none", !open);
+  if (scrim) scrim.classList.toggle("d-none", !open);
+  lt.setAttribute("aria-expanded", String(open));
+  const c = lt.querySelector(".loaded-caret"); if (c) c.textContent = open ? "▴" : "▾";
+  if (open) { const s = $("loaded-search"); if (s) s.focus(); } else lt.focus();
 }
 
 // Refresh ONE workbook: re-open the picker, then swap the chosen file's bytes
@@ -2571,17 +2629,17 @@ function processBuffers(buffers, meta) {
     return `<span class="badge bg-${v ? "success" : "secondary"}" title="${escAttr(tip)}">${k}</span>`;
   }).join("") + gdapChip();
   $("upload-status").innerHTML =
-    `<button id="loaded-toggle" class="loaded-toggle" aria-expanded="false">Loaded: <b>${n}</b> source${n === 1 ? "" : "s"}` +
+    `<button id="loaded-toggle" class="loaded-toggle" aria-expanded="false" aria-haspopup="dialog" aria-controls="loaded-chips">Loaded: <b>${n}</b> source${n === 1 ? "" : "s"}` +
       `${fc ? ` · <b>${fc}</b> file${fc === 1 ? "" : "s"}` : ""} <span class="loaded-caret">▾</span></button>` +
-    `<span id="loaded-chips" class="loaded-chips d-none">${chips}<span id="loaded-files" class="loaded-files"></span></span>` +
+    `<span id="loaded-scrim" class="loaded-scrim d-none"></span>` +
+    `<span id="loaded-chips" class="loaded-chips d-none" role="dialog" aria-modal="true" aria-label="Loaded sources and files">` +
+      `<span class="loaded-pop-head"><b>Loaded sources &amp; files</b><button type="button" class="loaded-pop-x" id="loaded-close" aria-label="Close">×</button></span>` +
+      `<span class="loaded-src">${chips}</span><span id="loaded-files" class="loaded-files"></span></span>` +
     `<span id="saved-state" class="saved-state"></span>`;
   const lt = $("loaded-toggle");
-  if (lt) lt.addEventListener("click", () => {
-    const box = $("loaded-chips"), open = !box.classList.contains("d-none");
-    box.classList.toggle("d-none", open);
-    lt.setAttribute("aria-expanded", String(!open));
-    lt.querySelector(".loaded-caret").textContent = open ? "▾" : "▴";
-  });
+  if (lt) lt.addEventListener("click", () => setLoadedOpen($("loaded-chips").classList.contains("d-none")));
+  const lc = $("loaded-close"); if (lc) lc.addEventListener("click", e => { e.stopPropagation(); setLoadedOpen(false); });
+  const ls = $("loaded-scrim"); if (ls) ls.addEventListener("click", () => setLoadedOpen(false));
   wireGdapChip();
   renderFileList();
   updateSavedState(meta.savedAt || null);
@@ -3150,6 +3208,10 @@ function initShell() {
       return;
     }
   });
+  // Loaded-files pop-up: search box + remembered collapsed groups + Escape to close.
+  if (us) us.addEventListener("input", e => { if (e.target.id === "loaded-search") { APP._fileSearch = e.target.value; applyFileSearch(); } });
+  if (us) us.addEventListener("toggle", e => { const g = e.target.closest && e.target.closest(".loaded-group"); if (g && !APP._fileSearch) APP._fileGroupsClosed[g.dataset.group] = !g.open; }, true);
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && $("loaded-chips") && !$("loaded-chips").classList.contains("d-none")) setLoadedOpen(false); });
   // 'change' fires for checkboxes (click delegation above handles the intent).
   if (us) us.addEventListener("change", e => {
     const t = e.target.closest(".loaded-file-edit");

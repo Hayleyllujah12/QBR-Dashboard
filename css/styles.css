@@ -461,6 +461,22 @@ table.resizable th{position:relative}
   background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow16);
   padding:12px;display:flex;white-space:normal}
 .loaded-files{display:flex;flex-direction:column;gap:4px;width:100%;margin-top:6px}
+/* 2026-10-27: Loaded sources & files = centered pop-up window, grouped + searchable */
+.loaded-chips:not(.d-none){position:fixed;top:calc(var(--topbar-h,48px) + 24px);left:50%;right:auto;transform:translateX(-50%);
+  width:min(860px,94vw);max-height:calc(100vh - var(--topbar-h,48px) - 48px);overflow:auto;z-index:1060;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:8px}
+.loaded-scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1055}
+.loaded-pop-head{display:flex;align-items:center;justify-content:space-between;font-size:15px;color:var(--ink);margin-bottom:6px}
+.loaded-pop-x{border:none;background:transparent;font-size:22px;line-height:1;color:var(--muted);cursor:pointer;padding:0 6px;border-radius:var(--radius-sm)}
+.loaded-pop-x:hover{background:var(--tab-hover);color:var(--ink)}
+.loaded-src{display:flex;gap:4px;flex-wrap:wrap}
+.loaded-search{margin:6px 0 2px}
+.loaded-group{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);padding:0 8px 6px}
+.loaded-group>summary{display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 0;font-size:13px;font-weight:600;color:var(--ink);list-style-position:inside}
+.loaded-group-n{margin-left:auto;font-size:12px;font-weight:600;color:var(--muted);background:var(--tab-hover);border-radius:10px;padding:0 8px}
+.loaded-group .loaded-file{display:flex;margin-top:4px}
+.loaded-group .loaded-file-name{max-width:none}
+@media (min-width:900px){.loaded-files{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .loaded-files-head,.loaded-files>.fo-bar,.loaded-files>.fo-toolbar,.loaded-search,.loaded-nomatch{grid-column:1/-1}}
 .loaded-files-head{font-size:12px;font-weight:600;color:var(--muted)}
 .loaded-file{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);
   border-radius:var(--radius-sm);padding:2px 4px 2px 8px;font-size:12px;max-width:100%}
