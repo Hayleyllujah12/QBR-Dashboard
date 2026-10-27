@@ -87,11 +87,16 @@
   };
 
   /* ---------------- scanning ---------------- */
-  async function scan(dir) {
+  // 2026-10-25 load bar: onEntry(seen) reports walk progress; the walk yields
+  // every 50 entries so the bar paints (getFile awaits already yield per file).
+  async function scan(dir, onEntry) {
     var out = [], seen = 0;
     async function walk(h, path, depth) {
       for await (var entry of h.values()) {
-        if (++seen > MAX_ENTRIES || out.length >= MAX_BOOKS) return;
+        var s = ++seen;
+        if (onEntry) { try { onEntry(s); } catch (x) {} }
+        if (s % 50 === 0) await new Promise(function (r) { setTimeout(r, 0); });
+        if (s > MAX_ENTRIES || out.length >= MAX_BOOKS) return;
         var n = entry.name || "";
         if (n.charAt(0) === "." || n.indexOf("~$") === 0) continue;   // hidden + Excel lock files
         if (entry.kind === "directory") {
@@ -224,11 +229,13 @@
     for (var i = 0; i < (QBR._fsDirs || []).length; i++) {
       try { if (await QBR._fsDirs[i].handle.isSameEntry(dir)) { rec = QBR._fsDirs[i]; break; } } catch (x) {}
     }
-    note("Scanning " + dir.name + "…", 15000);
+    var LP = (typeof QBR !== "undefined" && QBR.loadProgress) || null;
+    var ownScan = LP ? LP.begin() : false;
     var res;
-    try { res = await scan(dir); } catch (x) { alert("Could not read the folder: " + (x && x.message || x)); return false; }
-    if (!res.books.length) { note(""); alert('No .xlsx / .xlsm workbooks found in "' + dir.name + '" (or its subfolders).'); return false; }
-    note("");
+    try { if (ownScan) LP.scan(0); res = await scan(dir, ownScan ? function (n) { LP.scan(n); } : null); }
+    catch (x) { if (LP) LP.end(); alert("Could not read the folder: " + (x && x.message || x)); return false; }
+    if (LP) LP.end();
+    if (!res.books.length) { alert('No .xlsx / .xlsm workbooks found in "' + dir.name + '" (or its subfolders).'); return false; }
     var chosen = await pickDialog(dir.name, res.books, res.truncated, defaultPicks(res.books, rec));
     if (!chosen || !chosen.length) return false;
     var picks = chosen.map(function (i) { return res.books[i]; });
@@ -247,20 +254,35 @@
     QBR._fsDirs = [rec].concat(others.filter(function (d) { return usedIds[d.id] || spare.indexOf(d) >= 0; }));
     QBR._fsDirState[rec.id] = "granted";
 
-    note("Loading " + picks.length + " workbook" + (picks.length === 1 ? "" : "s") + "…", 30000);
     try {
       var mems = [];
-      for (var j = 0; j < picks.length; j++) {
-        var f = await picks[j].handle.getFile();
-        var mem = await fsMemFile(f, f.name);
-        mems.push({ b: picks[j], file: f, mem: mem });
+      // 2026-10-26 per-file skip: a workbook that vanished between the picker
+      // list and the read (OneDrive sync/move - Chromium NotFoundError) must
+      // not abort the whole batch. Collect it, load the rest, name it below.
+      var failed = [];
+      var ownRead = LP ? LP.begin() : false;
+      try {
+        for (var j = 0; j < picks.length; j++) {
+          if (ownRead) LP.read(j + 1, picks.length, picks[j].name);
+          try {
+            var f = await picks[j].handle.getFile();
+            var mem = await fsMemFile(f, f.name);
+            mems.push({ b: picks[j], file: f, mem: mem });
+          } catch (x) {
+            failed.push({ name: picks[j].name, rel: (picks[j].rel || []).join("/"), err: (x && x.message) || (x && x.name) || String(x) });
+          }
+        }
+      } finally { if (LP) LP.end(); }
+      if (!mems.length) {
+        alert("Could not load from the folder: " + failed.map(function (d) { return d.rel || d.name; }).join(", ") + (failed[0] ? " - " + failed[0].err : ""));
+        return false;
       }
       // accumulate exactly like Upload: dedup by name, newest wins
       var map = new Map();
       ((typeof APP !== "undefined" && APP.files) || []).forEach(function (it) { map.set(fileKey(it.name), it); });
       mems.forEach(function (m) { map.set(fileKey(m.b.name), { name: m.b.name, blob: m.mem.file }); });
       var ok = await loadItems(Array.from(map.values()), {});
-      if (!ok) { note("Could not load those workbooks", 6000); return false; }
+      if (!ok) { note("Could not load those workbooks" + (failed.length ? " - skipped: " + failed.map(function (d) { return d.rel || d.name; }).join(", ") : ""), 6000); return false; }
       var names = {};
       mems.forEach(function (m) { names[nk(m.b.name)] = 1; });
       var links = (QBR._fsLinks || []).filter(function (l) { return !names[nk(l.name)]; });
@@ -281,7 +303,9 @@
       if (typeof renderFileList === "function") { try { renderFileList(); } catch (x) {} }
       try { QBR.persistRefreshBadge(); } catch (x) {}
       linked(rec.id);
-      note("Loaded & linked ✓ " + picks.length + " workbook" + (picks.length === 1 ? "" : "s") + " from " + dir.name, 5000);
+      var loadedMsg = "Loaded & linked ✓ " + mems.length + " workbook" + (mems.length === 1 ? "" : "s") + " from " + dir.name;
+      if (failed.length) loadedMsg += " - failed: " + failed.map(function (d) { return d.rel || d.name; }).join(", ");
+      note(loadedMsg, failed.length ? 8000 : 5000);
       return true;
     } catch (x) {
       alert("Could not load from the folder: " + (x && x.message || x));
@@ -427,18 +451,30 @@
 
   // Reload every folder-linked workbook from disk (picks up Excel edits).
   // Files with unsaved dashboard edits are skipped — save those first.
+  // 2026-10-25 load bar: the outer session owns the display (Reloading i/N);
+  // inner per-file loads nest silently. Failures used to vanish in the catch
+  // below — they are now collected and named in the end note. Skips (unsaved
+  // edits) keep their existing wording and are NOT failures.
   QBR.fsFolderReloadAll = async function () {
     if (!(await QBR.fsFolderReconnectAll())) return false;
-    var done = 0, skipped = [];
     var list = (QBR._fsLinks || []).filter(function (l) { return l.dirId; });
-    for (var i = 0; i < list.length; i++) {
-      var l = list[i], pending = 0;
-      try { pending = QBR.journalOpsFor(l.fp).length; } catch (x) {}
-      if (pending) { skipped.push(l.name); continue; }
-      try { if (await QBR.fsReloadFromFile(l.name, { quiet: true })) done++; } catch (x) {}
-    }
+    var LP = (typeof QBR !== "undefined" && QBR.loadProgress) || null;
+    var own = (LP && list.length) ? LP.begin() : false;
+    var done = 0, skipped = [], failed = [];
+    try {
+      for (var i = 0; i < list.length; i++) {
+        var l = list[i], pending = 0;
+        if (own) LP.reload(i + 1, list.length, l.name);
+        try { pending = QBR.journalOpsFor(l.fp).length; } catch (x) {}
+        if (pending) { skipped.push(l.name); continue; }
+        var r = false;
+        try { r = await QBR.fsReloadFromFile(l.name, { quiet: true }); } catch (x) { r = false; }
+        if (r) done++; else failed.push(l.name);
+      }
+    } finally { if (LP) LP.end(); }
     note("Reloaded ✓ " + done + " workbook" + (done === 1 ? "" : "s") +
-      (skipped.length ? " · skipped (unsaved edits — save first): " + skipped.join(", ") : ""), skipped.length ? 12000 : 5000);
+      (skipped.length ? " · skipped (unsaved edits — save first): " + skipped.join(", ") : "") +
+      (failed.length ? " · failed: " + failed.join(", ") : ""), (skipped.length || failed.length) ? 12000 : 5000);
     return true;
   };
 

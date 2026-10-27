@@ -299,11 +299,14 @@
 
   /* Parse raw workbook buffers into the audit model. Mirrors the inventory
    * pattern: per-buffer, filename-independent, sheets by name. */
-  QBR.parseAuditBuffers = function (buffers) {
+  /* 2026-10-25 load bar: optional onFile(i) reports per-file progress;
+   * with onFile the loop runs async (yield after each file so the bar paints),
+   * without it the original synchronous loop runs unchanged. */
+  QBR.parseAuditBuffers = function (buffers, onFile) {
     const fps = QBR._currentFps || [];
     let model = null;
     let rawAll = {};
-    (buffers || []).forEach((buf, bi) => {
+    const one = (buf, bi) => {
       try {
         const wb = XLSX.read(buf, { type: "array", cellStyles: true });
         const fp = fps[bi];
@@ -333,12 +336,27 @@
           }
         }
       } catch (e) { /* a non-audit workbook simply contributes nothing */ }
-    });
-    QBR._audit = model;
-    QBR._auditMeta = model ? buildMeta(model) : null;
-    // Rebuild base for stripped SharePoint links.
-    try { QBR._auditSpBase = detectSpBase(rawAll) || QBR._auditSpBase || ""; } catch (e) {}
-    return model;
+    };
+    const finish = () => {
+      QBR._audit = model;
+      QBR._auditMeta = model ? buildMeta(model) : null;
+      // Rebuild base for stripped SharePoint links.
+      try { QBR._auditSpBase = detectSpBase(rawAll) || QBR._auditSpBase || ""; } catch (e) {}
+      return model;
+    };
+    if (typeof onFile === "function") {
+      return (async function () {
+        var list = buffers || [];
+        for (var bi = 0; bi < list.length; bi++) {
+          one(list[bi], bi);
+          onFile(bi);
+          await new Promise(function (r) { setTimeout(r, 0); });
+        }
+        return finish();
+      })();
+    }
+    (buffers || []).forEach(one);
+    return finish();
   };
 
   function buildMeta(model) {
@@ -1150,15 +1168,18 @@
     return { fp: (opts && opts.fp) || null, fileName: (opts && opts.fileName) || "", quarters: quarters };
   }
 
-  /* 2026-10-27 fix: with several matching workbooks loaded (e.g. an older copy of the storage report
+  /* 2026-10-25 load bar: optional onFile(i) reports per-file progress;
+   * with onFile the loop runs async (yield after each file so the bar paints),
+   * without it the original synchronous loop runs unchanged.
+   * 2026-10-27 fix: with several matching workbooks loaded (e.g. an older copy of the storage report
    * in another folder), the LAST one read used to win silently, so the wizard could search a stale copy
    * and report "No row for <school> in Q4" although the current file has it. Now the NEWEST file
    * (lastModified) is the primary model; the others are kept as `alternates` so the wizard can say
    * where the row actually is. */
-  function parseQuarterBuffers(buffers, kind, a1match, schoolCol, parseFn) {
+  function parseQuarterBuffers(buffers, kind, a1match, schoolCol, parseFn, onFile) {
     const fps = QBR._currentFps || [];
     const found = [];
-    (buffers || []).forEach((buf, bi) => {
+    const one = (buf, bi) => {
       try {
         const wb = XLSX.read(buf, { type: "array", cellStyles: true });
         const fp = fps[bi];
@@ -1179,25 +1200,44 @@
           }
         }
       } catch (e) { /* a non-matching workbook simply contributes nothing */ }
-    });
-    if (!found.length) return null;
-    // newest first; same timestamp -> the later file (old behaviour) wins
-    found.sort((x, y) => (y.m.lastModified - x.m.lastModified) || (y.bi - x.bi));
-    const model = found[0].m;
-    model.alternates = found.slice(1).map(f => f.m);
-    return model;
+    };
+    const finish = () => {
+      if (!found.length) return null;
+      // newest first; same timestamp -> the later file (old behaviour) wins
+      found.sort((x, y) => (y.m.lastModified - x.m.lastModified) || (y.bi - x.bi));
+      const model = found[0].m;
+      model.alternates = found.slice(1).map(f => f.m);
+      return model;
+    };
+    if (typeof onFile === "function") {
+      return (async function () {
+        var list = buffers || [];
+        for (var bi = 0; bi < list.length; bi++) {
+          one(list[bi], bi);
+          onFile(bi);
+          await new Promise(function (r) { setTimeout(r, 0); });
+        }
+        return finish();
+      })();
+    }
+    (buffers || []).forEach(one);
+    return finish();
   }
 
-  QBR.parseStorageBuffers = function (buffers) {
+  QBR.parseStorageBuffers = function (buffers, onFile) {
     const m = parseQuarterBuffers(buffers, "storage", "school (rakso managed)", 0,
-      (wb, opts) => parseQuarterWorkbook(wb, opts, "storage", "school (rakso managed)", 0));
+      (wb, opts) => parseQuarterWorkbook(wb, opts, "storage", "school (rakso managed)", 0), onFile);
+    // With onFile the parse is async (load bar): keep the MODEL, never the Promise, in QBR._storage.
+    if (m && typeof m.then === "function") return m.then(function (v) { QBR._storage = v; return v; });
     QBR._storage = m;
     return m;
   };
 
-  QBR.parseUsageBuffers = function (buffers) {
+  QBR.parseUsageBuffers = function (buffers, onFile) {
     const m = parseQuarterBuffers(buffers, "usage", "client", 0,
-      (wb, opts) => parseQuarterWorkbook(wb, opts, "usage", "client", 0));
+      (wb, opts) => parseQuarterWorkbook(wb, opts, "usage", "client", 0), onFile);
+    // With onFile the parse is async (load bar): keep the MODEL, never the Promise, in QBR._usage.
+    if (m && typeof m.then === "function") return m.then(function (v) { QBR._usage = v; return v; });
     QBR._usage = m;
     return m;
   };

@@ -651,7 +651,8 @@
       if (f.exam && r.exam !== f.exam) return false;
       if (f.examNo && r.examBase !== f.examNo && r.examNo !== f.examNo && (r.batch || "(none)") !== f.examNo) return false;
       if (f.proctor && (r.proctor || "(none)") !== f.proctor) return false;
-      if (f.outcome && r.outcome !== f.outcome) return false;
+      if (f.outcome === "RETAKE") { if (!(r.retakeEligible && !r.retakeUsed)) return false; }
+      else if (f.outcome && r.outcome !== f.outcome) return false;
       if (f.min != null && f.min !== "" && (r.score == null || r.score < +f.min)) return false;
       if (f.max != null && f.max !== "" && (r.score == null || r.score > +f.max)) return false;
       if (f.year && r.year !== f.year) return false;

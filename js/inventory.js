@@ -333,10 +333,13 @@ QBR.invParseSheets = function (sheets, ctx) {
 
 /* Parse raw workbook buffers (ArrayBuffers) into the inventory model. Mirrors
  * the main loader: per-buffer, filename-independent, sheets by name. */
-QBR.parseInventoryBuffers = function (buffers) {
+/* 2026-10-25 load bar: optional onFile(i) reports per-file progress; 
+ * with onFile the loop runs async (yield after each file so the bar paints), 
+ * without it the original synchronous loop runs unchanged. */
+QBR.parseInventoryBuffers = function (buffers, onFile) {
   QBR._invAcc = null;
   const fps = QBR._currentFps || [];
-  (buffers || []).forEach((buf, bi) => {
+  const one = (buf, bi) => {
     try {
       const wb = XLSX.read(buf, { type: "array", cellStyles: true }); // cellStyles: keep !cols/styles for patch-in-place save
       const fp = fps[bi];
@@ -353,16 +356,31 @@ QBR.parseInventoryBuffers = function (buffers) {
         set.add("assets");
       }
     } catch (e) { /* a non-inventory workbook simply contributes nothing */ }
-  });
-  const acc = QBR._invAcc || { assets: [], tickets: [], deployments: [], pipeline: [], pos: [], sources: {} };
-  QBR._invAcc = null;
-  // de-dupe assets by serial key (newest file wins); tickets/deployments accumulate
-  const seen = new Map();
-  acc.assets.forEach(a => seen.set(a.key, a));
-  acc.assets = [...seen.values()];
-  acc.tickets.forEach((t, i) => { t._n = i; });   // legacy index identity (tno is canonical)
-  invBackfillTicketNos(acc.tickets);              // oldest-first, deterministic for journal replay
-  return acc;
+  };
+  const finish = () => {
+    const acc = QBR._invAcc || { assets: [], tickets: [], deployments: [], pipeline: [], pos: [], sources: {} };
+    QBR._invAcc = null;
+    // de-dupe assets by serial key (newest file wins); tickets/deployments accumulate
+    const seen = new Map();
+    acc.assets.forEach(a => seen.set(a.key, a));
+    acc.assets = [...seen.values()];
+    acc.tickets.forEach((t, i) => { t._n = i; });   // legacy index identity (tno is canonical)
+    invBackfillTicketNos(acc.tickets);              // oldest-first, deterministic for journal replay
+    return acc;
+  };
+  if (typeof onFile === "function") {
+    return (async function () {
+      var list = buffers || [];
+      for (var bi = 0; bi < list.length; bi++) {
+        one(list[bi], bi);
+        onFile(bi);
+        await new Promise(function (r) { setTimeout(r, 0); });
+      }
+      return finish();
+    })();
+  }
+  (buffers || []).forEach(one);
+  return finish();
 };
 
 /* ---------- ticket status helpers ------------------------------------------ */
