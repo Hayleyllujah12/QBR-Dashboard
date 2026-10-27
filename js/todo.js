@@ -393,6 +393,7 @@
         '<button class="btn btn-sm btn-primary" data-todo-act="add">+ Add task</button>' +
         '<button class="btn btn-sm btn-outline-secondary" data-todo-act="history">History</button>' +
         '<button class="btn btn-sm btn-outline-secondary" data-todo-act="export">Export my file</button>' +
+        '<button class="btn btn-sm btn-outline-secondary" data-todo-act="import" title="Re-open a file saved with Export my file (merges into this list)">Open saved file…</button>' +
         '<span class="ms-auto d-flex gap-2">' +
           '<select id="todo-f-urg" class="form-select form-select-sm w-auto" title="Filter by urgency">' +
             [["all", "Urgency: all"], ["high", "High"], ["medium", "Medium"], ["low", "Low"]].map(function (o) {
@@ -563,6 +564,7 @@
         else if (act === "add") addDialog();
         else if (act === "history") renderHistory();
         else if (act === "switch") { renderPicker(host); }
+        else if (act === "import") QBR.users.importDialog();
         else if (act === "export") {
           var r = QBR.users.exportWorkbook();
           alert(r.ok ? "Saved " + r.file : r.error);
