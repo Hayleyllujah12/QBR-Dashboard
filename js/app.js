@@ -1697,18 +1697,41 @@ function renderPostmaster() {
     (f.month !== "ALL" ? `Reputation: ${f.month[0] + f.month.slice(1).toLowerCase()}.` :
       (!isAllQ() ? `Reputation: latest scored month in ${quarterLabel()}.` : "Reputation: each domain's most recent scored month."));
   APP._pmList = list;
-  renderPmTable("");
+  pmFillFilters();
+  renderPmTable(($("pm-search") || {}).value || "");
 }
 
-function renderPmTable(q) {
-  const rf = ($("pm-rep") && $("pm-rep").value) || "ALL";
-  const vBy = APP.model.pmVerifyByKey || {};
-  const list = (APP._pmList || []).filter(e => {
-    if (q && !e.schoolRaw.toLowerCase().includes(q.toLowerCase())) return false;
-    if (rf === "ALL") return true;
-    if (VERIFY_ORDER.includes(rf)) return (vBy[e.key] ? vBy[e.key].pmTool : "Unknown") === rf;
-    return e.reputation === rf;                       // reputation value
+/* 2026-10-27: All Domains table filters = one dropdown per field. Options come from the rows actually
+ * loaded (so Google's live states like "Issues detected" / "Verify to see health" are listed), each with
+ * its count; the current choice survives re-renders, and a choice no longer present falls back to All. */
+function pmFieldVals(e) {
+  const v = (APP.model.pmVerifyByKey || {})[e.key];
+  return { verify: v ? v.pmTool : "Unknown", dns: v ? v.dns : "Unknown", rep: e.reputation || "No entry", org: e.org || orgOf(e.key) || "—" };
+}
+function pmFillFilters() {
+  const list = APP._pmList || [];
+  [["pm-f-verify", "verify", "All verification"], ["pm-f-dns", "dns", "All DNS"], ["pm-f-rep", "rep", "All reputations"], ["pm-f-org", "org", "All organizations"]].forEach(([id, f, all]) => {
+    const sel = $(id); if (!sel) return;
+    const cur = sel.value || "ALL", counts = {};
+    list.forEach(e => { const k = pmFieldVals(e)[f]; counts[k] = (counts[k] || 0) + 1; });
+    const keys = Object.keys(counts).sort((a, b) => f === "org" ? a.localeCompare(b) : (counts[b] - counts[a]) || a.localeCompare(b));
+    sel.innerHTML = `<option value="ALL">${esc(all)}</option>` + keys.map(k => `<option value="${esc(k)}">${esc(k)} (${counts[k]})</option>`).join("");
+    sel.value = keys.indexOf(cur) >= 0 ? cur : "ALL";
   });
+}
+function renderPmTable(q) {
+  const want = { verify: ($("pm-f-verify") || {}).value || "ALL", dns: ($("pm-f-dns") || {}).value || "ALL",
+                 rep: ($("pm-f-rep") || {}).value || "ALL", org: ($("pm-f-org") || {}).value || "ALL" };
+  const vBy = APP.model.pmVerifyByKey || {};
+  const ql = String(q || "").toLowerCase();
+  const all = APP._pmList || [];
+  const list = all.filter(e => {
+    if (ql && !(e.schoolRaw.toLowerCase().includes(ql) || String(e.domain || "").toLowerCase().includes(ql))) return false;
+    const fv = pmFieldVals(e);
+    return Object.keys(want).every(k => want[k] === "ALL" || fv[k] === want[k]);
+  });
+  const cnt = $("pm-count");
+  if (cnt) cnt.textContent = list.length === all.length ? `${all.length} domains` : `${list.length} of ${all.length} domains match the filters`;
   const badge = (r) => {
     if (!r || r === "No entry") return '<span class="text-muted">—</span>';
     if (r === "Issues detected" || r === "BAD") return `<span class="badge bg-danger">${esc(r)}</span>`;
@@ -1776,12 +1799,19 @@ function renderUserManagement() {
     { label: "Pending", value: pending, color: QBR.COLORS.orange },
   ]);
 
-  // updated schools by organization (stacked Updated/Pending)
-  const orgs = [...new Set(rows.map(u => orgOf(u.key)))].sort();
+  // updated schools by organization (stacked Updated/Pending).
+  // 2026-10-27: own full-width row, HORIZONTAL bars sorted by size, height grows with the number of
+  // organizations — 30 org names squeezed into a 1/3-width column were unreadable.
+  const orgCount = o => rows.filter(u => orgOf(u.key) === o).length;
+  const orgs = [...new Set(rows.map(u => orgOf(u.key)))].sort((a, b) => (orgCount(b) - orgCount(a)) || String(a).localeCompare(String(b)));
+  const orgWrap = $("um-org-wrap");
+  if (orgWrap) orgWrap.style.height = Math.max(260, orgs.length * 24 + 70) + "px";
+  const orgNote = $("um-org-note");
+  if (orgNote) orgNote.textContent = orgs.length ? orgs.length + " organizations · largest first" : "";
   QBR.chart.bar("ch-um-org", orgs, [
     { label: "Updated", backgroundColor: QBR.COLORS.green, data: orgs.map(o => rows.filter(u => orgOf(u.key) === o && u.status === "Updated").length) },
     { label: "Pending", backgroundColor: QBR.COLORS.orange, data: orgs.map(o => rows.filter(u => orgOf(u.key) === o && u.status === "Pending").length) },
-  ], { scales: { x: { stacked: true }, y: { stacked: true } } });
+  ], { indexAxis: "y", scales: { x: { stacked: true, ticks: { precision: 0 } }, y: { stacked: true, ticks: { autoSkip: false } } } });
 
   // readiness by school year (completion % of every SY, unfiltered by status)
   const syPct = syList.map(s => {
@@ -2425,14 +2455,35 @@ function updateSavedState(savedAt) {
 function fileKey(name) { return String(name || "workbook.xlsx").trim().toLowerCase(); }
 
 // Render the accumulated-workbook list (with per-file refresh ↻ and remove ×).
+/* 2026-10-27: the Loaded-files list is a pop-up window with the workbooks GROUPED by what they feed,
+ * a search box and collapsible groups (38 files in one vertical list were hard to scan). Rows,
+ * checkboxes and ↻/× buttons are unchanged, so linking/reload/remove work exactly as before. */
+const FILE_GROUPS = [
+  ["tracker",  "Tenant tracker",              n => /tenant|automated tracker/i.test(n)],
+  ["domain",   "Domain registration",         n => /domain/i.test(n)],
+  ["audit",    "Audit · risky sign-ins",      n => /risky|audit/i.test(n)],
+  ["storuse",  "Storage & usage reports",     n => /storage|usage/i.test(n)],
+  ["usermgmt", "User management",             n => /user\s*management/i.test(n)],
+  ["gdap",     "GDAP",                         n => /gdap|granular/i.test(n)],
+  ["inv",      "Inventory, tickets & printers", n => /lenovo|inventory|ticket|printer|suppl/i.test(n)],
+  ["mos",      "MOS / Certiport",             n => /certiport|\bmos\b|exam|roster/i.test(n)],
+  ["trainers", "Trainers & evaluations",      n => /train|feedback|evaluation|\beval\b/i.test(n)],
+  ["canva",    "Canva & onboarding",          n => /canva|onboarding/i.test(n)],
+  ["todo",     "My To-Do profiles",           n => /-todo\.xlsx$/i.test(n)],
+];
+function fileGroupOf(name) {
+  const n = String(name || "");
+  const g = FILE_GROUPS.find(x => x[2](n));
+  return g ? { id: g[0], label: g[1] } : { id: "other", label: "Other" };
+}
+QBR.fileGroupOf = fileGroupOf;
+APP._fileGroupsClosed = APP._fileGroupsClosed || {};
 function renderFileList() {
   const host = $("loaded-files"); if (!host) return;
   const files = APP.files || [];
   if (!files.length) { host.innerHTML = ""; return; }
   const foBar = (typeof QBR !== "undefined" && typeof QBR.fsFolderToolbarHtml === "function") ? QBR.fsFolderToolbarHtml() : "";
-  host.innerHTML =
-    `<div class="loaded-files-head">Workbooks (${files.length})</div>` + foBar +
-    files.map(it => {
+  const rowHtml = it => {
       const k = escAttr(fileKey(it.name));
       const linked = (typeof QBR !== "undefined" && typeof QBR.fsIsLinkedByName === "function") ? QBR.fsIsLinkedByName(it.name) : false;
       const lk = linked ? (QBR._fsLinks || []).filter(l => fileKey(l.name) === fileKey(it.name))[0] : null;
@@ -2445,7 +2496,44 @@ function renderFileList() {
       return `<div class="loaded-file">${editBox}<span class="loaded-file-name" title="${escAttr(it.name)}">${esc(it.name)}</span>` +
         `<button type="button" class="loaded-file-r" data-fk="${k}" title="${linked ? "Reload this workbook from the file (picks up edits made in Excel)" : "Refresh this workbook — re-pick the file to load its latest data"}">↻</button>` +
         `<button type="button" class="loaded-file-x" data-fk="${k}" title="Remove this workbook">×</button></div>`;
-    }).join("");
+  };
+  const order = FILE_GROUPS.map(g => g[0]).concat("other"), by = {};
+  files.forEach(it => { const g = fileGroupOf(it.name); (by[g.id] = by[g.id] || { label: g.label, items: [] }).items.push(it); });
+  const q = APP._fileSearch || "";
+  host.innerHTML =
+    `<div class="loaded-files-head">Workbooks (${files.length})</div>` + foBar +
+    `<input type="search" id="loaded-search" class="form-control form-control-sm loaded-search" placeholder="Search loaded files…" aria-label="Search loaded files" value="${escAttr(q)}">` +
+    order.filter(id => by[id]).map(id => {
+      const g = by[id], closed = !!APP._fileGroupsClosed[id];
+      return `<details class="loaded-group" data-group="${id}"${closed ? "" : " open"}><summary><span class="loaded-group-name">${esc(g.label)}</span>` +
+        `<span class="loaded-group-n">${g.items.length}</span></summary>` + g.items.map(rowHtml).join("") + `</details>`;
+    }).join("") +
+    `<div class="small text-muted loaded-nomatch d-none">No loaded file matches.</div>`;
+  applyFileSearch();
+}
+function applyFileSearch() {
+  const q = String(APP._fileSearch || "").trim().toLowerCase();
+  const host = $("loaded-files"); if (!host) return;
+  let shown = 0;
+  host.querySelectorAll(".loaded-group").forEach(g => {
+    let n = 0;
+    g.querySelectorAll(".loaded-file").forEach(r => {
+      const hit = !q || (r.querySelector(".loaded-file-name").textContent || "").toLowerCase().indexOf(q) >= 0;
+      r.classList.toggle("d-none", !hit); if (hit) n++;
+    });
+    g.classList.toggle("d-none", !n); shown += n;
+    if (q && n) g.open = true;
+  });
+  const nm = host.querySelector(".loaded-nomatch"); if (nm) nm.classList.toggle("d-none", shown > 0);
+}
+function setLoadedOpen(open) {
+  const box = $("loaded-chips"), lt = $("loaded-toggle"), scrim = $("loaded-scrim");
+  if (!box || !lt) return;
+  box.classList.toggle("d-none", !open);
+  if (scrim) scrim.classList.toggle("d-none", !open);
+  lt.setAttribute("aria-expanded", String(open));
+  const c = lt.querySelector(".loaded-caret"); if (c) c.textContent = open ? "▴" : "▾";
+  if (open) { const s = $("loaded-search"); if (s) s.focus(); } else lt.focus();
 }
 
 // Refresh ONE workbook: re-open the picker, then swap the chosen file's bytes
@@ -2541,17 +2629,17 @@ function processBuffers(buffers, meta) {
     return `<span class="badge bg-${v ? "success" : "secondary"}" title="${escAttr(tip)}">${k}</span>`;
   }).join("") + gdapChip();
   $("upload-status").innerHTML =
-    `<button id="loaded-toggle" class="loaded-toggle" aria-expanded="false">Loaded: <b>${n}</b> source${n === 1 ? "" : "s"}` +
+    `<button id="loaded-toggle" class="loaded-toggle" aria-expanded="false" aria-haspopup="dialog" aria-controls="loaded-chips">Loaded: <b>${n}</b> source${n === 1 ? "" : "s"}` +
       `${fc ? ` · <b>${fc}</b> file${fc === 1 ? "" : "s"}` : ""} <span class="loaded-caret">▾</span></button>` +
-    `<span id="loaded-chips" class="loaded-chips d-none">${chips}<span id="loaded-files" class="loaded-files"></span></span>` +
+    `<span id="loaded-scrim" class="loaded-scrim d-none"></span>` +
+    `<span id="loaded-chips" class="loaded-chips d-none" role="dialog" aria-modal="true" aria-label="Loaded sources and files">` +
+      `<span class="loaded-pop-head"><b>Loaded sources &amp; files</b><button type="button" class="loaded-pop-x" id="loaded-close" aria-label="Close">×</button></span>` +
+      `<span class="loaded-src">${chips}</span><span id="loaded-files" class="loaded-files"></span></span>` +
     `<span id="saved-state" class="saved-state"></span>`;
   const lt = $("loaded-toggle");
-  if (lt) lt.addEventListener("click", () => {
-    const box = $("loaded-chips"), open = !box.classList.contains("d-none");
-    box.classList.toggle("d-none", open);
-    lt.setAttribute("aria-expanded", String(!open));
-    lt.querySelector(".loaded-caret").textContent = open ? "▾" : "▴";
-  });
+  if (lt) lt.addEventListener("click", () => setLoadedOpen($("loaded-chips").classList.contains("d-none")));
+  const lc = $("loaded-close"); if (lc) lc.addEventListener("click", e => { e.stopPropagation(); setLoadedOpen(false); });
+  const ls = $("loaded-scrim"); if (ls) ls.addEventListener("click", () => setLoadedOpen(false));
   wireGdapChip();
   renderFileList();
   updateSavedState(meta.savedAt || null);
@@ -3120,6 +3208,10 @@ function initShell() {
       return;
     }
   });
+  // Loaded-files pop-up: search box + remembered collapsed groups + Escape to close.
+  if (us) us.addEventListener("input", e => { if (e.target.id === "loaded-search") { APP._fileSearch = e.target.value; applyFileSearch(); } });
+  if (us) us.addEventListener("toggle", e => { const g = e.target.closest && e.target.closest(".loaded-group"); if (g && !APP._fileSearch) APP._fileGroupsClosed[g.dataset.group] = !g.open; }, true);
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && $("loaded-chips") && !$("loaded-chips").classList.contains("d-none")) setLoadedOpen(false); });
   // 'change' fires for checkboxes (click delegation above handles the intent).
   if (us) us.addEventListener("change", e => {
     const t = e.target.closest(".loaded-file-edit");
@@ -3259,8 +3351,13 @@ function initShell() {
   if (hst) hst.addEventListener("change", () => renderHealthTable(($("health-search") || {}).value || ""));
   const pm = $("pm-search");
   if (pm) pm.addEventListener("input", e => renderPmTable(e.target.value));
-  const pmr = $("pm-rep");
-  if (pmr) pmr.addEventListener("change", () => renderPmTable(($("pm-search") || {}).value || ""));
+  document.querySelectorAll(".pm-f").forEach(sel => sel.addEventListener("change", () => renderPmTable(($("pm-search") || {}).value || "")));
+  const pmReset = $("pm-f-reset");
+  if (pmReset) pmReset.addEventListener("click", () => {
+    document.querySelectorAll(".pm-f").forEach(sel => { sel.value = "ALL"; });
+    if ($("pm-search")) $("pm-search").value = "";
+    renderPmTable("");
+  });
   const rsv = $("risky-secdef-view");
   if (rsv) rsv.addEventListener("change", () => renderRisky());
   const ut = $("usage-tenant");

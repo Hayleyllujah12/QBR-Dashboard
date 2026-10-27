@@ -576,30 +576,21 @@
         </div></div>
 
         <div class="col-12"><div class="card-box">
-          <div class="d-flex justify-content-between align-items-center">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h6 class="mb-0">All Domains — Verification &amp; Reputation</h6>
-            <div class="d-flex gap-2 align-items-center">
-              <select id="pm-rep" class="form-select form-select-sm" style="--w:210px">
-                <option value="ALL">All domains</option>
-                <optgroup label="Verification">
-                  <option value="Verified">Verified</option>
-                  <option value="Managed">Managed</option>
-                  <option value="Not Managed">Not Managed</option>
-                  <option value="Unknown">Unknown</option>
-                </optgroup>
-                <optgroup label="Reputation">
-                  <option value="HIGH">HIGH</option>
-                  <option value="MEDIUM">MEDIUM</option>
-                  <option value="LOW">LOW</option>
-                  <option value="BAD">BAD</option>
-                  <option value="No data to display">No data to display</option>
-                  <option value="Not enough data">Not enough data</option>
-                </optgroup>
-              </select>
-              <input id="pm-search" class="form-control form-control-sm" style="--w:220px" placeholder="Search school…" />
+            <div class="d-flex gap-2 align-items-center flex-wrap">
+              <!-- 2026-10-27: one dropdown per field (options built from the loaded data), replaces the single
+                   mixed list whose fixed HIGH/MEDIUM/LOW options never matched Google's live states. -->
+              <select id="pm-f-verify" class="form-select form-select-sm pm-f" style="--w:170px" aria-label="Filter by Postmaster verification"><option value="ALL">All verification</option></select>
+              <select id="pm-f-dns" class="form-select form-select-sm pm-f" style="--w:160px" aria-label="Filter by DNS status"><option value="ALL">All DNS</option></select>
+              <select id="pm-f-rep" class="form-select form-select-sm pm-f" style="--w:190px" aria-label="Filter by reputation"><option value="ALL">All reputations</option></select>
+              <select id="pm-f-org" class="form-select form-select-sm pm-f" style="--w:180px" aria-label="Filter by organization"><option value="ALL">All organizations</option></select>
+              <input id="pm-search" class="form-control form-control-sm" style="--w:200px" placeholder="Search school or domain…" aria-label="Search school or domain" />
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="pm-f-reset">Reset</button>
             </div>
           </div>
           <div class="small text-muted mb-1" id="pm-period"></div>
+          <div class="small text-muted mb-1" id="pm-count" aria-live="polite"></div>
           <table class="table table-sm mt-1"><thead><tr><th>School</th><th>Organization</th><th>Domain</th><th>Postmaster</th><th>DNS</th><th>Reputation (latest)</th><th>Spam</th></tr></thead><tbody id="tbl-pm"></tbody></table>
         </div></div>
       </div>
@@ -620,9 +611,9 @@
       <div class="alert alert-primary py-2" id="um-topcard"></div>
       <div id="kpi-um" class="row row-cols-2 row-cols-md-3 row-cols-xl-5 g-3 kpi-row"></div>
       <div class="row g-3 mt-1">
-        <div class="col-lg-4"><div class="card-box"><h6>School-Year Readiness</h6><div class="chart-wrap"><canvas id="ch-um-readiness"></canvas></div></div></div>
-        <div class="col-lg-4"><div class="card-box"><h6>Updated Schools by Organization</h6><div class="chart-wrap"><canvas id="ch-um-org"></canvas></div></div></div>
-        <div class="col-lg-4"><div class="card-box"><h6>Readiness by School Year</h6><div class="chart-wrap"><canvas id="ch-um-sy"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>School-Year Readiness</h6><div class="chart-wrap"><canvas id="ch-um-readiness"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Readiness by School Year</h6><div class="chart-wrap"><canvas id="ch-um-sy"></canvas></div></div></div>
+        <div class="col-12"><div class="card-box"><h6>Updated Schools by Organization</h6><div class="small text-muted mb-1" id="um-org-note"></div><div class="chart-wrap" id="um-org-wrap"><canvas id="ch-um-org"></canvas></div></div></div>
         <div class="col-12"><div class="card-box">
           <div class="d-flex justify-content-between align-items-center">
             <h6 class="mb-0">Detailed Status</h6>

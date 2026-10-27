@@ -74,6 +74,10 @@
 :root[data-qbr-fs] .dq-tbl code{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] #upload-status{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] .loaded-toggle{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .loaded-pop-head{font-size:calc(15px * var(--fs-t,1))}
+:root[data-qbr-fs] .loaded-pop-x{font-size:calc(22px * var(--fs-h,1))}
+:root[data-qbr-fs] .loaded-group>summary{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] .loaded-group-n{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .loaded-files-head{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .loaded-file{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .loaded-file-r,:root[data-qbr-fs] .loaded-file-x{font-size:calc(15px * var(--fs-t,1))}
