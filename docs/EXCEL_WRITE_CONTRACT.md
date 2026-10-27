@@ -1,6 +1,6 @@
 # Excel write contract — scope (2026-10-28)
 
-Status: **SCOPED, decisions taken (§4). Not built.** Branch `refactor/excel-write-contract` (from `develop` 1353168, after PR #30).
+Status: **Phase 0 built** (guard rails + shared scenario test, no app change). Phases 1–5 not built. Decisions: §4. Branch `refactor/excel-write-contract` (from `develop` 1353168, after PR #30).
 Goal: every feature that edits an Excel file goes through ONE save path, so every module behaves the same way when:
 - the file is open in Excel (locked);
 - the file was changed in Excel (merge);
@@ -116,3 +116,19 @@ adapter = {
 - **Side files and the journal.** Journal entries are keyed by file fingerprint. A side file that is renamed or moved shows as an orphan in "Unsaved edits", with the existing recovery flow. This is acceptable, but it must be tested.
 - **Trainers semantics change.** Sessions become "pending until saved", so the Trainers tab needs the same badge and a Save button. That is a small UI addition.
 - **Version.** These are patches; no `QBR.VERSION` bump unless the owner decides otherwise.
+
+## 6. Checklist — adding an Excel write feature (Phase 0)
+1. Record every edit with `QBR.journalRecord(kind, op, args)` — never write the file from the module.
+2. Add the cell writer `PATCH_OPS[op](wb, fp, args)` (Phase 1+: in the kind's adapter) and the replay function `QBR[op]`.
+   - Never overwrite a formula cell.
+   - Key rows by identity, not position, where possible.
+3. Save only with `QBR.fsSaveKind(kind)`, and show the result with `QBR.saveResultNote(kind, r)` AFTER any re-render.
+4. Put a `[data-unsaved="<kind>"]` badge next to the Save button (`QBR.saveButtonHtml(kind, id)` does it).
+5. Add ONE row to `KINDS` in `tests/ui-write-contract.cjs`: a dummy sample workbook + one edit. All scenarios must pass.
+6. `node tests/write-contract.cjs` must pass (no stray `createWritable`; every recorded op has a writer + replay).
+7. README.txt dated entry; claude/CHANGE_QUEUE.md engineering note.
+
+Guard-rail tests (Phase 0):
+- `tests/write-contract.cjs` (Node): only `persist.js` writes; LEGACY allowlist = mos-certs.js (Phase 2), domain-edit.js (Phase 3), trainers.js (Phase 4); every recorded op has a PATCH_OPS writer + QBR replay.
+- `tests/ui-write-contract.cjs` (browser): kinds audit · storage · assets · supplies × scenarios: save ok, second save, locked → kept → saved, changed in Excel → merged, same cell → Cancel, file keeps changing → busy, permission denied, reload keeps pending → saves.
+  - Baseline on develop 1353168: 59/59. Phase 1 must keep this byte-for-byte; see §3.
