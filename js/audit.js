@@ -1150,23 +1150,29 @@
     return { fp: (opts && opts.fp) || null, fileName: (opts && opts.fileName) || "", quarters: quarters };
   }
 
+  /* 2026-10-27 fix: with several matching workbooks loaded (e.g. an older copy of the storage report
+   * in another folder), the LAST one read used to win silently, so the wizard could search a stale copy
+   * and report "No row for <school> in Q4" although the current file has it. Now the NEWEST file
+   * (lastModified) is the primary model; the others are kept as `alternates` so the wizard can say
+   * where the row actually is. */
   function parseQuarterBuffers(buffers, kind, a1match, schoolCol, parseFn) {
     const fps = QBR._currentFps || [];
-    let model = null;
+    const found = [];
     (buffers || []).forEach((buf, bi) => {
       try {
         const wb = XLSX.read(buf, { type: "array", cellStyles: true });
         const fp = fps[bi];
-        let fileName = "";
+        let fileName = "", lastModified = 0;
         try {
           const list = (typeof persistAppFiles === "function") ? persistAppFiles() : [];
           const f = list.filter(x => QBR.fpOf(x.name, x.blob) === fp)[0];
-          if (f) fileName = f.name;
+          if (f) { fileName = f.name; lastModified = (f.blob && f.blob.lastModified) || 0; }
         } catch (e) {}
         const m = parseFn(wb, { fp: fp || null, fileName: fileName });
         if (m) {
           if (fp) { (QBR._origWb || (QBR._origWb = {}))[fp] = wb; }
-          model = m; // last matching file wins
+          m.lastModified = lastModified;
+          found.push({ m: m, bi: bi });
           if (fp) {
             const set = QBR._kindByFp[fp] || (QBR._kindByFp[fp] = new Set());
             set.add(kind);
@@ -1174,6 +1180,11 @@
         }
       } catch (e) { /* a non-matching workbook simply contributes nothing */ }
     });
+    if (!found.length) return null;
+    // newest first; same timestamp -> the later file (old behaviour) wins
+    found.sort((x, y) => (y.m.lastModified - x.m.lastModified) || (y.bi - x.bi));
+    const model = found[0].m;
+    model.alternates = found.slice(1).map(f => f.m);
     return model;
   }
 
@@ -1212,6 +1223,20 @@
     return hit ? { r: hit.r, school: hit.school, org: hit.org, sheet: q.sheet, quarter: quarter } : null;
   };
   QBR.schoolNorm = schoolNorm;
+
+  // Why a quarter row wasn't found, in words (shown by the wizard instead of a bare "No row").
+  QBR.quarterMissReason = function (model, quarter, school) {
+    if (!model) return "";
+    const file = model.fileName ? "<b>" + escHtml(model.fileName) + "</b>" : "the loaded workbook";
+    const q = model.quarters && model.quarters[quarter];
+    let msg = q
+      ? "Searched " + file + " › sheet <b>" + escHtml(q.sheet) + "</b> (" + q.rows.length + " schools)."
+      : "No <b>" + escHtml(quarter) + "</b> sheet in " + file + " (sheets found: " + escHtml(Object.keys(model.quarters || {}).join(", ") || "none") + ").";
+    const alt = (model.alternates || []).filter(m => QBR.quarterFindRow(m, quarter, school))[0];
+    if (alt) msg += " The row IS in another loaded copy: <b>" + escHtml(alt.fileName || "another workbook") + "</b> — remove the older copy from the Loaded files list (✕) or reload the right file.";
+    else if (q) msg += " Check the school name in column A, or reload the file (↻) if you added the row after loading it.";
+    return msg;
+  };
 
   // Journal ops (model updates are light; the wizard tracks its own saved state).
   QBR.storagePasteRow = function (fp, sheet, row, values) {
@@ -1448,7 +1473,7 @@
     if (!s) return `<div class="wiz-step"><h5>Storage report</h5><div class="alert alert-info">Upload <code>STORAGE_REPORT.xlsx</code> to enable this step.</div>${wizNav(3, {})}</div>`;
     const q = QBR.auditQuarterOfMonth(w.month);
     const row = QBR.quarterFindRow(s, q, w.school);
-    if (!row) return `<div class="wiz-step"><h5>Storage report</h5><div class="alert alert-warning">No row for ${escHtml(w.school)} in ${escHtml(q)}.</div>${wizNav(3, {})}</div>`;
+    if (!row) return `<div class="wiz-step"><h5>Storage report</h5><div class="alert alert-warning">No row for ${escHtml(w.school)} in ${escHtml(q)}.<div class="small mt-1">${QBR.quarterMissReason(s, q, w.school)}</div></div>${wizNav(3, {})}</div>`;
     const heads = QBR.storagePasteHeaders();
     let prev = "";
     if (w.p3.parsed && !w.p3.parsed.error) {
@@ -1476,7 +1501,7 @@
     if (!u) return `<div class="wiz-step"><h5>Usage report</h5><div class="alert alert-info">Upload <code>USAGE_REPORT.xlsx</code> to enable this step.</div>${wizNav(4, {})}</div>`;
     const q = QBR.auditQuarterOfMonth(w.month);
     const row = QBR.quarterFindRow(u, q, w.school);
-    if (!row) return `<div class="wiz-step"><h5>Usage report</h5><div class="alert alert-warning">No row for ${escHtml(w.school)} in ${escHtml(q)}.</div>${wizNav(4, {})}</div>`;
+    if (!row) return `<div class="wiz-step"><h5>Usage report</h5><div class="alert alert-warning">No row for ${escHtml(w.school)} in ${escHtml(q)}.<div class="small mt-1">${QBR.quarterMissReason(u, q, w.school)}</div></div>${wizNav(4, {})}</div>`;
     const heads = QBR.usagePasteHeaders();
     let prev = "";
     if (w.p4.parsed && !w.p4.parsed.error) {
