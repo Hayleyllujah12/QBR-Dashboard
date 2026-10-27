@@ -783,41 +783,45 @@ QBR.invSave = async function () {
   const r = await QBR.fsSaveKind("assets");
   QBR.invSaveDone(r);
 };
+// 2026-10-28: one message per save outcome, shared by every Save button
+// (Inventory, Supplies, Risky sign-ins editor, guided audit). Before, the
+// "open in Excel" / write-failed / sync-busy / merge-cancelled outcomes had no
+// message of their own and the badge just went back to "● N unsaved".
+// Returns { text, ms, warn, short } — short is the guided-audit "Save all" summary form.
+QBR.saveResultText = function (r) {
+  r = r || { mode: "error" };
+  const nm = r.name || "the linked file";
+  const extra = (r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "");
+  switch (r.mode) {
+    case "file": return { text: `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}${r.merged ? " · merged with Excel changes" : ""}`, ms: 6000, short: "saved ✓" };
+    case "no-changes": return { text: "No changes to save" + (r.kind && r.kind !== "assets" && r.kind !== "supplies" ? " for " + r.kind : ""), ms: 3000, short: "no changes" };
+    case "reloaded": return { text: `No dashboard edits to save — reloaded ${nm} with the changes made in Excel`, ms: 6000, short: "reloaded" };
+    case "download": case "download-fallback": return { text: `Downloaded ${r.filename || ""} — tick Direct save for the file to save into it`, ms: 6000, short: "downloaded" };
+    case "download-unsafe": return { text: `Not saved to ${nm} — ${r.reason || "safety check failed"}. Downloaded a separate copy instead.`, ms: 15000, warn: true, short: "not saved (copy downloaded)" };
+    case "download-changed": return { text: `${nm} changed in Excel — downloaded a separate copy. Re-link to save directly.`, ms: 15000, warn: true, short: "copy downloaded" };
+    case "locked": return { text: `Not saved — "${nm}" is open in Excel. Close it there, then click Save again. Your edits are kept.`, ms: 30000, warn: true, short: "open in Excel — close it and save again" };
+    case "write-failed": return { text: `Not saved — could not write "${nm}"${r.reason ? " (" + r.reason + ")" : ""}. Your edits are kept.`, ms: 20000, warn: true, short: "not saved (write failed)" };
+    case "busy": return { text: `Not saved — "${nm}" keeps changing (sync in progress?). Try again in a moment. Your edits are kept.`, ms: 20000, warn: true, short: "not saved (file busy)" };
+    case "merge-cancelled": return { text: "Save cancelled — nothing was written. Your edits are kept.", ms: 10000, warn: true, short: "cancelled" };
+    case "denied": return { text: "Not saved — permission to the file was denied. Your edits are kept.", ms: 10000, warn: true, short: "permission denied" };
+    case "no-data": return null;
+    default: return { text: "Not saved — something went wrong (see the browser console). Your edits are kept.", ms: 15000, warn: true, short: "failed" };
+  }
+};
+QBR.saveResultNote = function (kind, r, noDataMsg) {
+  const t = QBR.saveResultText(r);
+  if (!t) { if (noDataMsg) alert(noDataMsg); return; }
+  QBR.persistNote(kind, t.text, t.ms, { warn: !!t.warn });
+};
 QBR.supSaveDone = function (r) {
   if (!r) return;
-  if (r.mode === "file") {
-    const extra = (r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "");
-    QBR.persistNote("supplies", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}${r.merged ? " · merged with Excel changes" : ""}`, 5000);
-  }
-  else if (r.mode === "no-changes") QBR.persistNote("supplies", "No changes to save", 3000);
-  else if (r.mode === "download" || r.mode === "download-fallback")
-    QBR.persistNote("supplies", `Downloaded ${r.filename || ""} — tick Direct save for the file to save into it`, 5000);
-  else if (r.mode === "download-unsafe")
-    QBR.persistNote("supplies", `Not saved to ${r.name || "the linked file"} — ${r.reason || "safety check failed"}. Downloaded a separate copy instead.`, 12000);
-  else if (r.mode === "download-changed")
-    QBR.persistNote("supplies", `${r.name || "Linked file"} changed in Excel — downloaded a separate copy. Re-link to save directly.`, 12000);
-  else if (r.mode === "denied") QBR.persistNote("supplies", "Permission denied — file not saved", 5000);
-  else if (r.mode === "no-data") alert("Load a supplies workbook first.");
-  else QBR.persistRefreshBadge();
   if (typeof renderAll === "function") { try { renderAll(); } catch (e) {} }
+  QBR.saveResultNote("supplies", r, "Load a supplies workbook first.");   // after the re-render; the note also survives later ones
 };
 QBR.invSaveDone = function (r) {
   if (!r) return;
-  if (r.mode === "file") {
-    const extra = (r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "");
-    QBR.persistNote("assets", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}${r.merged ? " · merged with Excel changes" : ""}`, 5000);
-  }
-  else if (r.mode === "no-changes") QBR.persistNote("assets", "No changes to save", 3000);
-  else if (r.mode === "download" || r.mode === "download-fallback")
-    QBR.persistNote("assets", `Downloaded ${r.filename || ""} — tick Direct save for the file to save into it`, 5000);
-  else if (r.mode === "download-unsafe")
-    QBR.persistNote("assets", `Not saved to ${r.name || "the linked file"} — ${r.reason || "safety check failed"}. Downloaded a separate copy instead.`, 12000);
-  else if (r.mode === "download-changed")
-    QBR.persistNote("assets", `${r.name || "Linked file"} changed in Excel — downloaded a separate copy. Re-link to save directly.`, 12000);
-  else if (r.mode === "denied") QBR.persistNote("assets", "Permission denied — file not saved", 5000);
-  else if (r.mode === "no-data") alert("Load an inventory workbook first.");
-  else QBR.persistRefreshBadge();
   if (typeof renderAll === "function") { try { renderAll(); } catch (e) {} }
+  QBR.saveResultNote("assets", r, "Load an inventory workbook first.");   // after the re-render; the note also survives later ones
 };
 
 // Adaptive Save button for an inventory kind: direct "Save to Excel" when a
@@ -825,7 +829,7 @@ QBR.invSaveDone = function (r) {
 QBR.saveButtonHtml = function (kind, id) {
   const link = (typeof QBR.fsGetLink === "function") ? QBR.fsGetLink(kind) : null;
   const esc = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  const badge = `<span data-unsaved="${kind}" class="small text-muted align-self-center"></span>`;
+  const badge = `<span data-unsaved="${kind}" class="small text-muted align-self-center" role="status" aria-live="polite"></span>`;
   if (link) {
     return `<button type="button" class="btn btn-sm btn-primary" id="${id}" title="Write directly to ${esc(link.name)}">💾 Save to Excel</button>` + badge;
   }

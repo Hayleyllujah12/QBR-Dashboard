@@ -568,6 +568,11 @@
       var big = maxPerFile() >= WARN_OPS;
       document.querySelectorAll("[data-unsaved]").forEach(function (el) {
         if (el.dataset.persistBusy) return;
+        // 2026-10-28: a save message outlives a re-render (the panels redraw right
+        // after a save, which used to wipe "Not saved — open in Excel" before it was seen).
+        var nt = NOTES[el.dataset.unsaved];
+        if (nt && nt.until > Date.now()) { paintNote(el, nt); return; }
+        el.classList.remove("qbr-note-warn"); el.removeAttribute("data-note");
         var n = QBR.journalUnsavedCount(el.dataset.unsaved);
         el.innerHTML = n
           ? ' <button type="button" class="badge ' + (big ? "bg-danger" : "bg-warning text-dark") + ' qbr-unsaved-badge border-0" title="' +
@@ -577,15 +582,28 @@
     } catch (e) {}
   };
   // Transient status text in the same badge slot ("Saving…", "Saved ✓").
-  QBR.persistNote = function (kind, html, ms) {
+  // 2026-10-28: the note is kept per kind (NOTES) and repainted by
+  // persistRefreshBadge, so it survives the re-render that follows every save.
+  // Text only — messages carry file names (XSS via a crafted file name).
+  // opts.warn (or a "Not saved…" / "Save cancelled…" text) paints it as a warning.
+  var NOTES = {}, NOTE_TIMERS = {};
+  function paintNote(el, nt) {
+    el.textContent = " " + nt.text;
+    el.classList.toggle("qbr-note-warn", !!nt.warn);
+    el.setAttribute("data-note", nt.warn ? "warn" : "info");
+  }
+  QBR.persistNote = function (kind, html, ms, opts) {
     try {
-      var el = document.querySelector('[data-unsaved="' + kind + '"]');
-      if (!el) return;
-      el.dataset.persistBusy = "1";
-      el.textContent = " " + html;   // 2026-10-13: text only — messages carry file names (XSS via a crafted file name)
-      setTimeout(function () { delete el.dataset.persistBusy; QBR.persistRefreshBadge(); }, ms || 3500);
+      var text = String(html == null ? "" : html);
+      var warn = !!((opts && opts.warn) || /^(Not saved|Save cancelled|Could not save)/.test(text));
+      ms = ms || 3500;
+      NOTES[kind] = { text: text, warn: warn, until: Date.now() + ms };
+      clearTimeout(NOTE_TIMERS[kind]);
+      NOTE_TIMERS[kind] = setTimeout(function () { delete NOTES[kind]; QBR.persistRefreshBadge(); }, ms);
+      document.querySelectorAll('[data-unsaved="' + kind + '"]').forEach(function (el) { paintNote(el, NOTES[kind]); });
     } catch (e) {}
   };
+  QBR.persistNoteOf = function (kind) { var nt = NOTES[kind]; return nt && nt.until > Date.now() ? { text: nt.text, warn: nt.warn } : null; };
 
   // One-line alert above the dashboards when edits need attention.
   function alertState() {

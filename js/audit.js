@@ -901,18 +901,10 @@
 
   QBR.auditSaveDone = function (r) {
     if (!r) return;
-    const note = (typeof QBR.persistNote === "function") ? QBR.persistNote : null;
-    if (r.mode === "file") {
-      const extra = r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "";
-      if (note) note("audit", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}${r.merged ? " · merged with Excel changes" : ""}`, 5000);
-    }
-    else if (r.mode === "no-changes") { if (note) note("audit", "No changes to save" + (r.kind ? " for " + r.kind : ""), 3000); }
-    else if (r.mode === "download" || r.mode === "download-fallback") { if (note) note("audit", `Downloaded ${r.filename || ""} — tick Direct save for the file to save into it`, 5000); }
-    else if (r.mode === "download-changed") { if (note) note("audit", `${r.name || "Linked file"} changed in Excel — downloaded a separate copy. Re-link to save directly.`, 12000); }
-    else if (r.mode === "denied") { if (note) note("audit", "Permission denied — file not saved", 5000); }
-    else if (r.mode === "no-data") alert("Load an audit workbook first.");
-    else if (typeof QBR.persistRefreshBadge === "function") QBR.persistRefreshBadge();
     if (typeof renderAll === "function") { try { renderAll(); } catch (e) {} }
+    // 2026-10-28: shared outcome messages (incl. "open in Excel"), set after the re-render.
+    if (typeof QBR.saveResultNote === "function") QBR.saveResultNote("audit", r, "Load an audit workbook first.");
+    else if (typeof QBR.persistRefreshBadge === "function") QBR.persistRefreshBadge();
   };
 
   // Exposed for renderAll() in app.js (this file is an IIFE; renderAudit would
@@ -1602,15 +1594,14 @@
       catch (e) { done.push({ kind: k, r: { mode: "error" } }); }
     }
     const names = { audit: "Risky", storage: "Storage", usage: "Usage" };
+    let warn = false;
     const parts = done.map(d => {
-      const n = names[d.kind] || d.kind, m = (d.r && d.r.mode) || "error";
-      if (m === "file") return `${n}: saved ✓`;
-      if (m === "download" || m === "download-fallback") return `${n}: downloaded`;
-      if (m === "no-changes") return `${n}: no changes`;
-      return `${n}: failed`;
+      const n = names[d.kind] || d.kind, t = (typeof QBR.saveResultText === "function") ? QBR.saveResultText(d.r) : null;
+      if (t && t.warn) warn = true;
+      return `${n}: ${t ? t.short : "failed"}`;
     });
-    if (note) note("audit", parts.join(" · "), 8000);
     QBR.renderAudit();
+    if (note) note("audit", (warn ? "Not saved (all) — " : "") + parts.join(" · ") + (warn ? ". Your unsaved edits are kept." : ""), warn ? 30000 : 8000, { warn: warn });
   };
 
   function wizStepDone(w, a) {
