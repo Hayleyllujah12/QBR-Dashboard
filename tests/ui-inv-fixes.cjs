@@ -30,10 +30,14 @@ async function serialFixes(b) {
   await p.selectOption("#inv-f-status", { index: 0 }); await p.waitForTimeout(150);
   ok((await cnt()) === all0, "choosing 'All statuses' again restores the list (was empty before the fix)");
   const sn = await p.evaluate(() => invModel().assets[0].sn);
-  const typo = sn.slice(0, 2) + "-" + sn.slice(2);
+  // 2026-10-27: "PF-…" with a dash is now the SAME serial (separators ignored), so the typo case is a
+  // one-character slip instead; the dashed form must be recognized as a known unit.
+  const typo = sn.slice(0, -1) + (sn.slice(-1) === "X" ? "Y" : "X");
   await p.evaluate(() => { goToTab("dash-inventory"); QBR._invUI.view = "tickets"; QBR._invUI.form = "ticket"; renderInventory(); });
   await p.waitForTimeout(300);
   ok(await p.isVisible("#tk-sn"), "New ticket form open");
+  await p.fill("#tk-sn", sn.slice(0, 2) + "-" + sn.slice(2)); await p.waitForTimeout(150);
+  ok(!/Not in inventory/.test(await p.textContent("#tk-sn-hint")), "dashed form of a known serial is not flagged");
   await p.fill("#tk-sn", typo); await p.waitForTimeout(150);
   const hint = await p.textContent("#tk-sn-hint");
   ok(/Not in inventory/.test(hint) && hint.includes(sn), `hint flags ${typo} and suggests ${sn}`);

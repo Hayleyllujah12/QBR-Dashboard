@@ -36,10 +36,13 @@ QBR.INV_THRESH = { AGING_DAYS: 7, LEMON_TICKETS: 3, WARRANTY_WARN_DAYS: 90 };
 QBR.INV_STATUS = ["In Stock", "Deployed", "In Repair", "Retired"];
 
 /* ---------- serial key normalization ------------------------------------ */
+/* 2026-10-27: separators are not part of the serial — "PF-4XNZNY", "PF4XNZNY", "pf 4xnzny" and
+ * "PF‑4XNZNY" (other dash characters) are the SAME unit in look-up, intake, search, filters and
+ * ticket links. Only the join key drops them; the serial as typed/stored (a.sn) is unchanged. */
 QBR.invSerialKey = function (s) {
   return String(s == null ? "" : s)
     .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g, "")
-    .toUpperCase().trim().replace(/\s+/g, " ");
+    .toUpperCase().replace(/[\s\-\u2010-\u2015\u2212_.]+/g, "");
 };
 
 /* ---------- dates -------------------------------------------------------- */
@@ -1172,7 +1175,8 @@ function invTicketsCard(inv, ui, flags, today) {
   const dir = ui.tixSort === "new" ? -1 : 1;
   const key = t => t.repEdtech ? t.repEdtech.getTime() : (dir > 0 ? Infinity : -Infinity);
   let tix = inv.tickets.slice().sort((a, b) => (key(a) - key(b)) * dir);
-  if (tixQ) tix = tix.filter(t => (t.sn || "").toUpperCase().includes(tixQ) || String(t.tno || "").toUpperCase().includes(tixQ));
+  const tixK = QBR.invSerialKey(tixQ); // serial match ignores dashes/spaces (2026-10-27)
+  if (tixQ) tix = tix.filter(t => (tixK && QBR.invSerialKey(t.sn).includes(tixK)) || String(t.tno || "").toUpperCase().includes(tixQ));
   if (ui.flag === "aging") { const s = new Set(flags.aging.map(t => t.sn + "|" + (t.repEdtech || ""))); tix = tix.filter(t => s.has(t.sn + "|" + (t.repEdtech || ""))); }
   if (ui.flag === "unmatched") { const s = new Set(flags.unmatched.map(u => u.key)); tix = tix.filter(t => s.has(t.key)); }
   if (ui.flag === "lemons") { const s = new Set(flags.lemons.map(l => l.key)); tix = tix.filter(t => s.has(t.key)); }
