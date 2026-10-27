@@ -1038,6 +1038,8 @@ body.identity-gated:not(.identity-authed) :is(.app-header,#app-sidebar,main,#det
 .qbr-journal-alert.jl-info{background:var(--ok-bg);color:var(--ok-fg)}
 .qbr-journal-alert .jl-text{flex:1 1 240px}
 .qbr-unsaved-badge{cursor:pointer}
+/* 2026-10-28: save outcome that needs action ("Not saved — open in Excel…") stands out from the muted status text */
+[data-unsaved].qbr-note-warn{color:var(--bad-fg) !important;font-weight:600}
 .jp-box h6{margin:12px 0 4px;font-weight:600}
 .jp-item{border:1px solid var(--border,#e0e0e0);border-radius:4px;padding:8px 10px;margin:6px 0;font-size:13px}
 .jp-btns{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}

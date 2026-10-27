@@ -341,7 +341,7 @@ QBR.parseInventoryBuffers = function (buffers, onFile) {
   const fps = QBR._currentFps || [];
   const one = (buf, bi) => {
     try {
-      const wb = XLSX.read(buf, { type: "array", cellStyles: true }); // cellStyles: keep !cols/styles for patch-in-place save
+      const wb = (QBR.readWorkbook ? QBR.readWorkbook(buf, { type: "array", cellStyles: true }) : XLSX.read(buf, { type: "array", cellStyles: true })); // cellStyles: keep !cols/styles for patch-in-place save
       const fp = fps[bi];
       // Retain the original workbook for patch-in-place saves (js/patch.js):
       // cell writes go into THESE sheets, preserving formulas and layout.

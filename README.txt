@@ -6,6 +6,17 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-28 — Save to Excel: clear "not saved" messages + faster reloads (no version bump)
+  - Saving while the workbook is open in desktop Excel now shows, in red next to Save: "Not saved — <file> is open in
+    Excel. Close it there, then click Save again. Your edits are kept." Before, the panel redrew right after the save and
+    the message vanished, so it looked as if Save did nothing. "Saved ✓" is no longer wiped either.
+  - Every outcome has its own message (open in Excel, could not write, file keeps changing during a sync, merge
+    cancelled, safety check → copy downloaded, permission denied) in the Risky sign-ins editor, guided audit
+    "Save all", Inventory and Supplies.
+  - Faster: after a save that merges Excel's changes (or any reload), only the workbook whose contents changed is read
+    again — the other loaded files are reused. Every load also reads each file twice instead of six times. In a
+    test with 39 workbooks a reload took about 1.7 s instead of 6.3 s.
+
 UPDATE — 2026-10-27 — MOS › Completion certificates: centred text + "Adjust layout"
   - The title, "This is to certify that", the student name and the exam/given lines now share one centre line (the
     middle of the page area right of the coloured bars). Before, each line had its own centre and visibly drifted.

@@ -830,6 +830,9 @@ QBR.patchCommitStamps = function (fp, kind) {
 };
 
 QBR.patchWorkbookFromJournal = function (kind, wb, fp) {
+  // 2026-10-28: this patches wb IN PLACE — drop it from the parsed-workbook cache first,
+  // so the next load re-reads the file instead of reusing the patched object.
+  try { if (wb && QBR.wbCacheEvict) QBR.wbCacheEvict(wb); } catch (e) {}
   const report = { ok: true, applied: 0, skipped: 0, appended: 0, bumped: 0, notes: [], ids: [] };
   if (!wb || !fp || typeof XLSX === "undefined") return Object.assign(report, { ok: false, error: "no workbook" });
   const srcSnap = pSnapSrc();

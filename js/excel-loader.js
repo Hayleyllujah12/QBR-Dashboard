@@ -885,6 +885,58 @@ function captureRaw(wb, model) {
   grab(["PRODUCT_AND_SERVICES", "PRODUCT AND SERVICES"], "product");
 }
 
+/* 2026-10-28 — parsed-workbook cache (speed). A load parses every file in six
+ * passes (tracker, inventory, supplies, audit, storage, usage), and every save
+ * that merges Excel's changes reloads ALL loaded files — 39 files meant ~230
+ * XLSX.read calls. QBR.readWorkbook(buf, opts) keys each parsed workbook by the
+ * file's exact BYTES (length + cyrb53 hash) and the read options, so:
+ *   - within one load the five cellStyles passes share one read per file;
+ *   - a reload after a save re-reads only the file whose bytes changed.
+ * The cache is live only inside a load session (wbCacheBegin/End, driven by
+ * loadItems); outside one (Node harness, ad-hoc reads) readWorkbook is plain
+ * XLSX.read. After each load, entries for files no longer loaded are dropped.
+ * Parsers only READ workbooks; the one in-place mutator (patchWorkbookFromJournal
+ * on a retained workbook) evicts it first via QBR.wbCacheEvict(wb).
+ * Kill switch: localStorage "qbr-wb-cache" = "off". */
+const WB_CACHE = new Map();      // key -> parsed workbook
+const WB_BUFKEY = new WeakMap(); // buffer -> content key (hash once per buffer)
+let WB_SESSION = null, WB_DEPTH = 0;
+QBR._wbStats = { reads: 0, hits: 0 };
+function wbCacheOff() { try { return typeof localStorage !== "undefined" && localStorage.getItem("qbr-wb-cache") === "off"; } catch (e) { return false; } }
+function wbContentKey(buf) {
+  let k = WB_BUFKEY.get(buf);
+  if (k) return k;
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;   // cyrb53 (same as persist.js fsHashBytes)
+  for (let i = 0; i < buf.length; i++) { const ch = buf[i]; h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  k = buf.length + ":" + (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+  WB_BUFKEY.set(buf, k);
+  return k;
+}
+QBR.readWorkbook = function (buf, opts) {
+  if (!WB_SESSION || !(buf instanceof Uint8Array) || wbCacheOff()) { QBR._wbStats.reads++; return XLSX.read(buf, opts); }
+  const key = wbContentKey(buf) + "|" + JSON.stringify(opts || {});
+  WB_SESSION.add(key);
+  let wb = WB_CACHE.get(key);
+  if (wb) { QBR._wbStats.hits++; return wb; }
+  QBR._wbStats.reads++;
+  wb = XLSX.read(buf, opts);
+  WB_CACHE.set(key, wb);
+  return wb;
+};
+QBR.wbCacheBegin = function () { if (WB_DEPTH++ === 0) WB_SESSION = new Set(); };
+QBR.wbCacheEnd = function (ok) {
+  if (WB_DEPTH === 0 || --WB_DEPTH > 0) return;
+  // Successful load: keep only what this load used. Failed load: keep everything
+  // (the previous session's files are restored, so their entries stay useful).
+  if (ok !== false) for (const k of Array.from(WB_CACHE.keys())) if (!WB_SESSION.has(k)) WB_CACHE.delete(k);
+  WB_SESSION = null;
+};
+QBR.wbCacheEvict = function (wb) { for (const [k, v] of Array.from(WB_CACHE.entries())) if (v === wb) WB_CACHE.delete(k); };
+QBR.wbCacheClear = function () { WB_CACHE.clear(); };
+QBR.wbCacheSize = function () { return WB_CACHE.size; };
+
 // Parse one or more ArrayBuffers (each an uploaded workbook) into a merged model.
 /* 2026-10-25 load bar: optional onFile(i) reports per-file progress;
  * with onFile the loop runs async (yield after each file so the bar paints),
@@ -893,7 +945,7 @@ QBR.loadWorkbooks = function (buffers, onFile) {
   const model = emptyModel();
   QBR._repUnknown = {};   // reset the unrecognised-reputation register for this load
   const one = function (buf, bi) {
-    const wb = XLSX.read(buf, { type: "array" });
+    const wb = QBR.readWorkbook(buf, { type: "array" });
     parseRisky(wb, model);
     parseSecurity(wb, model);
     parseStorage(wb, model);

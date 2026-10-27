@@ -2732,7 +2732,11 @@ function loadItems(items, meta) {
       } catch (e) {}
       // 2026-10-06: remember the parsed bytes as the merge base for linked files
       try { if (typeof QBR !== "undefined" && QBR.fsRememberBase) QBR.fsRememberBase(items, buffers); } catch (e) {}
-      const ok = await processBuffers(buffers, meta || {}, prog);
+      // 2026-10-28: parsed-workbook cache session (unchanged files are not re-read).
+      let ok = false;
+      if (typeof QBR !== "undefined" && QBR.wbCacheBegin) QBR.wbCacheBegin();
+      try { ok = await processBuffers(buffers, meta || {}, prog); }
+      finally { if (typeof QBR !== "undefined" && QBR.wbCacheEnd) QBR.wbCacheEnd(ok); }
       if (!ok) { APP.files = prev; return ok; }
       try { detectGdap(items, buffers); } catch (e) {}
       // Replay any journaled entries recorded against these exact files
