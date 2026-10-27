@@ -1776,12 +1776,19 @@ function renderUserManagement() {
     { label: "Pending", value: pending, color: QBR.COLORS.orange },
   ]);
 
-  // updated schools by organization (stacked Updated/Pending)
-  const orgs = [...new Set(rows.map(u => orgOf(u.key)))].sort();
+  // updated schools by organization (stacked Updated/Pending).
+  // 2026-10-27: own full-width row, HORIZONTAL bars sorted by size, height grows with the number of
+  // organizations — 30 org names squeezed into a 1/3-width column were unreadable.
+  const orgCount = o => rows.filter(u => orgOf(u.key) === o).length;
+  const orgs = [...new Set(rows.map(u => orgOf(u.key)))].sort((a, b) => (orgCount(b) - orgCount(a)) || String(a).localeCompare(String(b)));
+  const orgWrap = $("um-org-wrap");
+  if (orgWrap) orgWrap.style.height = Math.max(260, orgs.length * 24 + 70) + "px";
+  const orgNote = $("um-org-note");
+  if (orgNote) orgNote.textContent = orgs.length ? orgs.length + " organizations · largest first" : "";
   QBR.chart.bar("ch-um-org", orgs, [
     { label: "Updated", backgroundColor: QBR.COLORS.green, data: orgs.map(o => rows.filter(u => orgOf(u.key) === o && u.status === "Updated").length) },
     { label: "Pending", backgroundColor: QBR.COLORS.orange, data: orgs.map(o => rows.filter(u => orgOf(u.key) === o && u.status === "Pending").length) },
-  ], { scales: { x: { stacked: true }, y: { stacked: true } } });
+  ], { indexAxis: "y", scales: { x: { stacked: true, ticks: { precision: 0 } }, y: { stacked: true, ticks: { autoSkip: false } } } });
 
   // readiness by school year (completion % of every SY, unfiltered by status)
   const syPct = syList.map(s => {
