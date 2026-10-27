@@ -216,8 +216,22 @@
     const cSchool = colIdx.school, cOrg = colIdx.org, cRisky = colIdx.risky,
           cHealth = colIdx.health, cRef = colIdx.ref,
           cExempt = colIdx.exempt, cExemptReason = colIdx.exemptReason;
-    rows.slice(1).forEach((row, i) => {
-      const r = i + 2; // header is row 1, so first data row is row 2
+    // 2026-10-20 fix: `rows` comes from sheet_to_json(blankrows:false), so its index is NOT
+    // the Excel row once the sheet has a blank row (or doesn't start at A1). rec.r is used
+    // for saves, so a blank row shifted every later edit onto the wrong school's row.
+    // When the worksheet is available, re-read it with blank rows kept and take each
+    // row's true sheet number from its position in the used range.
+    let data = rows.slice(1).map((row, i) => ({ row: row, r: i + 2 })); // legacy: header in row 1
+    if (ws && ws["!ref"]) {
+      try {
+        const start = XLSX.utils.decode_range(ws["!ref"]).s.r;
+        const full = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
+        const filled = x => Array.isArray(x) && x.some(v => v != null && String(v).trim() !== "");
+        const h = full.findIndex(filled); // same header row the caller mapped (first non-blank row)
+        if (h >= 0) data = full.slice(h + 1).map((row, i) => ({ row: row || [], r: start + h + 1 + i + 1 }));
+      } catch (e) { /* keep legacy numbering */ }
+    }
+    data.forEach(({ row, r }) => {
       const school = cSchool != null ? row[cSchool] : null;
       if (school == null || String(school).trim() === "") return;
       const cell = (c) => (c != null && row[c] != null ? String(row[c]).trim() : "");

@@ -6,6 +6,23 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-21 — Fixes from the code review (no version bump)
+  - Save: if a save fails (file open in Excel, merge cancelled, safety check), new rows (intake, tickets, deployments,
+    supplies) stay pending and are written on the next Save. Before, they could be skipped as "already saved" and lost.
+  - Save: clicking Save twice runs one save. If the file changes in Excel during a save and can't be merged, nothing is
+    written to it — a separate copy downloads and your edits stay pending.
+  - Audit editor: a blank row in a month sheet no longer shifts edits onto the next school's row.
+  - Security: text from workbooks and scanned labels is fully escaped on screen (quotes included), and Postmaster school
+    names in the QBR report narrative are escaped.
+
+UPDATE — 2026-10-21 — Fix: Domain registration edits on a LINKED tracker (no version bump)
+  - With DOMAIN_REGISTRATION_TRACKER.xlsx linked (Direct save ticked or opened from a linked folder), clicking a Registration
+    date or Validity now saves straight into that file — no more "pick the DOMAIN_REGISTRATION_TRACKER.xlsx file" prompt.
+    The linked tracker counts as editable ("Direct save ON"). Only the domain tracker is opened for this, never the other
+    linked workbooks.
+  - After the edit the dashboard keeps the new values: reloading the page no longer shows the old date (the session copy
+    and the link are updated with the written file). Unlinked trackers still ask to pick the file once per session.
+
 UPDATE — 2026-10-21 — Domains & email › Domain registration: roomier layout
   - The "Domain Registration & Expiration Status" table now uses the full page width (was squeezed beside the chart), so
     school names, dates and remarks no longer wrap into tall rows. The "Registration Status" chart moved below it, full width.

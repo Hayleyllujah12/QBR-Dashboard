@@ -475,10 +475,20 @@ async function fsSaveSurgical(kind, link, cur) {
     return Object.assign(r, { name: link.name, reason: why });
   }
   // Last-moment check: if OneDrive/Excel changed the file while we worked, merge instead.
+  // 2026-10-20 fix: never fall through to the write when the file changed and can't be merged,
+  // or when it can't be re-read — that overwrote Excel's edits (docs/FORMAT_SAFE_SAVE.md promise).
+  let changedNow = false, reReadFailed = false;
   try {
     const again = new Uint8Array(await (await link.handle.getFile()).arrayBuffer());
-    if (fsHashBytes(again) !== fsHashBytes(buf) && QBR.xlsxMerge && fsBaseOf(link.name)) return await fsSaveMerged(kind, link, await link.handle.getFile(), 1);
-  } catch (e) {}
+    changedNow = fsHashBytes(again) !== fsHashBytes(buf);
+  } catch (e) { reReadFailed = true; }
+  if (changedNow && QBR.xlsxMerge && fsBaseOf(link.name)) return await fsSaveMerged(kind, link, await link.handle.getFile(), 1);
+  if (changedNow || reReadFailed) {
+    const why = reReadFailed ? "could not re-check the file just before writing" : "the file changed in Excel while saving and can't be merged";
+    console.warn("[QBR] format-safe save blocked — " + why);
+    const r = QBR.fsDownloadKind(kind, "download-unsafe");
+    return Object.assign(r, { name: link.name, reason: why });
+  }
   const wr = await fsWriteBytes(kind, link, out.bytes);
   if (wr) return wr;
   (QBR._origWb || (QBR._origWb = {}))[link.fp] = work; // retained copy now matches the file
@@ -538,7 +548,28 @@ QBR.fsRebuildToLink = async function (kind, link) {
  *  cancelled        — user declined the overwrite confirm
  *  denied           — permission not granted (then downloaded? no: aborted)
  *  no-data          — nothing to save */
-QBR.fsSaveKind = async function (kind) {
+/* 2026-10-20: one save at a time per kind, and saves to the same linked file run one after
+ * another. A double-click on Save used to start two overlapping saves of the same journal;
+ * the slower one could overwrite the faster one's appended rows. A repeat click while a
+ * save is running now just waits for that save's result. */
+QBR._fsInFlight = QBR._fsInFlight || {};
+QBR._fsLinkQueue = QBR._fsLinkQueue || {};
+QBR.fsSaveKind = function (kind) {
+  if (QBR._fsInFlight[kind]) return QBR._fsInFlight[kind];
+  const link = QBR.fsGetLink(kind);
+  const qk = link ? "link:" + fileKey(link.name) : "kind:" + kind;
+  const prev = QBR._fsLinkQueue[qk] || Promise.resolve();
+  const run = prev.catch(() => {}).then(() => fsSaveKindNow(kind));
+  QBR._fsInFlight[kind] = run;
+  QBR._fsLinkQueue[qk] = run;
+  const done = () => {
+    if (QBR._fsInFlight[kind] === run) delete QBR._fsInFlight[kind];
+    if (QBR._fsLinkQueue[qk] === run) delete QBR._fsLinkQueue[qk];
+  };
+  run.then(done, done);
+  return run;
+};
+async function fsSaveKindNow(kind) {
   const link = QBR.fsGetLink(kind);
   if (!link || !QBR.fsSupported()) return QBR.fsDownloadKind(kind);
   try {
@@ -602,6 +633,7 @@ QBR.fsSaveKind = async function (kind) {
     const bytes = XLSX.write(wb, { bookType: bookType, type: "array", cellStyles: true, bookVBA: true });
     const why = fsVerifyBytes(bytes, bookType, wb);
     if (why) {
+      try { delete QBR._origWb[link.fp]; } catch (x) {}   // 2026-10-20: retained copy now holds unsaved rows; re-read next time
       console.warn("[QBR] save blocked — " + why);
       const r = QBR.fsDownloadKind(kind, "download-unsafe");
       return Object.assign(r, { name: link.name, reason: why });
@@ -613,6 +645,9 @@ QBR.fsSaveKind = async function (kind) {
     await QBR.fsAfterSave(kind, link, fresh);
     return { mode: "file", name: link.name, applied: res.applied, skipped: res.skipped, notes: res.notes };
   } catch (e) {
+    // 2026-10-20: the legacy path patches the retained workbook in place; drop it so a retry
+    // re-reads the file instead of appending the same rows twice.
+    try { if (link && QBR._origWb && QBR.saveEngine() !== "format-safe") delete QBR._origWb[link.fp]; } catch (x) {}
     console.warn("[QBR] direct save failed, falling back to download:", e && e.message);
     return QBR.fsDownloadKind(kind, "download-fallback");
   }
@@ -676,6 +711,8 @@ QBR.fsAfterSave = async function (kind, link, freshFile) {
     // 3b. patch state: the retained workbook was patched in place, so its
     //     coordinates are still valid — carry them to the new fingerprint.
     //     (The rebuild path drops them beforehand via fsDropPatchState.)
+    // 2026-10-20: the bytes are on disk, so the row positions this save stamped are now real.
+    if (typeof QBR.patchCommitStamps === "function") QBR.patchCommitStamps(oldFp, kind);
     if (typeof QBR.fsCarryPatchState === "function") QBR.fsCarryPatchState(oldFp, newFp);
     // 4. journal entries now in the file — clear exactly those (2026-10-13: was the whole
     //    fingerprint, which also dropped edits made during the save, other kinds' pending

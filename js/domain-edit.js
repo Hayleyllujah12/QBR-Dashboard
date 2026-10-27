@@ -79,6 +79,77 @@
     return null;
   }
 
+  /* ---------- reuse the app's linked-file handle ---------- */
+  // The loaded-files list can LINK the tracker (Direct-save checkbox / folder
+  // link): persist.js then already holds a writable handle in QBR._fsLinks.
+  // Reuse it instead of asking the user to pick the same file again. A link
+  // only counts if its file really contains the domain sheet.
+  // Only links that carry the domain sheet (kind "domainreg", registered by the loader) or are
+  // named like the tracker are opened — never every linked workbook (there can be dozens).
+  function isDomainLink(l) {
+    var kinds = (l.kinds || []).concat(Array.from(((QBR._kindByFp || {})[l.fp]) || []));
+    return kinds.indexOf("domainreg") >= 0 ? 2 : /domain/i.test(l.name || "") ? 1 : 0;
+  }
+  async function linkedHandle() {
+    var links = ((typeof QBR !== "undefined" && QBR._fsLinks) || []).filter(function (l) { return l && l.handle && isDomainLink(l); });
+    links.sort(function (a, b) { return isDomainLink(b) - isDomainLink(a); });
+    for (var i = 0; i < links.length; i++) {
+      var h = links[i].handle;
+      try {
+        var perm = h.queryPermission ? await h.queryPermission({ mode: "readwrite" }) : "granted";
+        if (perm !== "granted" && h.requestPermission) { try { perm = await h.requestPermission({ mode: "readwrite" }); } catch (e) {} }
+        if (perm !== "granted") continue;
+        var f = await h.getFile();
+        var bytes = new Uint8Array(await f.arrayBuffer());
+        var wb = XLSX.read(bytes, { type: "array" });
+        if (findDomainSheet(wb)) { S.handle = h; S.name = h.name; S.link = links[i]; return true; }
+      } catch (e) {}
+    }
+    return false;
+  }
+
+  /* ---------- after a successful write ---------- */
+  // The app still holds the PRE-EDIT bytes (loaded-files copy + session cache) and the link
+  // still describes the old file: bring both up to date, or a reload silently reverts the edit
+  // on screen and the next save thinks the file was changed outside the dashboard.
+  // The loaded copy is an IN-MEMORY File of the bytes just written (a File read from disk turns
+  // unreadable once Excel or OneDrive touches the file — same rule as persist.js fsAfterSave).
+  async function afterWrite(handle, out) {
+    try {
+      var nf = await handle.getFile();
+      var name = handle.name || S.name || "DOMAIN_REGISTRATION_TRACKER.xlsx", nk = String(name).toLowerCase();
+      var fpOf = (typeof QBR !== "undefined" && QBR.fpOf) ? QBR.fpOf : null;
+      var oldFp = S.link && S.link.fp ? S.link.fp : null, newFp = null, mem = null;
+      if (typeof APP !== "undefined" && APP.files) {
+        // the loaded copy of this file: same fingerprint as the link, else same file name
+        var idx = -1;
+        if (oldFp && fpOf) APP.files.forEach(function (it, i) { if (idx < 0 && fpOf(it.name, it.blob) === oldFp) idx = i; });
+        if (idx < 0) APP.files.forEach(function (it, i) { if (idx < 0 && String(it.name || "").toLowerCase() === nk) idx = i; });
+        if (idx >= 0) {
+          var it0 = APP.files[idx];
+          if (!oldFp && fpOf) oldFp = fpOf(it0.name, it0.blob);
+          mem = new File([out], it0.name, { lastModified: nf.lastModified, type: nf.type || "" });
+          APP.files = APP.files.slice(); APP.files[idx] = { name: it0.name, blob: mem };
+        }
+      }
+      if (!mem) mem = new File([out], name, { lastModified: nf.lastModified, type: nf.type || "" });
+      newFp = fpOf ? fpOf(mem.name, mem) : null;
+      if (oldFp && newFp && oldFp !== newFp) {
+        if (QBR._currentFps) QBR._currentFps = QBR._currentFps.map(function (f) { return f === oldFp ? newFp : f; });
+        if (QBR._kindByFp && QBR._kindByFp[oldFp]) { QBR._kindByFp[newFp] = QBR._kindByFp[oldFp]; delete QBR._kindByFp[oldFp]; }
+        try { if (typeof QBR.journalMove === "function") QBR.journalMove(oldFp, newFp); } catch (e) {}
+      }
+      if (S.link) {
+        S.link.fp = newFp || S.link.fp; S.link.size = mem.size; S.link.lastModified = mem.lastModified;
+        try { if (typeof fsHashBytes === "function") S.link.hash = fsHashBytes(out); } catch (e) {}
+        try { if (typeof fsSetBase === "function") fsSetBase(S.link.name || mem.name, out); } catch (e) {}   // base for the next three-way merge
+        try { if (typeof fsLinksSave === "function") await fsLinksSave(); } catch (e) {}
+        try { if (typeof QBR.fsRefreshStatus === "function") QBR.fsRefreshStatus(); } catch (e) {}
+      }
+      if (typeof cacheSession === "function") cacheSession();
+    } catch (e) { try { console.warn("[QBR] domain edit: post-save bookkeeping failed:", e && e.message); } catch (x) {} }
+  }
+
   /* ---------- row location ---------- */
   // Header = first non-empty row (the loader skips blank rows, so a title-less sheet may start lower down).
   function headerIndex(rows) {
@@ -155,7 +226,7 @@
     S.busy = true;
     try {
       var picked = null;
-      if (!S.handle) {
+      if (!S.handle && !(await linkedHandle())) {
         if (!window.confirm("To save this edit, pick the DOMAIN_REGISTRATION_TRACKER.xlsx file.\n\nChoose the file now?")) {
           return { ok: false, error: "cancelled" };
         }
@@ -228,6 +299,7 @@
         w = await handle.createWritable();
         await w.write(out);
         await w.close();
+        await afterWrite(handle, out);
       } catch (e) {
         try { if (w && w.abort) await w.abort(); } catch (x) {}
         return { ok: false, error: "Couldn't write — is the file open in Excel? Close it and try again." };
