@@ -202,6 +202,82 @@
     }
     return null;
   }
+  // Certificate layout (mos-completion-layout.js): Phase A shared centre
+  // line + the user's per-object nudge/size. Applied LAST on each slide
+  // (after fill, badge removal and signature pictures), locating shapes by
+  // their template anchors. Text: the box moves, fonts (sz/spc/line spacing)
+  // scale, centred boxes get algn="ctr". Images: scaled around their centre.
+  // The logos are one group in the template — moving/scaling the group's
+  // own xfrm (chOff/chExt untouched) moves both logos together.
+  var LAY = (root.QBR && root.QBR.mosCompletionLayout) || (function () {
+    try { return typeof require === "function" ? require("./mos-completion-layout.js") : null; } catch (e) { return null; }
+  })();
+  function scaleFont(block, k) {
+    if (k === 1) return block;
+    function sc(re, attr) {
+      block = block.replace(re, function (w, n) { return attr + '"' + Math.max(1, Math.round(+n * k)) + '"'; });
+    }
+    sc(/ sz="(\d+)"/g, " sz=");
+    sc(/ spc="(-?\d+)"/g, " spc=");
+    sc(/<a:spcPts val="(\d+)"/g, "<a:spcPts val=");
+    return block;
+  }
+  function shiftXfrm(block, dx, dy, k) {
+    // First off/ext pair = the shape's own (group: grpSpPr) transform.
+    var mo = /<a:off x="(-?\d+)" y="(-?\d+)"\/><a:ext cx="(\d+)" cy="(\d+)"\/>/.exec(block);
+    if (!mo) throw new Error("shape transform not found");
+    var x = +mo[1], y = +mo[2], cx = +mo[3], cy = +mo[4], ncx = Math.round(cx * k), ncy = Math.round(cy * k);
+    var nx = Math.round(x + dx + (cx - ncx) / 2), ny = Math.round(y + dy + (cy - ncy) / 2);
+    return block.slice(0, mo.index) + '<a:off x="' + nx + '" y="' + ny + '"/><a:ext cx="' + ncx + '" cy="' + ncy + '"/>' +
+      block.slice(mo.index + mo[0].length);
+  }
+  function findGroup(xml, at) {
+    var re = /<p:grpSp>/g, m;
+    while ((m = re.exec(xml)) !== null) {
+      var pr = xml.indexOf("<p:grpSpPr>", m.index);
+      if (pr < 0) break;
+      var off = /<a:off x="(-?\d+)" y="(-?\d+)"\/>/.exec(xml.slice(pr, pr + 400));
+      if (off && near(+off[1], at[0]) && near(+off[2], at[1])) {
+        var end = xml.indexOf("</p:grpSpPr>", pr);
+        return { start: pr, end: end, text: xml.slice(pr, end) };
+      }
+    }
+    return null;
+  }
+  function applyLayout(xml, lay) {
+    if (!LAY) return xml;
+    lay = LAY.layoutOf(lay);
+    LAY.ORDER.forEach(function (id) {
+      var b = LAY.BOX[id], o = lay[id], dy = Math.round(o.dy * EMU_IN), k = o.size / 100;
+      if (b.group) {
+        var g = findGroup(xml, b.at);
+        if (!g) throw new Error("logo group not found");
+        xml = xml.slice(0, g.start) + shiftXfrm(g.text, Math.round(o.dx * EMU_IN), dy, k) + xml.slice(g.end);
+        return;
+      }
+      var blk = findBox(xml, b.at);
+      if (!blk) { if (id === "badge") return; throw new Error("layout box not found: " + id); }
+      var t = blk.text, dx = Math.round(o.dx * EMU_IN);
+      if (b.centred) {
+        var off = offOf(t), ext = extOf(t);
+        dx += Math.round(LAY.CENTER_X * EMU_IN - (off[0] + ext[0] / 2));
+        t = t.replace(/<a:pPr algn="l"/g, '<a:pPr algn="ctr"');
+      }
+      if (b.kind === "text") { t = shiftXfrm(t, dx, dy, 1); t = scaleFont(t, k); }
+      else t = shiftXfrm(t, dx, dy, k);
+      xml = xml.slice(0, blk.start) + t + xml.slice(blk.end);
+      if ((id === "sig1" || id === "sig2") && (o.dx || o.dy)) {
+        // The signature picture follows its signatory block.
+        var nm = 'name="Signature ' + (id === "sig1" ? 1 : 2) + '"', ni = xml.indexOf(nm);
+        if (ni >= 0) {
+          var ps = xml.lastIndexOf("<p:pic>", ni), pe = xml.indexOf("</p:pic>", ni) + 8;
+          xml = xml.slice(0, ps) + shiftXfrm(xml.slice(ps, pe), dx, dy, 1) + xml.slice(pe);
+        }
+      }
+    });
+    return xml;
+  }
+
   function parseGiven(given) {
     var m = /^Given this (\d+(?:st|nd|rd|th)) (day of .*)$/.exec(String(given || ""));
     if (!m) throw new Error("cannot parse given date: " + given);
@@ -303,7 +379,8 @@
 
   // certs: [{name, family, title, sy, given}] in output order.
   // sig: {n1,t1,n2,t2,org,s1,s2} with s1/s2 data URLs (or ""), plus
-  // optional g1/g2 geometry {size,dx,dy} from the Completion editor.
+  // optional g1/g2 geometry {size,dx,dy} from the Completion editor and
+  // optional layout (mos-completion-layout.js; absent = default centred).
   // Returns a Promise<Uint8Array> of the .pptx bytes.
   async function generate(templateB64, certs, sig) {
     // NOTE: do not name this local JSZip — var hoisting would shadow the
@@ -356,6 +433,7 @@
         // independence — the requester's call).
         xml = shiftBoxOff(xml, slot === 0 ? SIG_LEFT : SIG_RIGHT, 0, ROW_DROP_EMU);
       }
+      xml = applyLayout(xml, (sig || {}).layout);
       zip.file("ppt/slides/slide" + (i + 1) + ".xml", xml);
       zip.file("ppt/slides/_rels/slide" + (i + 1) + ".xml.rels", rels);
     }
@@ -407,11 +485,13 @@
     _test: { topSpBlocks: topSpBlocks, offOf: offOf, extOf: extOf, runTexts: runTexts,
       replaceRuns: replaceRuns, patchBox: patchBox, findBox: findBox, parseGiven: parseGiven,
       fillSlide: fillSlide, removeBadge: removeBadge, addSigPic: addSigPic,
-      parseSigMedia: parseSigMedia, imgAspect: imgAspect, geomOf: geomOf, shiftBoxOff: shiftBoxOff } };
+      parseSigMedia: parseSigMedia, imgAspect: imgAspect, geomOf: geomOf, shiftBoxOff: shiftBoxOff,
+      applyLayout: applyLayout, scaleFont: scaleFont, findGroup: findGroup } };
   if (typeof module !== "undefined" && module.exports) module.exports = {
     generate: generate, MIME: PPTX_MIME,
     topSpBlocks: topSpBlocks, offOf: offOf, extOf: extOf, runTexts: runTexts,
     replaceRuns: replaceRuns, patchBox: patchBox, findBox: findBox, parseGiven: parseGiven,
     fillSlide: fillSlide, removeBadge: removeBadge, addSigPic: addSigPic,
-    parseSigMedia: parseSigMedia, imgAspect: imgAspect, geomOf: geomOf, shiftBoxOff: shiftBoxOff };
+    parseSigMedia: parseSigMedia, imgAspect: imgAspect, geomOf: geomOf, shiftBoxOff: shiftBoxOff,
+      applyLayout: applyLayout, scaleFont: scaleFont, findGroup: findGroup };
 })(typeof window !== "undefined" ? window : this);

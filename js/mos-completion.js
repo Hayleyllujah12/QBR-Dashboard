@@ -327,10 +327,11 @@
    * apps only — Expert has none, and the text block keeps its position so the
    * layout stays identical), centered title/text, two signatories at the foot.
    * No school name on the certificate (the examples show none). */
-  function sigBlock(sig, idx) {
+  function sigBlock(sig, idx, lay) {
     var nm = idx === 1 ? sig.n1 : sig.n2, ti = idx === 1 ? sig.t1 : sig.t2, im = idx === 1 ? sig.s1 : sig.s2;
     var gm = geomOf(idx === 1 ? sig.g1 : sig.g2);
-    return '<div class="mos-comp-sig">' +
+    var ls = lay ? layStyle("sig" + idx, lay) : "";
+    return '<div class="mos-comp-sig"' + (lay ? ' data-lay="sig' + idx + '"' : "") + (ls ? ' style="' + ls + '"' : "") + ">" +
       (im ? '<img src="' + esc(im) + '" alt="" style="' + sigImgStyle(gm) + '">' : "") +
       '<div class="mos-comp-sig-name">' + esc(nm) + "</div>" +
       '<div class="mos-comp-sig-role">' + esc(ti) + "</div>" +
@@ -349,7 +350,20 @@
     var t = esc(title), i = t.indexOf(" (Office 365 Apps)");
     return i >= 0 ? t.slice(0, i + 1) + "<br>" + t.slice(i + 1) : t;
   }
-  function certHtml(c, sig) {
+  /* ---------------- certificate layout (Phase A + "Adjust layout") ---------------- */
+  // Model + clamps live in js/mos-completion-layout.js (shared with the PPTX
+  // engine). Without it the cert renders at the CSS (Phase A) positions.
+  function LAYM() { return QBR.mosCompletionLayout || null; }
+  function loadLayout() { var L = LAYM(); return L ? L.load() : null; }
+  function layStyle(id, lay, part) { var L = LAYM(); return L && lay ? L.htmlStyle(id, lay, part) : ""; }
+  function layAttr(id, lay, part) {
+    if (!lay) return "";
+    var st = layStyle(id, lay, part);
+    return ' data-lay="' + id + '"' + (st ? ' style="' + st + '"' : "");
+  }
+  function certHtml(c, sig, lay) {
+    if (lay === undefined) lay = loadLayout();
+    var LP = (LAYM() || {}).LOGO_PARTS || {};
     // Background layer FIRST (paints behind everything): the template's
     // green left bar + thin stripe (pure CSS) and the green wave art
     // (stretched to the template's Freeform frame, clipped by the cert's
@@ -358,17 +372,17 @@
     return '<section class="mos-comp-cert" data-family="' + esc(c.family || "") + '" style="--mos-accent:' + esc(c.accent || "#048642") + '">' +
       '<div class="mos-comp-bg"><div class="mos-comp-bar"></div><div class="mos-comp-stripe"></div>' +
       (c.wave ? '<div class="mos-comp-wave" style="background-image:url(' + esc(c.wave) + ')"></div>' : "") + "</div>" +
-      (c.rakso ? '<img class="mos-comp-rakso" src="' + esc(c.rakso) + '" alt="">' : "") +
-      (c.partner ? '<img class="mos-comp-partner" src="' + esc(c.partner) + '" alt="">' : "") +
-      (c.badge ? '<img class="mos-comp-badge" src="' + esc(c.badge) + '" alt="">' : "") +
+      (c.rakso ? '<img class="mos-comp-rakso" src="' + esc(c.rakso) + '" alt=""' + layAttr("logos", lay, LP.rakso) + ">" : "") +
+      (c.partner ? '<img class="mos-comp-partner" src="' + esc(c.partner) + '" alt=""' + layAttr("logos", lay, LP.partner) + ">" : "") +
+      (c.badge ? '<img class="mos-comp-badge" src="' + esc(c.badge) + '" alt=""' + layAttr("badge", lay) + ">" : "") +
       '<div class="mos-comp-body">' +
-      '<div class="mos-comp-title">CERTIFICATE OF<br>COMPLETION</div>' +
-      '<div class="mos-comp-certify">This is to certify that</div>' +
-      '<div class="mos-comp-name">' + esc(c.name) + "</div>" +
-      '<div class="mos-comp-exam">has successfully completed the <b>' + titleHtml(c.title) + "</b>" +
+      '<div class="mos-comp-title"' + layAttr("title", lay) + ">CERTIFICATE OF<br>COMPLETION</div>" +
+      '<div class="mos-comp-certify"' + layAttr("certify", lay) + ">This is to certify that</div>" +
+      '<div class="mos-comp-name"' + layAttr("name", lay) + ">" + esc(c.name) + "</div>" +
+      '<div class="mos-comp-exam"' + layAttr("exam", lay) + '>has successfully completed the <b>' + titleHtml(c.title) + "</b>" +
       (c.sy ? " for the School Year " + esc(c.sy) + "." : "") + " <br>" + givenHtml(c.given) + "</div>" +
       "</div>" +
-      '<div class="mos-comp-sigs">' + sigBlock(sig, 1) + sigBlock(sig, 2) + "</div>" +
+      '<div class="mos-comp-sigs">' + sigBlock(sig, 1, lay) + sigBlock(sig, 2, lay) + "</div>" +
       "</section>";
   }
 
@@ -455,6 +469,161 @@
       '<div class="col-md-6">' + field(2, "Signatory 2", sig.n2, sig.t2, sig.s2, sig.g2) + "</div></div>" +
       '<button type="button" class="btn btn-sm btn-outline-primary mt-2" id="mos-comp-sigsave">Save signatories</button>';
   }
+  // "Adjust layout" panel: one row per object — x/y nudge (inches), size %
+  // (font size for text, picture size for images), Centre + Reset. Every
+  // change saves at once (this browser) and refreshes the preview; Print,
+  // Save as PDF and the PPTX export all read the saved layout.
+  function layoutEditorHtml(lay) {
+    var L = LAYM(); if (!L) return "";
+    lay = L.layoutOf(lay);
+    var rows = L.ORDER.map(function (id) {
+      var b = L.BOX[id], o = lay[id], sr = L.sizeRange(id);
+      return '<tr data-lay-row="' + id + '"><th scope="row" class="small fw-normal">' + esc(b.label) + "</th>" +
+        '<td><input type="number" class="form-control form-control-sm" id="mos-lay-' + id + '-dx" step="0.01" min="-' + L.NUDGE + '" max="' + L.NUDGE + '" value="' + o.dx + '" aria-label="' + esc(b.label) + ' left/right (inches)"></td>' +
+        '<td><input type="number" class="form-control form-control-sm" id="mos-lay-' + id + '-dy" step="0.01" min="-' + L.NUDGE + '" max="' + L.NUDGE + '" value="' + o.dy + '" aria-label="' + esc(b.label) + ' up/down (inches)"></td>' +
+        '<td><input type="number" class="form-control form-control-sm" id="mos-lay-' + id + '-size" step="1" min="' + sr[0] + '" max="' + sr[1] + '" value="' + o.size + '" aria-label="' + esc(b.label) + (b.kind === "text" ? " font size" : " size") + ' (%)"></td>' +
+        '<td class="text-nowrap"><button type="button" class="btn btn-sm btn-outline-secondary" id="mos-lay-' + id + '-centre" title="Put this object on the shared centre line">Centre</button> ' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" id="mos-lay-' + id + '-reset">Reset</button></td>' +
+        '<td class="small"><span id="mos-lay-' + id + '-warn" class="mos-lay-out">' + (L.outside(id, lay) ? "Outside the page" : "") + "</span></td></tr>";
+    }).join("");
+    return '<div class="fw-bold mb-1">Adjust layout (saved in this browser)</div>' +
+      '<div class="small text-muted mb-2">Title, “This is to certify that”, the name and the exam lines share one centre line by default. Nudge any object here (inches; X + = right, Y + = down; arrow keys 0.01in, Shift + arrow 0.1in) or drag it on the preview — it snaps to the centre line. Size is the font size for text and the picture size for the badge and logos. The same layout is used by Print, Save as PDF and Download PPTX.</div>' +
+      '<div class="d-flex gap-2 align-items-center flex-wrap mb-2">' +
+      '<label class="small mb-0"><input type="checkbox" id="mos-lay-drag"> Drag objects on the preview</label>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" id="mos-lay-resetall">Reset all</button>' +
+      '<span class="small" id="mos-lay-msg" role="status"></span></div>' +
+      '<div class="table-responsive"><table class="table table-sm mos-lay-table mb-0" data-nosort><thead><tr><th scope="col" class="small">Object</th><th scope="col" class="small">X (in)</th><th scope="col" class="small">Y (in)</th><th scope="col" class="small">Size %</th><th scope="col"></th><th scope="col"></th></tr></thead><tbody>' +
+      rows + "</tbody></table></div>";
+  }
+  function readLayoutInputs() {
+    var L = LAYM(), cur = loadLayout(), o = {};
+    L.ORDER.forEach(function (id) {
+      function v(k) { var el = $("mos-lay-" + id + "-" + k); var n = el ? parseFloat(el.value) : NaN; return isFinite(n) ? n : cur[id][k]; }
+      o[id] = { dx: v("dx"), dy: v("dy"), size: v("size") };
+    });
+    return L.layoutOf(o);
+  }
+  function syncLayoutInputs(lay) {
+    var L = LAYM(); if (!L) return;
+    L.ORDER.forEach(function (id) {
+      ["dx", "dy", "size"].forEach(function (k) {
+        var el = $("mos-lay-" + id + "-" + k);
+        if (el) el.value = lay[id][k];
+      });
+      var w = $("mos-lay-" + id + "-warn"); if (w) w.textContent = L.outside(id, lay) ? "Outside the page" : "";
+    });
+  }
+  function setLayMsg(t) { var el = $("mos-lay-msg"); if (el) el.textContent = t || ""; }
+  function commitLayout(lay, msg) {
+    var L = LAYM(); lay = L.layoutOf(lay);
+    var ok = L.save(lay);
+    syncLayoutInputs(lay);
+    setLayMsg(ok ? (msg || "Layout saved in this browser.") : "Could not save the layout — browser storage may be full.");
+    var box = $("mos-comp-preview");
+    if (box && box.classList.contains("d-none")) preview(); else refreshPreview();
+    return lay;
+  }
+  // Live style update (drag): restyle the object's element(s) in the
+  // preview without re-rendering (a re-render would drop the pointer).
+  function applyLiveStyle(id, lay) {
+    var L = LAYM(), box = $("mos-comp-preview"); if (!L || !box) return;
+    Array.prototype.forEach.call(box.querySelectorAll('[data-lay="' + id + '"]'), function (el) {
+      var part = id === "logos" ? (el.classList.contains("mos-comp-partner") ? L.LOGO_PARTS.partner : L.LOGO_PARTS.rakso) : null;
+      el.setAttribute("style", L.htmlStyle(id, lay, part));
+    });
+  }
+  function wireLayoutEditor() {
+    var L = LAYM(); if (!L) return;
+    L.ORDER.forEach(function (id) {
+      ["dx", "dy", "size"].forEach(function (k) {
+        var el = $("mos-lay-" + id + "-" + k); if (!el) return;
+        el.addEventListener("change", function () { commitLayout(readLayoutInputs()); });
+        el.addEventListener("keydown", function (e) {
+          if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+          e.preventDefault();
+          var step = k === "size" ? (e.shiftKey ? 10 : 1) : (e.shiftKey ? 0.1 : 0.01);
+          var n = parseFloat(el.value); if (!isFinite(n)) n = 0;
+          el.value = Math.round((n + (e.key === "ArrowUp" ? step : -step)) * 100) / 100;
+          var lay = commitLayout(readLayoutInputs());
+          el.value = lay[id][k]; // show the clamped value
+        });
+      });
+      var c = $("mos-lay-" + id + "-centre");
+      if (c) c.addEventListener("click", function () {
+        var lay = readLayoutInputs(); lay[id].dx = L.centreDx(id);
+        commitLayout(lay, L.BOX[id].label + " centred.");
+      });
+      var r = $("mos-lay-" + id + "-reset");
+      if (r) r.addEventListener("click", function () {
+        var lay = readLayoutInputs(); lay[id] = { dx: 0, dy: 0, size: 100 };
+        commitLayout(lay, L.BOX[id].label + " reset.");
+      });
+    });
+    var ra = $("mos-lay-resetall");
+    if (ra) ra.addEventListener("click", function () { commitLayout(L.defaults(), "Layout reset to the default (centred) positions."); });
+    var dg = $("mos-lay-drag");
+    if (dg) dg.addEventListener("change", function () {
+      var box = $("mos-comp-preview"); if (!box) return;
+      if (dg.checked && box.classList.contains("d-none")) preview();
+      box.classList.toggle("mos-lay-drag", dg.checked);
+      if (dg.checked && box.scrollIntoView) try { box.scrollIntoView({ block: "nearest" }); } catch (x) {}
+      setLayMsg(dg.checked ? "Drag an object on the preview, or click it and use the arrow keys." : "");
+    });
+  }
+  // Drag on the preview (only while "Drag objects" is ticked). Pointer
+  // moves convert to inches from the rendered page width; within 0.06in
+  // of the shared centre line the object snaps onto it (guide shown).
+  var _drag = null, _sel = null;
+  function wirePreviewDrag(box) {
+    if (!box || box._layWired) return;
+    box._layWired = true;
+    box.setAttribute("tabindex", "0");
+    function on() { return box.classList.contains("mos-lay-drag") && !!LAYM(); }
+    function ppi() { var c = box.querySelector(".mos-comp-cert"); return c ? c.getBoundingClientRect().width / 11 : 96; }
+    function guide(show) { var g = box.querySelector(".mos-comp-guide"); if (g) g.classList.toggle("on", !!show); }
+    function select(id) {
+      _sel = id;
+      Array.prototype.forEach.call(box.querySelectorAll("[data-lay]"), function (el) { el.classList.toggle("mos-lay-sel", el.getAttribute("data-lay") === id); });
+    }
+    box.addEventListener("pointerdown", function (e) {
+      if (!on()) return;
+      var el = e.target.closest ? e.target.closest("[data-lay]") : null;
+      if (!el || !box.contains(el)) return;
+      e.preventDefault();
+      var id = el.getAttribute("data-lay"), lay = loadLayout();
+      _drag = { id: id, x: e.clientX, y: e.clientY, dx: lay[id].dx, dy: lay[id].dy, lay: lay, k: ppi() };
+      select(id); box.focus();
+      if (box.setPointerCapture) try { box.setPointerCapture(e.pointerId); } catch (x) {}
+    });
+    box.addEventListener("pointermove", function (e) {
+      if (!_drag) return;
+      var L = LAYM(), id = _drag.id, lay = _drag.lay;
+      var dx = Math.round((_drag.dx + (e.clientX - _drag.x) / _drag.k) * 100) / 100;
+      var dy = Math.round((_drag.dy + (e.clientY - _drag.y) / _drag.k) * 100) / 100;
+      var cdx = L.centreDx(id), snap = Math.abs(dx - cdx) <= 0.06;
+      if (snap) dx = cdx;
+      lay[id] = { dx: dx, dy: dy, size: lay[id].size };
+      _drag.lay = lay = L.layoutOf(lay);
+      applyLiveStyle(id, lay); guide(snap);
+    });
+    function end() {
+      if (!_drag) return;
+      var lay = _drag.lay, id = _drag.id; _drag = null; guide(false);
+      var L = LAYM(); L.save(lay); syncLayoutInputs(lay);
+      setLayMsg(L.BOX[id].label + " moved — layout saved in this browser.");
+    }
+    box.addEventListener("pointerup", end);
+    box.addEventListener("pointercancel", end);
+    box.addEventListener("keydown", function (e) {
+      if (!on() || !_sel) return;
+      var m = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (!m) return;
+      e.preventDefault();
+      var L = LAYM(), st = e.shiftKey ? 0.1 : 0.01, lay = loadLayout(), o = lay[_sel];
+      lay[_sel] = { dx: Math.round((o.dx + m[0] * st) * 100) / 100, dy: Math.round((o.dy + m[1] * st) * 100) / 100, size: o.size };
+      lay = L.layoutOf(lay); L.save(lay); applyLiveStyle(_sel, lay); syncLayoutInputs(lay);
+    });
+  }
   function render(host) {
     if (!host) return;
     if (!mosState() || !mosState().model) {
@@ -483,6 +652,7 @@
       '<div class="small text-muted mb-2">Print opens the browser print dialog (pick a printer). Save as PDF opens the same dialog with the batch filename preset — pick \u201cSave as PDF\u201d as the destination. Download PPTX builds a PowerPoint file from the master template (one slide per certificate) \u2014 open it in PowerPoint, then Save as PDF for the fixed-layout export. Issuance is logged when you start any of these.</div>' +
       '<div class="small mb-2" id="mos-comp-msg"></div>' +
       '<div class="card-box mt-2">' + sigEditorHtml(sig) + "</div>" +
+      (LAYM() ? '<div class="card-box mt-2" id="mos-comp-layout">' + layoutEditorHtml(loadLayout()) + "</div>" : "") +
       '<div id="mos-comp-preview" class="mos-comp-preview mt-3 d-none"></div>' +
       "</div>";
     $("mos-comp-date").addEventListener("change", function (e) { batchDate = e.target.value || isoToday(); refreshPreview(); });
@@ -490,6 +660,8 @@
     $("mos-comp-print").addEventListener("click", function () { output("print"); });
     $("mos-comp-pdf").addEventListener("click", function () { output("pdf"); });
     $("mos-comp-pptx").addEventListener("click", function () { outputPptx(); });
+    wireLayoutEditor();
+    wirePreviewDrag($("mos-comp-preview"));
     $("mos-comp-sigsave").addEventListener("click", function () {
       // Fresh read: the render-time snapshot goes stale once a picked image
       // auto-saves (see the change listeners below) — saving from it would
@@ -539,6 +711,9 @@
     if (!box) return;
     if (!batch.certs.length) { box.classList.add("d-none"); setMsg("Nothing to preview — the current filters match no failed-twice MOS student."); return; }
     box.innerHTML = certHtml(batch.certs[0], loadSig());
+    var sec = box.querySelector(".mos-comp-cert");
+    if (sec && LAYM()) { var g = document.createElement("div"); g.className = "mos-comp-guide"; sec.appendChild(g); }
+    if (_sel) Array.prototype.forEach.call(box.querySelectorAll('[data-lay="' + _sel + '"]'), function (el) { el.classList.add("mos-lay-sel"); });
     box.classList.remove("d-none");
     setMsg("Previewing the first certificate of " + batch.certs.length + " (" + batch.certs[0].name + " — " + batch.certs[0].family + ").");
   }
@@ -569,7 +744,7 @@
   function output(kind) {
     var batch = buildBatch();
     if (!batch.certs.length) { setMsg("Nothing to output — the current filters match no failed-twice MOS student."); return; }
-    var sig = loadSig();
+    var sig = loadSig(), lay = loadLayout();
     // Log first: if no log exists yet, the create-log confirm resolves before
     // the print dialog opens. Browsers cannot confirm paper-out, so logging
     // records issuance as triggered (same honesty as the mark flow).
@@ -577,7 +752,7 @@
       setMsg(note);
       var host = $("mos-completion-print"); if (host) host.parentNode.removeChild(host);
       host = document.createElement("div"); host.id = "mos-completion-print";
-      host.innerHTML = batch.certs.map(function (c) { return certHtml(c, sig); }).join("");
+      host.innerHTML = batch.certs.map(function (c) { return certHtml(c, sig, lay); }).join("");
       document.body.appendChild(host);
       document.body.classList.add("mos-completion-printing");
       var prevTitle = document.title;
@@ -625,6 +800,7 @@
         var pm = QBR.mosCompletionPptx._test && QBR.mosCompletionPptx._test.parseSigMedia;
         if (pm) { var md = pm(sig0); if (sig0.s1 && !md[0]) dropped.push(1); if (sig0.s2 && !md[1]) dropped.push(2); }
       } catch (x) {}
+      var lay0 = loadLayout(); if (lay0) sig0.layout = lay0;
       return eng(tpl, batch.certs, sig0).then(function (bytes) {
         if (dropped.length) setMsg("Note: signatory " + dropped.join(" & ") + "'s signature format is not supported in PowerPoint export and was left out — use a PNG or JPEG signature.");
         return bytes;
@@ -643,7 +819,8 @@
   QBR.mosCompletion = { render: render, count: count,
     _formatName: formatCertName, _examTitle: examTitle, _ordinal: ordinal, _givenText: givenText,
     _syText: syText, _familyOf: familyOf, _accentOf: accentOf, _waveArt: waveArt, _isEligible: isEligibleRow, _group: groupCerts,
-    _certHtml: certHtml, _buildBatch: buildBatch, _sig: loadSig, _batchFileName: batchFileName, _geomOf: geomOf, _sigImgStyle: sigImgStyle };
+    _certHtml: certHtml, _buildBatch: buildBatch, _sig: loadSig, _batchFileName: batchFileName, _geomOf: geomOf, _sigImgStyle: sigImgStyle,
+    _layout: loadLayout, _readLayoutInputs: readLayoutInputs };
   if (typeof module !== "undefined" && module.exports) module.exports = {
     formatCertName: formatCertName, examTitle: examTitle, ordinal: ordinal, givenText: givenText,
     syText: syText, familyOf: familyOf, isMos: isMos, isEligibleRow: isEligibleRow,
