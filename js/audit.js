@@ -1419,14 +1419,28 @@
     return h;
   }
 
+  // Typed school -> exact (case/punctuation-insensitive) match, else the single school containing the text.
+  function wizResolveSchool(list, typed) {
+    const t = schoolNorm(typed);
+    if (!t) return { school: null, matches: [] };
+    const exact = list.filter(s => schoolNorm(s) === t);
+    if (exact.length) return { school: exact[0], matches: exact };
+    const part = list.filter(s => schoolNorm(s).indexOf(t) >= 0);
+    return { school: part.length === 1 ? part[0] : null, matches: part };
+  }
+  QBR._wizResolveSchool = wizResolveSchool;
+
   function wizStepSchool(w, a) {
-    const opts = (w.schools || []).map(s => `<option value="${escHtml(s)}"${s === w.school ? " selected" : ""}>${escHtml(s)}</option>`).join("");
+    // 2026-10-27: pick OR type the school (searchable list) instead of a plain dropdown.
+    const opts = (w.schools || []).map(s => `<option value="${escHtml(s)}"></option>`).join("");
     const pills = AUDIT_MONTHS.map(m => `<button type="button" class="btn btn-sm ${m === w.month ? "btn-primary" : "btn-outline-secondary"}" data-wiz-month="${m}">${m.slice(0, 3)}</button>`).join(" ");
     const st = QBR._storage ? "✓" : "○", us = QBR._usage ? "✓" : "○";
     return `<div class="wiz-step">
       <h5>Which school and month?</h5>
-      <div class="mb-3"><label class="form-label">School</label>
-        <select class="form-select" id="wiz-school" style="max-width:420px">${opts}</select></div>
+      <div class="mb-3"><label class="form-label" for="wiz-school">School <span class="text-muted small">(pick from the list or type part of the name)</span></label>
+        <input class="form-control" id="wiz-school" list="wiz-school-list" autocomplete="off" style="max-width:420px" value="${escHtml(w.school || "")}" placeholder="Type a school name…">
+        <datalist id="wiz-school-list">${opts}</datalist>
+        <div class="small mt-1" id="wiz-school-hint" aria-live="polite"></div></div>
       <div class="mb-3"><label class="form-label">Month</label><div class="d-flex flex-wrap gap-1">${pills}</div></div>
       <div class="small text-muted mb-3">Storage workbook ${st} · Usage workbook ${us} ${(!QBR._storage || !QBR._usage) ? "— upload the missing file(s) to enable those steps (you can skip them for now)." : ""}</div>
       ${wizNav(0, {})}
@@ -1610,7 +1624,20 @@
       renderAudit();
     }));
     const sch = document.getElementById("wiz-school");
-    if (sch) sch.addEventListener("change", () => { w.school = sch.value; w.saved = {}; w.p3.parsed = null; w.p4.parsed = null; renderAudit(); });
+    if (sch) {
+      const commit = () => {
+        const hit = wizResolveSchool(w.schools || [], sch.value);
+        const hint = document.getElementById("wiz-school-hint");
+        if (!hit.school) {
+          if (hint) hint.innerHTML = `<span class="text-danger">${hit.matches.length ? hit.matches.length + " schools match — type more of the name." : "No school matches “" + escHtml(sch.value) + "”."}</span>`;
+          return;
+        }
+        if (hit.school === w.school) { sch.value = hit.school; if (hint) hint.innerHTML = ""; return; }
+        w.school = hit.school; w.saved = {}; w.p3.parsed = null; w.p4.parsed = null; renderAudit();
+      };
+      sch.addEventListener("change", commit);
+      sch.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); commit(); } });
+    }
     host.querySelectorAll('[data-wiz="parse3"]').forEach(b => b.addEventListener("click", () => {
       w.p3.text = document.getElementById("wiz-paste3").value;
       w.p3.parsed = QBR.auditParseStoragePaste(w.p3.text);
