@@ -1,6 +1,6 @@
 # Excel write contract — scope (2026-10-28)
 
-Status: **Phase 0 built** (guard rails + shared scenario test, no app change). Phases 1–5 not built. Decisions: §4. Branch `refactor/excel-write-contract` (from `develop` 1353168, after PR #30).
+Status: **Phase 0 built** (PR #31). **Phase 1 built** (branch `refactor/excel-write-contract-p1`, see §7). Phases 2–5 not built. Decisions: §4. Branch `refactor/excel-write-contract` (from `develop` 1353168, after PR #30).
 Goal: every feature that edits an Excel file goes through ONE save path, so every module behaves the same way when:
 - the file is open in Excel (locked);
 - the file was changed in Excel (merge);
@@ -132,3 +132,30 @@ Guard-rail tests (Phase 0):
 - `tests/write-contract.cjs` (Node): only `persist.js` writes; LEGACY allowlist = mos-certs.js (Phase 2), domain-edit.js (Phase 3), trainers.js (Phase 4); every recorded op has a PATCH_OPS writer + QBR replay.
 - `tests/ui-write-contract.cjs` (browser): kinds audit · storage · assets · supplies × scenarios: save ok, second save, locked → kept → saved, changed in Excel → merged, same cell → Cancel, file keeps changing → busy, permission denied, reload keeps pending → saves.
   - Baseline on develop 1353168: 59/59. Phase 1 must keep this byte-for-byte; see §3.
+
+## 7. Phase 1 — what was built and how it was verified (2026-10-28)
+**Built** (`js/patch.js`, `js/persist.js`, `js/journal.js`; no module behaviour change except one fallback bug fix):
+- **`QBR.wbKinds`** (`register` / `get` / `list` / `opFor`).
+  - The five built-in kinds are registered by wrapping the existing `PATCH_OPS` writers: same functions, same order.
+  - `pPatchPass` asks the adapter first. `PATCH_OPS` stays as the fallback until Phase 5.
+  - `editLog: false` skips the EDIT LOG sheet.
+- **`QBR.fsAttachSide(kind, handle, bytes, {onSaved})` / `fsDetachSide(kind)`**: a tab-owned file joins the shared path.
+  - What it gets: journal by fingerprint, merge base, lock / merge / busy / denied handling, shared messages.
+  - Side links are kept in `QBR._fsSideKinds` (this survives `loadItems`). They are not stored as dashboard links, are not session sources, and their tab is told via `onSaved(bytes, "saved"|"reloaded")`.
+  - The journal treats attached side files as loaded (unsaved count, file name).
+- **Autosave** (`adapter.autosave`): `journalRecord` → `QBR.wbScheduleSave(kind)`.
+  - Debounced 300 ms; then `fsSaveKind` → `saveResultNote` → `qbr:autosaved` event.
+  - A locked file keeps the edit pending with the red note.
+- **Fallback copy fix** (`fsDownloadKind`): Inventory/Supplies still rebuild from the model. Every other kind now downloads a patched copy of ITS OWN file ("<name> (dashboard copy).xlsx"), and its edits stay pending.
+  - Before: an audit/storage/usage fallback fell through to the Inventory builder and downloaded `Lenovo_Inventory_Export.xlsx`.
+
+**Verified:**
+- **Byte-identical saves** for the four existing kinds. `WC_DUMP=<dir> node tests/ui-write-contract.cjs audit storage assets supplies` (fixed clock) was run on the Phase 0 tip and on Phase 1.
+  - All 16 saved files (save, second save, merged save, save after reload × 4 kinds) have identical SHA-256.
+- **`tests/ui-write-contract.cjs`: 95/95.**
+  - Registry coverage: every PATCH_OPS writer belongs to exactly one kind; the built-ins' flags are unchanged.
+  - The 4 built-in kinds × all scenarios.
+  - A side-file test adapter × all scenarios (with `onSaved`, no EDIT LOG).
+  - Autosave: a burst saves once; locked keeps the edit pending with the red note; the next edit saves everything.
+  - Fallback copy: Phase 0 fails the new check for `audit` (it downloaded the Inventory export); Phase 1 passes for every kind.
+- `tests/write-contract.cjs` 38/38, and the full repo suite (see the PR).

@@ -138,7 +138,8 @@ function fsLinksLoad() {
 }
 function fsLinksSave() {
   // Handles are structured-cloneable; plain metadata rides along.
-  const slim = QBR._fsLinks.map(l => ({
+  // Side links (QBR.fsAttachSide) are re-attached by their own tab each session — not stored here.
+  const slim = QBR._fsLinks.filter(l => !l.side).map(l => ({
     fp: l.fp, kinds: l.kinds, name: l.name,
     size: l.size, lastModified: l.lastModified, hash: l.hash, handle: l.handle,
     dirId: l.dirId || null, rel: l.rel || null,   // v1.33.0: opened through a linked folder (js/fsfolder.js)
@@ -417,7 +418,7 @@ async function fsSaveMerged(kind, link, cur, attempt) {
   if (m.unresolved.length) { try { QBR.journalPark(link.name, m.unresolved); } catch (e) {} }
   const fresh = await link.handle.getFile();
   await QBR.fsAfterSave(kind, link, fresh);       // new base, journal cleared
-  await fsReloadModel();                          // positions + Excel's edits now in the dashboard
+  if (!link.side) await fsReloadModel();          // positions + Excel's edits now in the dashboard (side: its tab re-parsed in fsAfterSave)
   const merged = { applied: m.applied, conflicts: m.conflicts.length, unresolved: m.unresolved.length, remapped: m.remapped };
   console.info("[QBR] merged save:", merged, out.stats);
   return { mode: "file", name: link.name, applied: res.applied, skipped: res.skipped, notes: res.notes, engine: "format-safe", merged: merged, kind: kind };
@@ -432,6 +433,16 @@ QBR.fsReloadFromFile = async function (name, opts) {
   const link = (QBR._fsLinks || []).find(l => fileKey(l.name) === fileKey(name));
   if (!link) return false;
   if (!(await fsEnsurePermission(link.handle))) return false;
+  if (link.side) {   // write contract: a side file re-syncs its own tab, never the dashboard sources
+    const cur = await link.handle.getFile(), u8 = new Uint8Array(await cur.arrayBuffer());
+    const newFp = QBR.fpOf(link.name, cur);
+    try { QBR.journalMove(link.fp, newFp); } catch (e) {}
+    fsSideMove(link.fp, newFp);
+    link.fp = newFp; link.size = cur.size; link.lastModified = cur.lastModified; link.hash = fsHashBytes(u8);
+    fsSetBase(link.name, u8);
+    await fsSideNotify(link, u8, "reloaded");
+    return true;
+  }
   if (!opts.quiet) {
     let pending = 0;
     try { pending = QBR.journalOpsFor(link.fp).length; } catch (e) {}
@@ -543,12 +554,86 @@ async function fsSaveSurgical(kind, link, cur) {
  * are NOT preserved. The linked direct-save path below (patch-in-place)
  * preserves them. */
 QBR.fsDownloadKind = function (kind, mode) {
+  // 2026-10-28 (write contract): the adapter decides what a fallback copy is. Inventory and
+  // Supplies rebuild from the model (as before); every other kind downloads a PATCHED COPY
+  // of the last-saved bytes with its pending edits (edits stay pending). Before, every kind
+  // fell through to the Inventory builder — an audit/storage/usage fallback had nothing to download.
+  const ad = QBR.wbKinds && QBR.wbKinds.get(kind);
+  if (ad && typeof ad.download === "function") return ad.download(mode);
+  if (ad && ad.download !== "model") return fsDownloadPatchedCopy(kind, mode);
   const build = kind === "supplies" ? QBR.supBuildWorkbook : QBR.invBuildWorkbook;
   if (typeof build !== "function") return { mode: "no-data" };
   const b = build();
   if (!b || !b.wb) return { mode: "no-data" };
   XLSX.writeFile(b.wb, b.filename, { cellStyles: true });
   return { mode: mode || "download", filename: b.filename };
+};
+
+function fsDownloadPatchedCopy(kind, mode) {
+  try {
+    const link = QBR.fsGetLink(kind);
+    const base = link && fsBaseOf(link.name);
+    if (!base || typeof QBR.patchWorkbookFromJournal !== "function") return { mode: "no-data" };
+    const wb = XLSX.read(base, { type: "array", cellStyles: true });
+    const res = QBR.patchWorkbookFromJournal(kind, wb, link.fp);
+    QBR._lastPatch = null;   // nothing was written to the file: no row positions to commit, nothing to clear
+    if (!res.ok) return { mode: "no-data" };
+    if (typeof QBR.sanitizeHyperlinkTargets === "function") QBR.sanitizeHyperlinkTargets(wb);
+    const bookType = fsBookType(link.name);
+    const filename = String(link.name).replace(/\.(xlsx|xlsm)$/i, "") + " (dashboard copy)." + (bookType === "xlsm" ? "xlsm" : "xlsx");
+    XLSX.writeFile(wb, filename, { bookType: bookType, cellStyles: true, bookVBA: true });
+    return { mode: mode || "download", filename: filename };
+  } catch (e) { console.warn("[QBR] copy download failed:", e && e.message); return { mode: "no-data" }; }
+}
+QBR._fsDownloadPatchedCopy = fsDownloadPatchedCopy;
+
+/* 2026-10-28 (write contract) — "side" files: a workbook a tab opens itself (MOS
+ * Certificate Log, Trainers tracker) joins the SAME save path as a loaded file:
+ * journal (keyed by its fingerprint), merge base, lineage, lock detection,
+ * shared messages. QBR.fsAttachSide(kind, handle, bytes, opts) → link;
+ * opts.onSaved(bytes, reason) is called after every save / reload of that file so the tab
+ * re-parses its own model (side files are not dashboard sources: no loadItems). */
+QBR._fsSideKinds = QBR._fsSideKinds || {};
+QBR.fsAttachSide = async function (kind, handle, bytes, opts) {
+  opts = opts || {};
+  const f = await handle.getFile();
+  const name = opts.name || f.name || handle.name;
+  const u8 = bytes ? (bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)) : new Uint8Array(await f.arrayBuffer());
+  const fp = QBR.fpOf(name, f);
+  QBR.fsDetachSide(kind);
+  const link = { fp: fp, kinds: [kind], name: name, size: f.size, lastModified: f.lastModified, hash: fsHashBytes(u8), handle: handle,
+    side: true, onSaved: typeof opts.onSaved === "function" ? opts.onSaved : null };
+  QBR._fsLinks = (QBR._fsLinks || []).filter(l => !(l.side && fileKey(l.name) === fileKey(name))).concat([link]);
+  (QBR._fsSideKinds[fp] || (QBR._fsSideKinds[fp] = new Set())).add(kind);
+  fsSetBase(name, u8);
+  try { if (typeof QBR.persistRefreshBadge === "function") QBR.persistRefreshBadge(); } catch (e) {}
+  return link;
+};
+QBR.fsDetachSide = function (kind) {
+  (QBR._fsLinks || []).filter(l => l.side && (l.kinds || []).indexOf(kind) >= 0).forEach(l => {
+    const s = QBR._fsSideKinds[l.fp]; if (s) { s.delete(kind); if (!s.size) delete QBR._fsSideKinds[l.fp]; }
+  });
+  QBR._fsLinks = (QBR._fsLinks || []).filter(l => !(l.side && (l.kinds || []).indexOf(kind) >= 0));
+};
+function fsSideMove(oldFp, newFp) {
+  if (!oldFp || !newFp || oldFp === newFp || !QBR._fsSideKinds[oldFp]) return;
+  QBR._fsSideKinds[newFp] = QBR._fsSideKinds[oldFp]; delete QBR._fsSideKinds[oldFp];
+}
+async function fsSideNotify(link, u8, reason) {
+  if (!link || !link.side || typeof link.onSaved !== "function") return;
+  try { await link.onSaved(u8, reason); } catch (e) { console.warn("[QBR] side reload failed:", e && e.message); }
+}
+// Autosave (adapter.autosave): edits recorded in a burst save once, 300 ms after the last one.
+const WB_AUTOSAVE = {};
+QBR.wbScheduleSave = function (kind) {
+  clearTimeout(WB_AUTOSAVE[kind]);
+  WB_AUTOSAVE[kind] = setTimeout(async () => {
+    delete WB_AUTOSAVE[kind];
+    try { QBR.persistNote(kind, "Saving…", 15000); } catch (e) {}
+    let r; try { r = await QBR.fsSaveKind(kind); } catch (e) { r = { mode: "error" }; }
+    try { QBR.saveResultNote(kind, r); } catch (e) {}
+    try { document.dispatchEvent(new CustomEvent("qbr:autosaved", { detail: { kind: kind, mode: r && r.mode } })); } catch (e) {}
+  }, 300);
 };
 
 /* Last-resort linked write: the on-disk file changed externally and the user
@@ -709,6 +794,7 @@ QBR.fsRebaseLink = async function (link, freshFile) {
     }
   } catch (e) {}
   try { if (typeof QBR.fsCarryPatchState === "function") QBR.fsCarryPatchState(oldFp, newFp); } catch (e) {}
+  try { fsSideMove(oldFp, newFp); } catch (e) {}
   try { if (QBR._audit && QBR._audit.fp === oldFp) QBR._audit.fp = newFp; } catch (e) {}
   try { if (QBR._auditMeta && QBR._auditMeta.fp === oldFp) QBR._auditMeta.fp = newFp; } catch (e) {}
   link.fp = newFp; link.size = freshFile.size; link.lastModified = freshFile.lastModified;
@@ -749,6 +835,7 @@ QBR.fsAfterSave = async function (kind, link, freshFile) {
       QBR._kindByFp[newFp] = QBR._kindByFp[oldFp];
       delete QBR._kindByFp[oldFp];
     }
+    fsSideMove(oldFp, newFp);   // write contract: side files keep their kind across saves
     // 3b. patch state: the retained workbook was patched in place, so its
     //     coordinates are still valid — carry them to the new fingerprint.
     //     (The rebuild path drops them beforehand via fsDropPatchState.)
@@ -766,8 +853,10 @@ QBR.fsAfterSave = async function (kind, link, freshFile) {
       QBR.journalClearFp(oldFp);
     }
     QBR._lastPatch = null;
-    // 5. persist the fresh bytes for session restore
-    if (typeof cacheSession === "function") cacheSession();
+    // 5. persist the fresh bytes for session restore (side files are not session sources)
+    if (!link.side && typeof cacheSession === "function") cacheSession();
+    // 6. write contract: a side file's tab re-parses the saved bytes itself
+    if (link.side) { const sb = fsBaseOf(link.name); await fsSideNotify(link, sb, "saved"); }
   } catch (e) { console.warn("[QBR] post-save bookkeeping failed:", e && e.message); }
   QBR.fsRefreshStatus();
 };
