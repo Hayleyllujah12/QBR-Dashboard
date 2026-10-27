@@ -84,7 +84,23 @@
   }
   function partnerBadge() { return (QBR.mosCompletionLogos || {}).partner || ""; }
   function raksoLogo() { return (QBR.mosCompletionLogos || {}).rakso || ""; }
-  function waveArt() { return (QBR.mosCompletionLogos || {}).wave || ""; }
+  /* 2026-10-27: accent colour follows the exam's badge — the same colours the PPTX template uses for the
+   * left bar + stripe (Excel green, PowerPoint orange-red, Word blue); the wave art is recoloured to match. */
+  var ACCENT = { "Excel": "#048642", "Excel Expert": "#048642", "PowerPoint": "#B8482B", "Word": "#25589B" };
+  var WAVE_GREEN = /#048642/gi;
+  function accentOf(fam) { return ACCENT[fam] || ACCENT.Excel; }
+  var _waveCache = {};
+  function waveArt(fam) {
+    var w = (QBR.mosCompletionLogos || {}).wave || "", col = accentOf(fam);
+    if (!w || col === ACCENT.Excel) return w;
+    if (_waveCache[col]) return _waveCache[col];
+    try {
+      var m = /^data:image\/svg\+xml;base64,(.*)$/.exec(w);
+      var svg = m ? atob(m[1]) : (/^data:image\/svg\+xml[,;]/.test(w) ? decodeURIComponent(w.slice(w.indexOf(",") + 1)) : null);
+      if (svg == null) return w;
+      return (_waveCache[col] = "data:image/svg+xml;base64," + btoa(svg.replace(WAVE_GREEN, col)));
+    } catch (e) { return w; }
+  }
   function isEligibleRow(r) { return !!r && !!r.noRetakesLeft && isMos(familyOf(r.exam)); }
 
   /* ---------------- signatories (this browser only) ---------------- */
@@ -277,7 +293,7 @@
     var fam = familyOf(row.exam);
     return { name: formatCertName(row.rosterName || row.name), family: fam, title: examTitle(fam),
       school: row.school || "", section: row.section || "", sy: syText(row.sy), given: given,
-      badge: badgeFor(fam), partner: partnerBadge(), rakso: raksoLogo(), wave: waveArt(),
+      badge: badgeFor(fam), partner: partnerBadge(), rakso: raksoLogo(), wave: waveArt(fam), accent: accentOf(fam),
       key: (row.studentKey || "") + "|" + fam };
   }
   function groupCerts(certs) {
@@ -339,7 +355,7 @@
     // (stretched to the template's Freeform frame, clipped by the cert's
     // overflow:hidden exactly like the slide edge clips it in PowerPoint).
     // The RAKSO logo sits at its template spot, left of the partner badge.
-    return '<section class="mos-comp-cert">' +
+    return '<section class="mos-comp-cert" data-family="' + esc(c.family || "") + '" style="--mos-accent:' + esc(c.accent || "#048642") + '">' +
       '<div class="mos-comp-bg"><div class="mos-comp-bar"></div><div class="mos-comp-stripe"></div>' +
       (c.wave ? '<div class="mos-comp-wave" style="background-image:url(' + esc(c.wave) + ')"></div>' : "") + "</div>" +
       (c.rakso ? '<img class="mos-comp-rakso" src="' + esc(c.rakso) + '" alt="">' : "") +
@@ -626,7 +642,7 @@
 
   QBR.mosCompletion = { render: render, count: count,
     _formatName: formatCertName, _examTitle: examTitle, _ordinal: ordinal, _givenText: givenText,
-    _syText: syText, _familyOf: familyOf, _isEligible: isEligibleRow, _group: groupCerts,
+    _syText: syText, _familyOf: familyOf, _accentOf: accentOf, _waveArt: waveArt, _isEligible: isEligibleRow, _group: groupCerts,
     _certHtml: certHtml, _buildBatch: buildBatch, _sig: loadSig, _batchFileName: batchFileName, _geomOf: geomOf, _sigImgStyle: sigImgStyle };
   if (typeof module !== "undefined" && module.exports) module.exports = {
     formatCertName: formatCertName, examTitle: examTitle, ordinal: ordinal, givenText: givenText,

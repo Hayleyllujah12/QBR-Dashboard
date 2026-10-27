@@ -6,6 +6,10 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-27 — MOS › Completion certificates: accent colour follows the exam
+  - PowerPoint certificates use the PowerPoint badge colour (orange-red) and Word certificates the Word blue for the left
+    bar, stripe and wave art — in the print preview AND the PowerPoint export (Excel stays green). They were always green.
+
 UPDATE — 2026-10-27 — Revision list (no version bump)
   - Guided audit: with more than one copy of the storage or usage report loaded, the NEWEST file is used (it used to be
     whichever was read last, so an older copy could hide a school's Q4 row). "No row for … in Q4" now says which file and
