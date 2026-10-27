@@ -886,10 +886,13 @@ function captureRaw(wb, model) {
 }
 
 // Parse one or more ArrayBuffers (each an uploaded workbook) into a merged model.
-QBR.loadWorkbooks = function (buffers) {
+/* 2026-10-25 load bar: optional onFile(i) reports per-file progress;
+ * with onFile the loop runs async (yield after each file so the bar paints),
+ * without it the original synchronous loop runs unchanged. */
+QBR.loadWorkbooks = function (buffers, onFile) {
   const model = emptyModel();
   QBR._repUnknown = {};   // reset the unrecognised-reputation register for this load
-  for (const buf of buffers) {
+  const one = function (buf) {
     const wb = XLSX.read(buf, { type: "array" });
     parseRisky(wb, model);
     parseSecurity(wb, model);
@@ -900,12 +903,27 @@ QBR.loadWorkbooks = function (buffers) {
     parseUserManagement(wb, model);
     parseDomainRegistration(wb, model);
     captureRaw(wb, model);
+  };
+  const finish = function () {
+    canonicalizeOrgs(model);
+    dedupePostmaster(model);
+    synthesizePmVerify(model);
+    buildMasterSchools(model);
+    return model;
+  };
+  if (typeof onFile === "function") {
+    return (async function () {
+      var list = buffers || [];
+      for (var bi = 0; bi < list.length; bi++) {
+        one(list[bi]);
+        onFile(bi);
+        await new Promise(function (r) { setTimeout(r, 0); });
+      }
+      return finish();
+    })();
   }
-  canonicalizeOrgs(model);
-  dedupePostmaster(model);
-  synthesizePmVerify(model);
-  buildMasterSchools(model);
-  return model;
+  (buffers || []).forEach(one);
+  return finish();
 };
 
 // The standalone GOOGLE POSTMASTERTOOLS.xlsx carries a dedicated verification sheet

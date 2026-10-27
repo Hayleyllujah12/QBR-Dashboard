@@ -166,6 +166,7 @@
     S.attempts = []; S.files = []; S.exports = []; S.roster = []; S.rosterFiles = []; S.overrides = {}; S.model = null; S.open = {};
     S.certs = []; S.certDupPages = 0; S.view = "results";
     if (QBR.mosCerts && QBR.mosCerts.reset) QBR.mosCerts.reset();
+    if (QBR.mosReconcile && QBR.mosReconcile.reset) QBR.mosReconcile.reset();
     S.f = { school: "", section: "", exam: "", examNo: "", proctor: "", outcome: "", min: "", max: "", pmode: "all", pval: "", q: "", firstOnly: false };
     render();
   }
@@ -208,6 +209,7 @@
           '<datalist id="mos-dl-school"></datalist>' +
           '<button id="mos-clear" class="btn btn-outline-secondary btn-sm" type="button">Clear</button>' +
           '<button class="btn btn-outline-primary btn-sm" type="button" data-mos-view="certs" title="Generated / printed certificates: open the log, load certificate PDFs from the linked folder">📒 Certificate tracker</button>' +
+          '<button class="btn btn-outline-primary btn-sm" type="button" data-mos-view="reconcile" title="Match a class roster to the Certiport export by exam voucher: fill scores and attach sections">🧾 Reconcile roster</button>' +
         '</div>' +
         '<div id="mos-drop" class="mos-drop small text-muted">or drop PDFs, a Certiport export or a roster workbook here</div>' +
         '<div id="mos-status" class="small mt-1" role="status" aria-live="polite"></div>' +
@@ -216,13 +218,16 @@
       '<div id="mos-main" class="d-none">' +
         '<div class="mos-viewbar"><div class="btn-group btn-group-sm" role="group" aria-label="MOS view">' +
           '<button type="button" class="btn btn-outline-secondary" data-mos-view="results">Results</button>' +
-          '<button type="button" class="btn btn-outline-secondary" data-mos-view="certs">Certificates <span id="mos-cert-n" class="badge bg-secondary"></span></button></div></div>' +
+          '<button type="button" class="btn btn-outline-secondary" data-mos-view="certs">Certificates <span id="mos-cert-n" class="badge bg-secondary"></span></button>' +
+          '<button type="button" class="btn btn-outline-secondary" data-mos-view="reconcile">Reconcile <span id="mos-rec-n" class="badge bg-secondary"></span></button><button type="button" class="btn btn-outline-secondary" data-mos-view="completion">Completion <span id="mos-comp-n" class="badge bg-secondary"></span></button></div></div>' +
         '<div id="mos-view-certs" class="d-none"></div>' +
+        '<div id="mos-view-reconcile" class="d-none"></div>' +
+        '<div id="mos-view-completion" class="d-none"></div>' +
         '<div id="mos-view-results">' +
         '<div class="card-box mos-filters" role="search" aria-label="MOS filters">' +
           '<div class="mos-frow">' +
             fsel("mos-f-school", "School") + fsel("mos-f-section", "Section") + fsel("mos-f-exam", "Exam") + fsel("mos-f-examno", "Exam No. / batch") + fsel("mos-f-proctor", "Proctor") +
-            '<label class="mos-fl"><span>Result</span><select id="mos-f-outcome" class="form-select form-select-sm"><option value="">Pass &amp; fail</option><option value="PASS">Pass</option><option value="FAIL">Fail</option><option value="IN PROGRESS">In progress</option></select></label>' +
+            '<label class="mos-fl"><span>Result</span><select id="mos-f-outcome" class="form-select form-select-sm"><option value="">Pass &amp; fail</option><option value="PASS">Pass</option><option value="FAIL">Fail</option><option value="IN PROGRESS">In progress</option><option value="RETAKE">Retake eligible</option></select></label>' +
             '<label class="mos-fl mos-fl-score"><span>Score</span><span class="mos-range"><input id="mos-f-min" type="number" min="0" max="1000" step="1" class="form-control form-control-sm" placeholder="0" aria-label="Lowest score"> – <input id="mos-f-max" type="number" min="0" max="1000" step="1" class="form-control form-control-sm" placeholder="1000" aria-label="Highest score"></span></label>' +
           '</div><div class="mos-frow">' +
             '<label class="mos-fl"><span>Period</span><select id="mos-f-pmode" class="form-select form-select-sm"><option value="all">All time</option><option value="sy">School year</option><option value="year">Year</option><option value="month">Month</option></select></label>' +
@@ -239,6 +244,7 @@
           '</div>' +
         '</div>' +
         '<div id="mos-kpi" class="row row-cols-2 row-cols-md-4 row-cols-xl-8 g-3 kpi-row mt-1"></div>' +
+        '<div id="mos-certtiles" class="mos-certtiles mt-1"></div>' +
         '<div class="row g-3 mt-1">' +
           '<div class="col-lg-7"><div class="card-box"><div class="mos-ch-head"><h6 class="mb-0">Pass rate over time</h6>' +
             '<div class="btn-group btn-group-sm" role="group" aria-label="Trend granularity">' +
@@ -351,24 +357,32 @@
     var host = $("mos-body"); if (!host) return;
     if (!on()) { host.innerHTML = '<div class="card-box small text-muted">The MOS tab is turned off for this site.</div>'; S.built = false; return; }
     if (!S.built || !$("mos-main")) { shell(host); S.built = true; }
+    if (QBR.mosReconcile && QBR.mosReconcile.applyRestored) QBR.mosReconcile.applyRestored();
     var dl = $("mos-dl-school");
     if (dl) dl.innerHTML = uniq(S.attempts.map(function (a) { return a.school; }).filter(function (s) { return s !== "Unassigned school"; }))
       .map(function (s) { return '<option value="' + esc(s) + '">'; }).join("");
     status();
     var hasRows = !!(S.model && S.model.rows.length), certs = !!(QBR.mosCerts && QBR.mosCerts.has && QBR.mosCerts.has());
-    var has = hasRows || certs || S.view === "certs";
+    var has = hasRows || certs || S.view === "certs" || S.view === "reconcile" || !!(QBR.mosReconcile && QBR.mosReconcile.hasSaved());
     $("mos-main").classList.toggle("d-none", !has);
     $("mos-empty").classList.toggle("d-none", has);
     if (!has) { renderEmpty(); destroyCharts(); return; }
-    if (!hasRows) S.view = "certs";
+    if (!hasRows && (S.view === "results" || S.view === "completion")) S.view = (QBR.mosReconcile && QBR.mosReconcile.hasSaved()) ? "reconcile" : "certs";
     var cn = $("mos-cert-n"); if (cn) cn.textContent = S.certs.length ? String(S.certs.length) : "";
+    var rn = $("mos-rec-n"); if (rn) rn.textContent = QBR.mosReconcile && QBR.mosReconcile.count() ? String(QBR.mosReconcile.count()) : "";
+    var cn2 = $("mos-comp-n"); if (cn2) cn2.textContent = (QBR.mosCompletion && QBR.mosCompletion.count) ? String(QBR.mosCompletion.count()) : "";
     document.querySelectorAll(".mos-viewbar [data-mos-view]").forEach(function (b) {
       var a = b.getAttribute("data-mos-view") === S.view; b.classList.toggle("active", a); b.setAttribute("aria-pressed", String(a));
       if (b.getAttribute("data-mos-view") === "results") b.disabled = !hasRows;
+      if (b.getAttribute("data-mos-view") === "completion") b.disabled = !hasRows;
     });
     $("mos-view-results").classList.toggle("d-none", S.view !== "results");
     $("mos-view-certs").classList.toggle("d-none", S.view !== "certs");
+    $("mos-view-reconcile").classList.toggle("d-none", S.view !== "reconcile");
+    $("mos-view-completion").classList.toggle("d-none", S.view !== "completion");
+    if (S.view === "reconcile") { destroyCharts(); if (QBR.mosReconcile) QBR.mosReconcile.render($("mos-view-reconcile")); return; }
     if (S.view === "certs") { destroyCharts(); if (QBR.mosCerts) QBR.mosCerts.render($("mos-view-certs")); return; }
+    if (S.view === "completion") { destroyCharts(); if (QBR.mosCompletion) QBR.mosCompletion.render($("mos-view-completion")); return; }
     update();
   }
 
@@ -419,7 +433,7 @@
       var a = b.getAttribute("data-mos-trend") === S.trend; b.classList.toggle("active", a); b.setAttribute("aria-pressed", String(a));
     });
     var R = rows();
-    renderKpis(R); renderCharts(R); renderSummary(R); renderResults(R); renderCheck();
+    renderKpis(R); renderCertTiles(); renderCharts(R); renderSummary(R); renderResults(R); renderCheck();
   }
 
   function kpi(label, val, tone, title) {
@@ -435,6 +449,63 @@
       kpi("First-attempt pass rate", pct(s.firstPassRate), rateTone(s.firstPassRate), "Pass rate counting each student's first try at each exam only (retakes excluded)") +
       kpi("Average score", num(s.avg), s.avg >= 700 ? "green" : "orange") +
       kpi("Highest / lowest", (s.high == null ? "—" : s.high) + " / " + (s.low == null ? "—" : s.low), "blue");
+  }
+
+  /* ---------------- MOS certification tiles ---------------- */
+  // One tile per exam; the tiles ARE the exam breakdown, so the tile set is
+  // computed from every filter EXCEPT Exam (filterObj({exam: ""}) clears it).
+  // Visibility persists per browser in localStorage; exams never seen before
+  // default to hidden unless they are one of the three default tiles, and
+  // stored keys for exams no longer in the data are simply never consulted.
+  var CERT_TILE_KEY = "qbr-mos-certtiles-v1";
+  var CERT_TILE_DEFAULTS = ["Excel", "Word", "PowerPoint"];
+  function certTileStore() {
+    try { var v = JSON.parse(localStorage.getItem(CERT_TILE_KEY) || "{}"); return (v && typeof v === "object") ? v : {}; }
+    catch (e) { return {}; }
+  }
+  function certTileSave(map) { try { localStorage.setItem(CERT_TILE_KEY, JSON.stringify(map)); } catch (e) {} }
+  function certTileVisible(name) {
+    var m = certTileStore();
+    if (Object.prototype.hasOwnProperty.call(m, name)) return !!m[name];
+    return CERT_TILE_DEFAULTS.indexOf(name) >= 0;
+  }
+  function certTileRows() { return S.model ? P().filterAttempts(S.model.rows, filterObj({ exam: "" })) : []; }
+  function certTileExams() { return uniq(certTileRows().map(function (r) { return r.exam; })); }
+  function certTileOrder(exams) {
+    var out = [];
+    CERT_TILE_DEFAULTS.forEach(function (d) { if (exams.indexOf(d) >= 0) out.push(d); });
+    exams.forEach(function (e) { if (out.indexOf(e) < 0) out.push(e); });
+    return out;
+  }
+  function certTileSet(name, on) {
+    var m = certTileStore(); m[name] = !!on; certTileSave(m); renderCertTiles();
+  }
+  function certTileSetAll(on) {
+    var m = certTileStore();
+    certTileExams().forEach(function (e) { m[e] = !!on; });
+    certTileSave(m); renderCertTiles();
+  }
+  function renderCertTiles() {
+    var host = $("mos-certtiles"); if (!host) return;
+    var tileRows = certTileRows();
+    var vis = certTileOrder(certTileExams()).filter(certTileVisible);
+    host.classList.toggle("d-none", !vis.length);
+    if (!vis.length) { host.innerHTML = ""; return; }
+    host.innerHTML = vis.map(function (e) {
+      var scored = tileRows.filter(function (r) { return r.exam === e && r.score != null; });
+      var passed = 0; scored.forEach(function (r) { if (r.pass) passed++; });
+      var rate = scored.length ? passed / scored.length : null;
+      return '<div class="mos-certtile"><div class="kpi kpi-' + rateTone(rate) + '">' +
+        '<div class="kpi-val">' + num(passed) + '</div>' +
+        '<div class="kpi-lbl">' + esc(e) + '</div>' +
+        '<div class="mos-certtile-sub">Out of ' + num(scored.length) + ' takers' +
+        // Pass-rate indicator, same line as the takers count. The span inherits
+        // the tile tone (--tone is set on the .kpi by rateTone), so the rate
+        // is orange exactly when the tile icon warns, green when it passes.
+        // No scored attempts -> no rate (never a NaN% line).
+        (rate == null ? '' : ' <span class="mos-certtile-rate">· ' + Math.round(rate * 100) + '% pass rate</span>') +
+        '</div></div></div>';
+    }).join("");
   }
 
   /* ---------------- charts ---------------- */
@@ -762,7 +833,7 @@
     var f = S.f, p = [];
     if (f.school) p.push("School: " + f.school); if (f.section) p.push("Section: " + f.section);
     if (f.exam) p.push("Exam: " + f.exam); if (f.examNo) p.push("Exam No. / batch: " + f.examNo); if (f.proctor) p.push("Proctor: " + f.proctor);
-    if (f.outcome) p.push("Result: " + f.outcome); if (f.min !== "" || f.max !== "") p.push("Score: " + (f.min || 0) + "–" + (f.max || 1000));
+    if (f.outcome) p.push("Result: " + (f.outcome === "RETAKE" ? "Retake eligible" : f.outcome)); if (f.min !== "" || f.max !== "") p.push("Score: " + (f.min || 0) + "–" + (f.max || 1000));
     if (f.pmode !== "all" && f.pval) p.push(f.pmode + ": " + f.pval); if (f.q) p.push("Search: " + (/@/.test(f.q) ? "(email)" : f.q)); if (f.firstOnly) p.push("First attempts only");
     return p.join(" · ") || "None";
   }
@@ -905,7 +976,7 @@
   // filters that hide part of a batch (pass/fail, score range, search, first-attempt) → shown on the summary + warned about
   function narrowingFilters() {
     var f = S.f, p = [];
-    if (f.outcome) p.push("Result: " + (f.outcome === "PASS" ? "Pass" : f.outcome === "FAIL" ? "Fail" : "In progress"));
+    if (f.outcome) p.push("Result: " + (f.outcome === "PASS" ? "Pass" : f.outcome === "FAIL" ? "Fail" : f.outcome === "RETAKE" ? "Retake eligible" : "In progress"));
     if (f.min !== "" || f.max !== "") p.push("Score " + (f.min || 0) + "–" + (f.max || 1000));
     if (f.q) p.push("Search: " + (/@/.test(f.q) ? "(email)" : f.q));
     if (f.firstOnly) p.push("First attempts only");
@@ -991,7 +1062,7 @@
     if (!R.length) { window.alert("No attempts match the current filters."); return; }
     if (R.length > 600 && !window.confirm(R.length + " attempts will be printed. Narrow the filters to one school / batch for a shorter summary. Continue?")) return;
     var f = S.f;
-    if (f.outcome === "PASS" || f.min !== "" || f.max !== "") {
+    if (f.outcome === "PASS" || f.outcome === "RETAKE" || f.min !== "" || f.max !== "") {
       var wide = P().filterAttempts(S.model.rows, filterObj({ outcome: "", min: "", max: "" }));
       var hidden = wide.length - R.length;
       if (hidden > 0 && !window.confirm("The Result / Score filters leave out " + hidden + " attempt" + (hidden === 1 ? "" : "s") + " of this batch (e.g. failed students). Print the summary anyway?\n\nCancel, then Reset filters, to print the whole batch.")) return;
@@ -1029,6 +1100,12 @@
     _summary: function () { return buildSummary(rows()); }, printSummary: printSummary, openProfile: openProfile,
     _loadAttempts: function (attempts, roster) { S.attempts = attempts.slice(); S.roster = (roster || []).slice(); rebuild(); }
   };
+  // MOS certification tiles: Admin-panel toggles + test seams (explicit QBR exposure).
+  QBR.mosCertTiles = {
+    exams: certTileExams, visible: certTileVisible, set: certTileSet, setAll: certTileSetAll,
+    render: renderCertTiles, _key: function () { return CERT_TILE_KEY; }
+  };
+
   document.addEventListener("qbr:flags-ready", function () { if (S.built || $("mos-body")) render(); });
   function boot() { if ($("mos-body")) render(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();

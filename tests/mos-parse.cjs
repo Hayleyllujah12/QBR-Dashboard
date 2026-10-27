@@ -111,6 +111,8 @@ function walk(d) { let o = []; for (const f of fs.readdirSync(d)) { const p = pa
   ok(M.filterAttempts(m.rows, { school: "Demo High School" }).length === 4, "filter: school");
   ok(M.filterAttempts(m.rows, { school: "Demo High School", section: "11A" }).length === 3, "filter: section");
   ok(M.filterAttempts(m.rows, { outcome: "FAIL" }).length === 2, "filter: pass/fail");
+  var rk = M.filterAttempts(m.rows, { outcome: "RETAKE" });
+  ok(rk.length >= 1 && rk.every(function (r) { return r.retakeEligible && !r.retakeUsed; }) && !rk.some(function (r) { return r.ref === "90000002"; }), "filter: RETAKE = failed first takes not yet retaken");
   ok(M.filterAttempts(m.rows, { min: 700, max: 900 }).length === 2, "filter: score range 700–900");
   ok(M.filterAttempts(m.rows, { examNo: "9001" }).length === 4, "filter: Exam No. includes its .1 retake session");
   ok(M.filterAttempts(m.rows, { year: "2025" }).length === 2 && M.filterAttempts(m.rows, { month: "2026-04" }).length === 1, "filter: year / month");

@@ -23,6 +23,17 @@
   function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
   function escAttr(s) { return esc(s).replace(/'/g, "&#39;"); }
 
+  /* Stale-copy lineage: the browser remembers the last tracker version it
+   * saved ({rows, hash} in qbr-domainreg-lineage — counts and a hash only, no
+   * school data). Saving into a copy with FEWER data rows and different
+   * content asks first; a successful save refreshes the record. */
+  var DR_LINEAGE_KEY = "qbr-domainreg-lineage";
+  function drLineage() { try { return JSON.parse(localStorage.getItem(DR_LINEAGE_KEY) || "null"); } catch (e) { return null; } }
+  function drHash(bytes) { try { return (typeof QBR.fsHashOf === "function" && bytes) ? QBR.fsHashOf(bytes) : ""; } catch (e) { return ""; } }
+  function drSaveLineage(rows, bytes) {
+    try { localStorage.setItem(DR_LINEAGE_KEY, JSON.stringify({ rows: rows, hash: drHash(bytes), savedAt: new Date().toISOString() })); } catch (e) {}
+  }
+
   /* ---------- date helpers ---------- */
   // Parse "YYYY-MO-DD-HR-MIN-SEC" (or prefix) -> { y, mo, d, hh, mm, ss }
   function parseDateParts(v) {
@@ -177,6 +188,19 @@
       var c0 = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]).s.c : 0;
       var allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
       var hdr = (allRows[headerIndex(allRows)] || []).map(function (h) { return String(h || "").toLowerCase().trim(); });
+      // Stale-copy guard: fewer data rows than the version last saved from
+      // this browser (and different content) means an older copy — ask first.
+      var dataRows = 0;
+      for (var ri = headerIndex(allRows) + 1; ri < allRows.length; ri++) {
+        if ((allRows[ri] || []).some(function (v) { return v != null && String(v).trim() !== ""; })) dataRows++;
+      }
+      var seenRec = drLineage(), hashNow = drHash(bytes);
+      if (seenRec && seenRec.hash && hashNow && seenRec.hash !== hashNow && dataRows < seenRec.rows) {
+        var fname = S.name || handle.name || f.name || "the tracker";
+        if (!window.confirm("This copy of " + fname + " looks older than the last one saved from this browser (" + seenRec.rows + " rows, saved " + new Date(seenRec.savedAt).toLocaleString() + ") \u2014 this file has " + dataRows + " rows. Save this edit into it anyway?")) {
+          return { ok: false, error: "Not saved \u2014 the picked file looks like an older copy." };
+        }
+      }
       // same column choice as the loader: exact header first, then contains
       var pick = function (names, not) {
         for (var k = 0; k < names.length; k++) { var e = hdr.indexOf(names[k]); if (e >= 0) return e; }
@@ -232,6 +256,7 @@
         try { if (w && w.abort) await w.abort(); } catch (x) {}
         return { ok: false, error: "Couldn't write — is the file open in Excel? Close it and try again." };
       }
+      drSaveLineage(dataRows, out);
       return { ok: true, changed: changed.join(", "), file: S.name || handle.name, expTyped: expTyped };
     } catch (e) {
       return { ok: false, error: (e && e.message) || String(e) };

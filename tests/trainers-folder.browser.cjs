@@ -136,6 +136,40 @@ const status = p => p.evaluate(() => (document.getElementById("tr-status") || {}
   ok(!page._errs.length, "no page errors (D) " + page._errs.join(" | "));
   await page.close();
 
+  /* ---- E: "Add folder…" links one more folder, then scans it (link-additive) ---- */
+  page = await fresh(browser, "granted");
+  await page.click('[data-tab="dash-trainers"]');
+  await page.waitForFunction(() => QBR.trainers._state.tracker && QBR.trainers._state.queue.length >= 2, null, { timeout: 8000 }).catch(() => {});
+  ok(await page.$('[data-traction="add-folder"]') && /adds a folder, it does not replace/.test(await page.getAttribute('[data-traction="add-folder"]', "title")),
+    'Add folder button shown when folders are linked, title states the additive semantic');
+  const EVAL3 = b64(evalRows("MRCWI", 100));
+  await page.evaluate((data) => {
+    const toFile = (name, d) => { const bin = atob(d), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      return new File([u], name, { lastModified: 1767225600000, type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); };
+    const orig = QBR.fsFolderBooks;
+    const d2 = [{ name: "06012026 - AM - MRCWI(1-9).xlsx", path: [], rel: ["06012026 - AM - MRCWI(1-9).xlsx"], size: 9000, lastModified: 1767225600000,
+      handle: { kind: "file", name: "06012026 - AM - MRCWI(1-9).xlsx", getFile: async () => toFile("06012026 - AM - MRCWI(1-9).xlsx", data),
+                queryPermission: async () => "granted", createWritable: async () => ({ write: async () => {}, close: async () => {} }) } }];
+    QBR.fsFolderList = () => [{ id: "d1", name: "Training", state: "granted" }, { id: "d2", name: "More Evals", state: "granted" }];
+    QBR.fsFolderBooks = async (id, o) => id === "d2" ? d2 : orig(id, o);
+    QBR.fsFolderPickOnly = async () => "d2";
+  }, EVAL3);
+  await page.click('[data-traction="add-folder"]');
+  await page.waitForFunction(() => QBR.trainers._state.queue.length >= 3, null, { timeout: 8000 }).catch(() => {});
+  ok(await page.evaluate(() => QBR.fsFolderList().length === 2), "linked list gains the new folder (still 2 entries, old one kept)");
+  ok(await page.evaluate(() => QBR.trainers._state.queue.some(q => /06012026/.test(q.name))), "scan after linking loads the new folder's eval export");
+  ok(/More Evals/.test(await status(page)), "status names the newly linked folder: " + await status(page));
+  ok(!page._errs.length, "no page errors (E) " + page._errs.join(" | "));
+  await page.close();
+
+  /* ---- E2: no folders linked -> no "Add folder…" button ---- */
+  page = await fresh(browser, "granted");
+  await page.evaluate(() => { QBR.fsFolderList = () => []; });
+  await page.click('[data-tab="dash-trainers"]'); await page.waitForTimeout(600);
+  ok(!(await page.$('[data-traction="add-folder"]')) && !!(await page.$('[data-traction="folder"]')),
+    'no Add folder button when nothing is linked (only Open folder)');
+  await page.close();
+
   await browser.close();
   console.log("\n" + pass + " passed, " + fail + " failed");
   process.exit(fail ? 1 : 0);

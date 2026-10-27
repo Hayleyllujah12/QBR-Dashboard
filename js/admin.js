@@ -339,6 +339,7 @@
     renderRemoteSection(host); // v1.36.0
     renderThemeSection(host);
     renderReportsSection(host);
+    renderMosTilesSection(host);
     if (keepScripts) host.appendChild(keepScripts); else renderScriptsSection(host);
   }
 
@@ -372,6 +373,33 @@
     host.appendChild(sec);
     const b = sec.querySelector("[data-report-stamp]");
     if (b) b.addEventListener("click", () => { setReportStamp(!QBR.reportStampOn()); renderAdminPanel(); });
+  }
+
+  function renderMosTilesSection(host) {
+    const sec = document.createElement("div");
+    sec.className = "admin-mos-tiles";
+    const api = (typeof QBR !== "undefined" && QBR.mosCertTiles) || null;
+    const exams = api ? api.exams() : [];
+    let body = "";
+    if (!api) body = `<div class="small text-muted">MOS tab not loaded.</div>`;
+    else if (!exams.length) body = `<div class="small text-muted">No MOS results loaded — exam toggles appear here once results are loaded.</div>`;
+    else body = `<div class="admin-list">` + exams.map((name, i) => {
+      const on = api.visible(name);
+      return `<div class="admin-row"><span class="admin-row-txt"><span class="admin-row-label">${esc(name)}</span><br>` +
+        `<span class="admin-row-desc">${on ? "Shown" : "Hidden"} on the MOS Results tab</span></span>` +
+        `<button type="button" class="btn btn-sm ${on ? "btn-success" : "btn-outline-secondary"}" data-mos-tile="${i}" aria-pressed="${on}">${on ? "ON" : "OFF"}</button></div>`;
+    }).join("") + `</div>` +
+      `<div class="audit-actions mt-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-mos-tiles-all="1">Show all</button> ` +
+      `<button type="button" class="btn btn-sm btn-outline-secondary" data-mos-tiles-all="0">Hide all</button></div>`;
+    sec.innerHTML =
+      `<h4 class="mb-1 mt-4">Admin &middot; MOS certification tiles</h4>` +
+      `<div class="small text-muted mb-2">Choose which exam tiles show on the MOS Results tab. Excel, Word and PowerPoint show by default; other exams are hidden until switched on. Applies to this browser only.</div>` + body;
+    host.appendChild(sec);
+    if (!api) return;
+    sec.querySelectorAll("[data-mos-tile]").forEach(b =>
+      b.addEventListener("click", () => { const name = exams[+b.getAttribute("data-mos-tile")]; api.set(name, !api.visible(name)); renderAdminPanel(); }));
+    sec.querySelectorAll("[data-mos-tiles-all]").forEach(b =>
+      b.addEventListener("click", () => { api.setAll(b.getAttribute("data-mos-tiles-all") === "1"); renderAdminPanel(); }));
   }
 
   function renderThemeSection(host) {

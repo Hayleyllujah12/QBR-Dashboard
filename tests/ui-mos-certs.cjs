@@ -116,8 +116,8 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   // disabled box on a pass without a certificate (was: no box at all)
   ok(await page.$eval('tr:has(td:text-is("Carl Reyes Test")) input[type=checkbox]', el => el.disabled && /nothing to print/.test(el.title)), "Not generated row: disabled checkbox with an explanation");
   ok(/no certificate PDF read for this school yet|no PowerPoint certificate|none for PowerPoint/.test(await page.textContent('tr:has(td:text-is("Carl Reyes Test"))')), "Not generated row says why");
-  /* ---- P: preview (only on rows that were not matched automatically) ---- */
-  ok(!(await page.$('tr:has(td:text-is("Alex Cruz Demo")) [data-mc="preview"]')) && !!(await page.$('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="preview"]')), "Preview only on unmatched rows, not on automatic matches");
+  /* ---- P: preview (every row with a certificate file, auto-matched or not) ---- */
+  ok(!!(await page.$('tr:has(td:text-is("Alex Cruz Demo")) [data-mc="preview"]')) && !!(await page.$('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="preview"]')), "Preview on every row with a file \u2014 automatic matches included");
   await page.click('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="preview"]');
   await page.waitForFunction(() => { const c = document.getElementById("mos-prev-canvas"); return c && c.width > 100; }, null, { timeout: 10000 }).catch(() => {});
   ok(await page.evaluate(() => { const c = document.getElementById("mos-prev-canvas"); return !!c && c.width > 100 && document.querySelectorAll(".mos-prev-back").length === 1; }), "Preview: certificate page drawn in one modal");
@@ -275,6 +275,60 @@ const PDFS = school => fs.readdirSync(path.join(FX, school)).filter(f => /Result
   ok(/4 certificates · 3 printed/.test(await page.textContent(".mos-certlog")), "log bar counts from the workbook");
   ok(await page.evaluate(() => window.__scanOpts.id === "d1"), "with two linked folders, the MOS-named one is used by default");
   ok(!page._errs.length, "no page errors (H) " + page._errs.join(" | "));
+  /* ---- Load certificates progress: bar visible mid-load, button disabled ---- */
+  await page.evaluate(() => {
+    window.__origScan = QBR.fsFolderFiles;
+    window.__gate = null;
+    QBR.fsFolderFiles = (id, opts) => new Promise(res => { window.__gate = () => window.__origScan(id, opts).then(res); });
+  });
+  await page.click('[data-mc="folder"]');
+  await page.waitForFunction(() => QBR.mosCerts._state.busy === true, null, { timeout: 5000 });
+  await page.waitForTimeout(250);
+  const mid = await page.evaluate(() => ({
+    prog: (document.getElementById("mos-cert-prog") || { innerHTML: "" }).innerHTML.length > 10,
+    scanning: /Scanning/.test((document.getElementById("mos-cert-prog") || { textContent: "" }).textContent),
+    btnDisabled: document.querySelector('[data-mc="folder"]').disabled,
+    btnLabel: document.querySelector('[data-mc="folder"]').textContent.trim()
+  }));
+  ok(mid.prog && mid.scanning, "during the folder scan a progress indicator is visible (sliding bar + phase label)");
+  ok(mid.btnDisabled && /Loading/.test(mid.btnLabel), "Load certificates button is disabled and relabels while loading (no spam-clicking)");
+  await page.evaluate(() => window.__gate());
+  await page.waitForFunction(() => QBR.mosCerts._state.busy === false, null, { timeout: 15000 });
+  const done = await page.evaluate(() => ({
+    progEmpty: (document.getElementById("mos-cert-prog") || { innerHTML: "x" }).innerHTML === "",
+    btnDisabled: document.querySelector('[data-mc="folder"]').disabled
+  }));
+  ok(done.progEmpty && !done.btnDisabled, "progress clears and the button re-enables when the load finishes");
+  await page.evaluate(() => { QBR.fsFolderFiles = window.__origScan; });
+
+  await page.close();
+
+  /* ---- L: stale-log lineage guard ---- */
+  page = await fresh(browser);
+  await page.evaluate((t) => {
+    const mk = (name, tt) => { const kids = {}; Object.keys(tt).forEach(k => { kids[k] = typeof tt[k] === "string" ? (() => { const s2 = tt[k], u = new Uint8Array(s2.length); for (let i = 0; i < s2.length; i++) u[i] = s2.charCodeAt(i); const h = { kind: "file", name: k, bytes: u, getFile: async () => new File([h.bytes], k), queryPermission: async () => "granted", requestPermission: async () => "granted", createWritable: async () => ({ write: async () => {}, close: async () => {} }) }; return h; })() : mk(k, tt[k]); }); return { kind: "directory", name, kids, values: async function* () { for (const k of Object.keys(kids)) yield kids[k]; }, getFileHandle: async n => kids[n] }; };
+    window.__root = mk("MOS Courses", t);
+    window.__folders = [{ id: "d0", name: "Dashboard workbooks", state: "granted" }, { id: "d1", name: "MOS Courses", state: "granted" }];
+  }, rootTree);
+  await page.evaluate(() => { const s = QBR.mos._state(); s.view = "certs"; });
+  await page.evaluate(() => { const strip = d => { Object.keys(d.kids).forEach(k => { const v = d.kids[k]; if (v.kind === "directory") strip(v); else if (/\.pdf$/i.test(k)) delete d.kids[k]; }); }; strip(window.__root); });
+  // the browser remembers a NEWER log for this folder than the file that is about to be opened
+  await page.evaluate(() => localStorage.setItem("qbr-mos-cert-log-lineage", JSON.stringify({ "dir:d1": { where: "MOS Courses/MOS Certificate Log.xlsx", rows: 999, printed: 999, hash: "stale-test-bogus", savedAt: "2026-10-23T00:00:00.000Z" } })));
+  await page.evaluate(() => QBR.mos.render());
+  await page.waitForTimeout(200);
+  await page.click('[data-mc="folder"]'); await page.waitForFunction(() => QBR.mosCerts._state.log && !QBR.mosCerts._state.busy, null, { timeout: 10000 }); await page.waitForTimeout(300);
+  const staleTxt = await page.textContent(".mos-certlog");
+  ok(/looks older than the last one used here/.test(staleTxt) && /999 rows \u00b7 999 printed/.test(staleTxt) && /This file has 4 rows \u00b7 3 printed/.test(staleTxt), "stale log: warning names last-seen vs this-file counts \u2014 " + staleTxt.replace(/\s+/g, " ").slice(0, 220));
+  ok(await page.evaluate(() => QBR.mosCerts._state.logViewOnly === true && !!QBR.mosCerts._state.logStale), "stale log: view-only engaged");
+  await page.click('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="print"]'); await page.waitForTimeout(400);
+  const refused = await page.evaluate(() => ({ m: QBR.mosCerts._state.msg, printed: QBR.mosCerts._state.log.parsed.rows["z9y8-X7w6"].v.Printed }));
+  ok(/older than the last one used here/.test(refused.m) && refused.printed !== "Yes", "stale log: mark-printed refused with the warning message, log unchanged");
+  await page.click('[data-mc="log-use-anyway"]'); await page.waitForTimeout(200);
+  ok(!(await page.$(".mos-cert-stale")) && await page.evaluate(() => QBR.mosCerts._state.logViewOnly === false && JSON.parse(localStorage.getItem("qbr-mos-cert-log-lineage"))["dir:d1"].rows === 4), "Use this file anyway: banner clears, view-only off, this file becomes the remembered lineage");
+  await page.click('tr:has(td:text-is("Zed Ghost Sample")) [data-mc="print"]'); await page.waitForTimeout(500);
+  const afterOk = await page.evaluate(() => ({ printed: QBR.mosCerts._state.log.parsed.rows["z9y8-X7w6"].v.Printed, linPrinted: JSON.parse(localStorage.getItem("qbr-mos-cert-log-lineage"))["dir:d1"].printed }));
+  ok(afterOk.printed === "Yes" && afterOk.linPrinted === 4, "after confirming, mark-printed saves and the lineage record refreshes (4 printed)");
+  ok(!page._errs.length, "no page errors (L) " + page._errs.join(" | "));
   await page.close();
 
   await browser.close();

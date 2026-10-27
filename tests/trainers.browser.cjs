@@ -114,11 +114,11 @@ const kpiVal = (page, scope, label) => page.evaluate(([sc, l]) => {
   ok(await kpiVal(page, "#tr-report-session", "Session NPS") === "25.0", "NPS 25.0 (blank answer skipped)");
   ok(await kpiVal(page, "#tr-report-session", "Trainer score") === "4.58", "trainer score 4.58");
   ok(await kpiVal(page, "#tr-report-session", "Responses") === "5", "responses 5 (form rows), NPS from the 4 answered");
-  ok(await page.evaluate(() => !!(QBR.trainers._state.charts["tr-ch-nps"] && QBR.trainers._state.charts["tr-ch-items"])), "Chart.js NPS + rating charts drawn");
-  ok(await page.evaluate(() => /Comments/.test(document.querySelector("#tr-report-session").textContent) &&
-      !document.querySelector("#tr-report-session .tr-comment li b") && /Great pace <b>x<\/b>/.test(document.querySelector("#tr-report-session").textContent)),
-    "comments shown escaped (no HTML injection)");
-  ok(await page.evaluate(() => !/n\/a/.test([...document.querySelectorAll("#tr-report-session .tr-comment li")].map(l => l.textContent).join("|"))), "trivial “n/a” comments left out");
+  ok(await page.evaluate(() => !!document.querySelector("#tr-report-session .trf-nps-card") && /Interpretation/.test(document.querySelector("#tr-report-session").textContent)), "NPS card with interpretation (standalone layout)");
+  ok(await page.evaluate(() => document.querySelectorAll("#tr-report-session .trf-group").length >= 1 && !!document.querySelector("#tr-report-session .trf-dist-bar")), "rating groups with distribution bars");
+  ok(await page.evaluate(() => /Great pace <b>x<\/b>/.test(document.querySelector("#tr-report-session").textContent) &&
+      !document.querySelector("#tr-report-session .trf-quote b")), "theme quotes shown escaped (no HTML injection)");
+  ok(await page.evaluate(() => !/n\/a/.test([...document.querySelectorAll("#tr-report-session .trf-appendix-list li")].map(l => l.textContent).join("|"))), "trivial “n/a” comments left out of the appendix");
   ok(await page.evaluate(() => document.querySelector('.tr-table tbody tr[data-trsession="0"]').textContent.includes("Needs verifying")), "row marked Needs verifying");
   ok(await page.evaluate(() => /1 scored session/.test(document.querySelector(".tr-pending").textContent)), "pending bar shows 1 scored session not written");
 
@@ -175,6 +175,63 @@ const kpiVal = (page, scope, label) => page.evaluate(([sc, l]) => {
   ok(await page.evaluate(() => [...document.querySelectorAll("#trainers-body table")].every(t => t.getAttribute("data-resizable") === "static")),
     "trainers tables opt out of global column resizing");
 
+
+  // 13. Live-edit safeguards: (i) a metadata-only touch (OneDrive) must not refuse an
+  //     in-place save when the content is identical; (ii) an older tracker copy pauses writing.
+  await page.evaluate(() => { QBR.trainers._state.view = "sessions"; QBR.trainers.render(); });
+  await page.click('.tr-table tbody tr[data-trsession="1"]'); await page.waitForTimeout(300);
+  await upload(page, '[data-traction="upload-eval"]', evalPath);
+  await page.waitForFunction(() => !!document.querySelector('[data-traction="generate"], .tr-mapper'), null, { timeout: 8000 }).catch(() => {});
+  if (await page.evaluate(() => !!document.querySelector(".tr-mapper"))) { await page.click('[data-traction="save-map"]'); await page.waitForTimeout(300); }
+  const acceptAll = d => d.accept();   // session 2 already carries scores (step 10) + the eval is encoded on row 1: generate asks twice
+  page.on("dialog", acceptAll);
+  await page.click('[data-traction="generate"]'); await page.waitForTimeout(500);
+  page.off("dialog", acceptAll);
+  ok(await page.evaluate(() => { const s = QBR.trainers._state.tracker.sessions[1]; return !!(s.computed && s.status === "ready"); }), "safeguards setup: second session scored and pending write");
+  await page.evaluate(() => {
+    const t = QBR.trainers._state.tracker, snap = t.bytes.slice();
+    window.__fake = { bytes: snap, written: null, mtime: (t.mtime || 0) + 3600000 };
+    t.handle = {
+      getFile: async () => new File([window.__fake.bytes], t.name, { lastModified: window.__fake.mtime }),
+      createWritable: async () => ({ write: async b => { window.__fake.written = new Uint8Array(b); }, close: async () => {}, abort: async () => {} })
+    };
+    t.size = snap.length;              // as last synced
+    t.hash = QBR.fsHashOf(snap);       // as opened
+    t.mtime = 1000;                    // opened earlier: metadata will differ, content will not
+  });
+  let dlA = null;
+  page.once("dialog", d => d.accept());
+  [dlA] = await Promise.all([page.waitForEvent("download", { timeout: 6000 }).catch(() => null), page.click('.tr-pending [data-traction="writeback"]')]);
+  await page.waitForTimeout(400);
+  const inPlace = await page.evaluate(() => ({ written: !!window.__fake.written, st: QBR.trainers._state.tracker.sessions[1].status }));
+  ok(!dlA && inPlace.written && inPlace.st === "scored", "metadata-only change (OneDrive): content hash matches → in-place save proceeds, no download fallback");
+  // (ii) lineage regression: the browser remembers 99 sessions for this file name; re-opening the 2-session file warns
+  await page.evaluate(() => {
+    const m = JSON.parse(localStorage.getItem("qbr-trainers-lineage") || "{}");
+    m["tr-fixture-tracker.xlsx"] = { sessions: 99, hash: "stale-test-bogus", savedAt: "2026-10-23T00:00:00.000Z" };
+    localStorage.setItem("qbr-trainers-lineage", JSON.stringify(m));
+  });
+  await upload(page, '[data-trpill="tracker"]', trackerPath);
+  await page.waitForTimeout(700);
+  ok(await page.evaluate(() => !!document.querySelector(".tr-stale") && !!QBR.trainers._state.trackerStale), "older tracker copy: stale banner shows at open, sessions remembered (99) vs this file (2)");
+  await page.click('.tr-table tbody tr[data-trsession="0"]'); await page.waitForTimeout(300);
+  await upload(page, '[data-traction="upload-eval"]', evalPath);
+  await page.waitForFunction(() => !!document.querySelector('[data-traction="generate"], .tr-mapper'), null, { timeout: 8000 }).catch(() => {});
+  if (await page.evaluate(() => !!document.querySelector(".tr-mapper"))) { await page.click('[data-traction="save-map"]'); await page.waitForTimeout(300); }
+  await page.click('[data-traction="generate"]'); await page.waitForTimeout(500);
+  let dlB = null;
+  page.once("dialog", d => d.accept());
+  [dlB] = await Promise.all([page.waitForEvent("download", { timeout: 6000 }).catch(() => null), page.click('.tr-pending [data-traction="writeback"]')]);
+  await page.waitForTimeout(300);
+  const blocked = await page.evaluate(() => ({ status: (document.getElementById("tr-status") || {}).textContent || "", st: QBR.trainers._state.tracker.sessions[0].status }));
+  ok(!dlB && blocked.st === "ready" && /looks older than the last one used here/.test(blocked.status), "stale tracker: write-back paused with the warning; nothing written or downloaded");
+  await page.click('[data-traction="tracker-anyway"]'); await page.waitForTimeout(200);
+  ok(await page.evaluate(() => !document.querySelector(".tr-stale") && !QBR.trainers._state.trackerStale), "Use this tracker anyway: banner clears");
+  let dlC = null;
+  page.once("dialog", d => d.accept());
+  [dlC] = await Promise.all([page.waitForEvent("download", { timeout: 8000 }).catch(() => null), page.click('.tr-pending [data-traction="writeback"]')]);
+  ok(!!dlC && dlC.suggestedFilename() === "tr-fixture-tracker-scored.xlsx", "after confirming, write-back proceeds");
+
   const trErrs = errs.filter(e => /trainer/i.test(e));
   ok(trErrs.length === 0, "zero page errors from trainers code" + (trErrs.length ? ": " + trErrs.join(" | ") : ""));
 
@@ -208,6 +265,44 @@ const kpiVal = (page, scope, label) => page.evaluate(([sc, l]) => {
     await p3.click('[data-traction="generate"]').catch(() => {}); await p3.waitForTimeout(300);
     ok(await kpiVal(p3, "#tr-report-session", "Session NPS") === "25.0", "storage blocked: eval-only report still works");
     ok(e3.filter(e => /trainer/i.test(e)).length === 0, "storage blocked: zero trainers errors");
+    await ctx.close();
+  }
+  // 14. Wired feedback layout: pre-generate title, trainer type-in (no dropdown),
+  //     prefilled date/org, write-back kept, export filename rule, toggles
+  {
+    const ctx = await browser.newContext();
+    const p4 = await ctx.newPage(); const e4 = [];
+    p4.on("pageerror", e => e4.push(String(e.message)));
+    await p4.goto(APP, { waitUntil: "domcontentloaded" });
+    await p4.waitForTimeout(800);
+    await p4.evaluate(() => { document.getElementById("app-body").classList.remove("d-none"); window.showOpenFilePicker = undefined; });
+    await p4.click('[data-tab="dash-trainers"]'); await p4.waitForTimeout(300);
+    await upload(p4, '[data-trpill="tracker"]', trackerPath);
+    await p4.waitForFunction(() => document.querySelectorAll(".tr-table tbody tr[data-trsession]").length === 2, null, { timeout: 8000 }).catch(() => {});
+    await p4.click('.tr-table tbody tr[data-trsession="0"]'); await p4.waitForTimeout(300);
+    await upload(p4, '[data-traction="upload-eval"]', evalPath);
+    await p4.waitForFunction(() => !!document.querySelector('[data-traction="generate"], .tr-mapper'), null, { timeout: 8000 }).catch(() => {});
+    if (await p4.evaluate(() => !!document.querySelector(".tr-mapper"))) { await p4.click('[data-traction="save-map"]'); await p4.waitForTimeout(300); }
+    ok(await p4.evaluate(() => { const i = document.querySelector("[data-trf=pretitle]"); return !!i && i.value === "Teams Workshop"; }), "pre-generate title input prefilled with the session title");
+    await p4.fill("[data-trf=pretitle]", "My Custom Title");
+    await p4.click('[data-traction="generate"]'); await p4.waitForTimeout(500);
+    ok(await p4.evaluate(() => { const h = document.querySelector("#tr-report-session [data-trf=title]"); return !!h && h.textContent.trim() === "My Custom Title"; }), "renamed title carries into the generated cover");
+    ok(await p4.evaluate(() => { const i = document.querySelector("#tr-report-session [data-trf=trainer]"); return !!i && i.value === "ROE, Sample III"; }), "trainer type-in prefilled from the session");
+    ok(await p4.evaluate(() => !document.querySelector(".facilitator-dropdown, [data-trf=trainer-list]")), "no fixed-choice facilitator dropdown anywhere in the report");
+    ok(await p4.evaluate(() => { const s = QBR.trainers._state.tracker.sessions[0]; const i = document.querySelector("#tr-report-session [data-trf=date]"); return !!i && i.value === s.dateISO; }), "session date prefilled from the session");
+    ok(await p4.evaluate(() => { const i = document.querySelector("#tr-report-session [data-trf=org]"); return !!i && i.value === "MRCWI"; }), "organization prefilled from the session client");
+    ok(await p4.evaluate(() => !!document.querySelector("#tr-report-session .tr-writeback")), "write-back bar kept under the new layout for a ready session");
+    ok(await p4.evaluate(() => QBR.trainers._exportName("DELA CRUZ JUAN", "2026-10-25", "CSQC") === "DELA CRUZ JUAN-OCTOBER 25, 2026 - CSQC"), "export filename rule: trainer-date-school");
+    await p4.fill("#tr-report-session [data-trf=trainer]", "DELA CRUZ JUAN");
+    await p4.fill("#tr-report-session [data-trf=date]", "2026-10-25");
+    await p4.fill("#tr-report-session [data-trf=org]", "CSQC");
+    await p4.waitForTimeout(200);
+    ok(await p4.evaluate(() => document.getElementById("tr-report-session").getAttribute("data-title") === "DELA CRUZ JUAN-OCTOBER 25, 2026 - CSQC"), "field edits sync the export filename live");
+    await p4.check('[data-trf-toggle="appendix"]'); await p4.waitForTimeout(100);
+    ok(await p4.evaluate(() => document.getElementById("tr-report-session").classList.contains("trf-show-appendix")), "appendix toggle reveals the full-responses appendix");
+    await p4.uncheck('[data-trf-toggle="brand"]'); await p4.waitForTimeout(100);
+    ok(await p4.evaluate(() => document.getElementById("tr-report-session").classList.contains("trf-nobrand")), "branding toggle hides the cover brand header");
+    ok(e4.filter(e => /trainer/i.test(e)).length === 0, "wired layout: zero trainers errors");
     await ctx.close();
   }
   await browser.close();
