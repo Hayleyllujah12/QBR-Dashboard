@@ -77,8 +77,17 @@ function scanParseOCRText(text) {
   /* MTM printed on the label: "(31P)MTM: 21M4S5VD00" (OCR reads it reliably even when the thin barcode
    * above it doesn't decode). Exactly 10 chars, letters + digits; "(1S)MTM SN: …" is skipped because
    * "SN" breaks the 10-char run. Fallback: the head of a printed MTM+SN run that ends with the serial. */
-  const mtmM = /MTM\s*[:.=]?\s*([A-Z0-9]{10})(?![A-Z0-9])/i.exec(text);
-  if (mtmM && scanLooksLikeMtm(mtmM[1])) result.mtm = mtmM[1].toUpperCase();
+  /* 2026-10-27: field labels showed MTM blank on some E14 Gen 6 photos. OCR variants now accepted:
+   * "M/T/M", "MT M", "Machine Type Model"; a space or dash inside the value ("21M4 S5VD00"); the value
+   * glued to the next label ("21M4S5VD00SN: …"). A value starting with "SN" is the (1S)MTM SN caption,
+   * never an MTM. */
+  const mtmRx = /(?:MTM|M\s*\/\s*T\s*\/?\s*M|MT\s+M|MACHINE\s*TYPE(?:\s*(?:&|AND)?\s*MODEL)?)\s*[:.=]?\s*((?:[A-Z0-9][ \-]?){9}[A-Z0-9])(?=$|[^A-Z0-9]|S\s*\/?\s*N)/gi;
+  let mtmV = "", mm;
+  while (!mtmV && (mm = mtmRx.exec(text)) !== null) {
+    const v = mm[1].replace(/[ \-]/g, "").toUpperCase();
+    if (!/^SN/.test(v) && scanLooksLikeMtm(v)) mtmV = v;
+  }
+  if (mtmV) result.mtm = mtmV;
   else if (result.serial) {
     const runs = String(text).toUpperCase().match(/[A-Z0-9]{18,20}/g) || [];
     const hit = runs.find(r => r.endsWith(result.serial.toUpperCase()) && scanLooksLikeMtm(r.slice(0, r.length - result.serial.length)));
@@ -586,7 +595,7 @@ function scanRenderRows() {
       <td>${thumb}</td>
       <td><input class="scan-input" data-f="model" data-id="${row.id}" value="${esc(row.model)}" placeholder="Model"></td>
       <td><input class="scan-input" data-f="serial" data-id="${row.id}" value="${esc(row.serial)}" placeholder="Serial" style="font-family:monospace"></td>
-      <td><input class="scan-input" data-f="mtm" data-id="${row.id}" value="${esc(row.mtm || "")}" placeholder="MTM" style="font-family:monospace"></td>
+      <td><input class="scan-input" data-f="mtm" data-id="${row.id}" value="${esc(row.mtm || "")}" placeholder="${row.status === "done" ? "not read" : ""}" title="${row.mtm ? (row.mtmSrc === "inventory" ? "MTM from the Inventory record for this serial" : "MTM read from the label") : "MTM not read from this photo: type it, or re-scan a closer photo of the (31P) MTM line"}" aria-label="MTM" style="font-family:monospace"></td>
       <td><input class="scan-input" data-f="productKey" data-id="${row.id}" value="${esc(row.productKey)}" placeholder="—"></td>
       <td class="small text-muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(row.barcodeRaw)}">${esc(row.barcodeRaw) || "—"}</td>
       <td>${scanRowStatus(row)}</td>
@@ -798,6 +807,14 @@ async function scanRowScan(id) {
     // never overwrite a hand-edited field
     if (!row.serial) row.serial = res.serial;
     if (!row.mtm) row.mtm = res.mtm || "";
+    // 2026-10-27: label unreadable -> use the MTM already on file for this serial (02 DEVICES), if any.
+    if (!row.mtm && row.serial) {
+      try {
+        const inv = (typeof APP !== "undefined" && APP.model) ? APP.model.inventory : null;
+        const a = inv && inv.assets ? inv.assets.find(x => x.key === scanKey(row.serial)) : null;
+        if (a && a.mtm && scanLooksLikeMtm(a.mtm)) { row.mtm = String(a.mtm).toUpperCase(); row.mtmSrc = "inventory"; }
+      } catch (e) {}
+    }
     if (!row.productKey) row.productKey = res.productKey;
     if (!row.model) row.model = res.model;
     row.status = "done";
