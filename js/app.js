@@ -1694,18 +1694,41 @@ function renderPostmaster() {
     (f.month !== "ALL" ? `Reputation: ${f.month[0] + f.month.slice(1).toLowerCase()}.` :
       (!isAllQ() ? `Reputation: latest scored month in ${quarterLabel()}.` : "Reputation: each domain's most recent scored month."));
   APP._pmList = list;
-  renderPmTable("");
+  pmFillFilters();
+  renderPmTable(($("pm-search") || {}).value || "");
 }
 
-function renderPmTable(q) {
-  const rf = ($("pm-rep") && $("pm-rep").value) || "ALL";
-  const vBy = APP.model.pmVerifyByKey || {};
-  const list = (APP._pmList || []).filter(e => {
-    if (q && !e.schoolRaw.toLowerCase().includes(q.toLowerCase())) return false;
-    if (rf === "ALL") return true;
-    if (VERIFY_ORDER.includes(rf)) return (vBy[e.key] ? vBy[e.key].pmTool : "Unknown") === rf;
-    return e.reputation === rf;                       // reputation value
+/* 2026-10-27: All Domains table filters = one dropdown per field. Options come from the rows actually
+ * loaded (so Google's live states like "Issues detected" / "Verify to see health" are listed), each with
+ * its count; the current choice survives re-renders, and a choice no longer present falls back to All. */
+function pmFieldVals(e) {
+  const v = (APP.model.pmVerifyByKey || {})[e.key];
+  return { verify: v ? v.pmTool : "Unknown", dns: v ? v.dns : "Unknown", rep: e.reputation || "No entry", org: e.org || orgOf(e.key) || "—" };
+}
+function pmFillFilters() {
+  const list = APP._pmList || [];
+  [["pm-f-verify", "verify", "All verification"], ["pm-f-dns", "dns", "All DNS"], ["pm-f-rep", "rep", "All reputations"], ["pm-f-org", "org", "All organizations"]].forEach(([id, f, all]) => {
+    const sel = $(id); if (!sel) return;
+    const cur = sel.value || "ALL", counts = {};
+    list.forEach(e => { const k = pmFieldVals(e)[f]; counts[k] = (counts[k] || 0) + 1; });
+    const keys = Object.keys(counts).sort((a, b) => f === "org" ? a.localeCompare(b) : (counts[b] - counts[a]) || a.localeCompare(b));
+    sel.innerHTML = `<option value="ALL">${esc(all)}</option>` + keys.map(k => `<option value="${esc(k)}">${esc(k)} (${counts[k]})</option>`).join("");
+    sel.value = keys.indexOf(cur) >= 0 ? cur : "ALL";
   });
+}
+function renderPmTable(q) {
+  const want = { verify: ($("pm-f-verify") || {}).value || "ALL", dns: ($("pm-f-dns") || {}).value || "ALL",
+                 rep: ($("pm-f-rep") || {}).value || "ALL", org: ($("pm-f-org") || {}).value || "ALL" };
+  const vBy = APP.model.pmVerifyByKey || {};
+  const ql = String(q || "").toLowerCase();
+  const all = APP._pmList || [];
+  const list = all.filter(e => {
+    if (ql && !(e.schoolRaw.toLowerCase().includes(ql) || String(e.domain || "").toLowerCase().includes(ql))) return false;
+    const fv = pmFieldVals(e);
+    return Object.keys(want).every(k => want[k] === "ALL" || fv[k] === want[k]);
+  });
+  const cnt = $("pm-count");
+  if (cnt) cnt.textContent = list.length === all.length ? `${all.length} domains` : `${list.length} of ${all.length} domains match the filters`;
   const badge = (r) => {
     if (!r || r === "No entry") return '<span class="text-muted">—</span>';
     if (r === "Issues detected" || r === "BAD") return `<span class="badge bg-danger">${esc(r)}</span>`;
@@ -3263,8 +3286,13 @@ function initShell() {
   if (hst) hst.addEventListener("change", () => renderHealthTable(($("health-search") || {}).value || ""));
   const pm = $("pm-search");
   if (pm) pm.addEventListener("input", e => renderPmTable(e.target.value));
-  const pmr = $("pm-rep");
-  if (pmr) pmr.addEventListener("change", () => renderPmTable(($("pm-search") || {}).value || ""));
+  document.querySelectorAll(".pm-f").forEach(sel => sel.addEventListener("change", () => renderPmTable(($("pm-search") || {}).value || "")));
+  const pmReset = $("pm-f-reset");
+  if (pmReset) pmReset.addEventListener("click", () => {
+    document.querySelectorAll(".pm-f").forEach(sel => { sel.value = "ALL"; });
+    if ($("pm-search")) $("pm-search").value = "";
+    renderPmTable("");
+  });
   const rsv = $("risky-secdef-view");
   if (rsv) rsv.addEventListener("change", () => renderRisky());
   const ut = $("usage-tenant");
