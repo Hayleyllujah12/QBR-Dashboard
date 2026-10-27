@@ -30,12 +30,27 @@ const cert = (name, family, sy) => ({
 const NAME_AT = [1699462, 3536271], EXAM_AT = [1219962, 4539577];
 const BADGE_AT = [1135740, 1056323];
 
+// 2026-10-27 layout Phase A moves the centred boxes (title/certify/name/exam)
+// horizontally onto one centre line, so boxes are matched by y + the
+// template x of the non-centred ones; centred ones match by y + width.
+const CENTRED = { 1120085: 5984091, 2937405: 2058676, 3536271: 7131547, 4539577: 8242811 };
 function boxRuns(xml, at) {
   for (const b of eng.topSpBlocks(xml)) {
-    const off = eng.offOf(b.text);
-    if (off && Math.abs(off[0] - at[0]) <= 45720 && Math.abs(off[1] - at[1]) <= 45720) return eng.runTexts(b.text);
+    const off = eng.offOf(b.text), ext = eng.extOf(b.text);
+    if (!off || Math.abs(off[1] - at[1]) > 45720) continue;
+    if (CENTRED[at[1]] ? (ext && ext[0] === CENTRED[at[1]]) : Math.abs(off[0] - at[0]) <= 45720) return eng.runTexts(b.text);
   }
   return null;
+}
+// Template geometry with the centred boxes' x replaced by "C" (and checked:
+// box centre on 5.971in) — everything else must stay byte-identical.
+const CX_EMU = Math.round(5.971 * 914400);
+function geomCentred(list, tag) {
+  return list.map(g => {
+    const [x, y, cx, cy] = g.split(",").map(Number);
+    if (CENTRED[y] === cx) return "C," + y + "," + cx + "," + cy + (tag && Math.abs(x + cx / 2 - CX_EMU) > 1 ? "!off-centre" : "");
+    return g;
+  });
 }
 function hasBadge(xml) {
   return eng.topSpBlocks(xml).some(b => {
@@ -126,8 +141,8 @@ async function templateSlides() {
   const titleBlock = /<a:r>[\s\S]*?<a:t>Microsoft Office Specialist[^<]*<\/a:t>[\s\S]*?<\/a:r>/.exec(outA.xml[outA.names[0]]);
   ok(!!titleBlock && /b="1"/.test(titleBlock[0]), "A: exam title run is bold (rPr b=1)");
   // Geometry + fonts untouched (off/ext pairs identical to template slide).
-  eq(geomList(outA.xml[outA.names[0]]).join(";"), geomList(tpl[1]).join(";"), "A: Excel slide geometry identical to template");
-  eq(geomList(outA.xml[outA.names[1]]).join(";"), geomList(tpl[3]).join(";"), "A: Word slide geometry identical to template");
+  eq(geomCentred(geomList(outA.xml[outA.names[0]]), true).join(";"), geomCentred(geomList(tpl[1])).join(";"), "A: Excel slide geometry = template, centred boxes on the 5.971in line");
+  eq(geomCentred(geomList(outA.xml[outA.names[1]]), true).join(";"), geomCentred(geomList(tpl[3])).join(";"), "A: Word slide geometry = template, centred boxes on the 5.971in line");
   ok(hasBadge(outA.xml[outA.names[0]]) && hasBadge(outA.xml[outA.names[1]]) && hasBadge(outA.xml[outA.names[2]]), "A: badges present on all Associate slides");
   // Signatories written.
   const sigA = boxRuns(outA.xml[outA.names[0]], [1699462, 6324600]);
@@ -145,7 +160,7 @@ async function templateSlides() {
   ok(!hasBadge(outB.xml[outB.names[0]]), "B: Expert slide has NO badge shape");
   const examB = boxRuns(outB.xml[outB.names[0]], EXAM_AT);
   ok(examB[1].includes("Excel Expert (Office 365 Apps)"), "B: Expert title (no Associate)");
-  const tplGeom = geomList(tpl[1]), outGeom = geomList(outB.xml[outB.names[0]]);
+  const tplGeom = geomCentred(geomList(tpl[1])), outGeom = geomCentred(geomList(outB.xml[outB.names[0]]), true);
   eq(outGeom.length, tplGeom.length - 1, "B: geometry list is template minus exactly the badge");
   eq(outGeom.join(";"), tplGeom.filter(g => g !== "1135740,1056323,1765573,1765573").join(";"), "B: all other geometry identical");
   const relCount = s => (s.match(/<Relationship /g) || []).length;

@@ -2449,11 +2449,13 @@ body.identity-gated:not(.identity-authed) :is(.app-header,#app-sidebar,main,#det
 .mos-comp-partner{position:absolute;left:9.629in;top:0;height:1.123in;width:1.224in;z-index:1}
 .mos-comp-badge{position:absolute;left:1.242in;top:1.155in;width:1.931in;height:1.931in;object-fit:contain;z-index:1}
 .mos-comp-body{position:absolute;left:0;top:0;width:11in;height:8.5in;z-index:1;text-align:center}
-.mos-comp-title{position:absolute;left:3.473in;top:1.225in;width:6.544in;text-align:center;font-size:48pt;font-weight:700;line-height:1.05;letter-spacing:.5px}
-.mos-comp-certify{position:absolute;left:4.494in;top:3.43in;width:2.251in;text-align:left;font-size:16pt}
+/* 2026-10-27 layout Phase A: title / certify / name / exam share ONE centre line (5.971in = centre of the area right of
+   the accent bars) — js/mos-completion-layout.js; font sizes scale with --fs (Adjust layout). */
+.mos-comp-title{position:absolute;left:2.699in;top:1.225in;width:6.544in;text-align:center;font-size:calc(48pt * var(--fs,1));font-weight:700;line-height:1.05;letter-spacing:.5px}
+.mos-comp-certify{position:absolute;left:4.8455in;top:3.43in;width:2.251in;text-align:center;font-size:calc(16pt * var(--fs,1))}
 .mos-comp-line{font-size:16pt;margin-top:.08in}
-.mos-comp-name{position:absolute;left:1.859in;top:3.867in;width:7.799in;text-align:center;font-size:32pt;font-weight:700;margin:0}
-.mos-comp-exam{position:absolute;left:1.334in;top:4.965in;width:9.014in;text-align:center;font-size:16pt;line-height:21.75pt;margin:0}
+.mos-comp-name{position:absolute;left:2.0715in;top:3.867in;width:7.799in;text-align:center;font-size:calc(32pt * var(--fs,1));font-weight:700;margin:0}
+.mos-comp-exam{position:absolute;left:1.464in;top:4.965in;width:9.014in;text-align:center;font-size:calc(16pt * var(--fs,1));line-height:calc(21.75pt * var(--fs,1));margin:0}
 .mos-comp-exam b{font-weight:700}
 .mos-comp-given{font-size:16pt;margin-top:.12in}
 .mos-comp-cert .mos-comp-sigs{position:absolute;left:0;top:0;width:11in;z-index:1}
@@ -2462,8 +2464,17 @@ body.identity-gated:not(.identity-authed) :is(.app-header,#app-sidebar,main,#det
 .mos-comp-cert .mos-comp-sigs .mos-comp-sig:last-child{left:7.048in;width:2.803in}
 .mos-comp-cert .mos-comp-sig img{position:absolute;bottom:calc(100% + 0.089in);left:0;right:0;margin:0 auto;height:.9in;width:auto;max-width:100%;object-fit:contain}
 .mos-comp-sigedit .mos-comp-sig{width:2.6in;text-align:center}
-.mos-comp-sig-name{font-size:15pt;margin-top:0;min-height:1.2em}
-.mos-comp-sig-role,.mos-comp-sig-org{font-size:11pt}
+.mos-comp-sig-name{font-size:calc(15pt * var(--fs,1));margin-top:0;min-height:1.2em}
+.mos-comp-sig-role,.mos-comp-sig-org{font-size:calc(11pt * var(--fs,1))}
+/* Adjust layout panel + drag on the preview (snap guide on the shared centre line). */
+.mos-lay-table td,.mos-lay-table th{vertical-align:middle;padding:.2rem .35rem}
+.mos-lay-table input[type=number]{width:5.2rem}
+.mos-lay-out{color:var(--bad-fg);font-weight:600}
+.mos-comp-preview.mos-lay-drag [data-lay]{cursor:move;outline:1px dashed transparent}
+.mos-comp-preview.mos-lay-drag [data-lay]:hover,.mos-comp-preview.mos-lay-drag [data-lay].mos-lay-sel{outline-color:var(--brand)}
+.mos-comp-guide{position:absolute;top:0;bottom:0;left:5.971in;width:0;border-left:1px dashed #0078D4;z-index:5;display:none;pointer-events:none}
+.mos-comp-guide.on{display:block}
+@media print{.mos-comp-guide{display:none !important}}
 .mos-comp-preview{overflow:auto;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--subtle);padding:12px}
 .mos-comp-preview .mos-comp-cert{margin:0 auto;box-shadow:0 2px 10px rgba(0,0,0,.25)}
 #mos-print .mos-sum-doc{font-family:"Segoe UI",system-ui,sans-serif;color:#000;font-size:10.5pt;-webkit-print-color-adjust:exact;print-color-adjust:exact}
