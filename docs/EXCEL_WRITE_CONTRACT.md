@@ -1,6 +1,6 @@
 # Excel write contract — scope (2026-10-28)
 
-Status: **SCOPE ONLY. Not built.** Branch `refactor/excel-write-contract` (from `develop` 1353168, after PR #30).
+Status: **SCOPED, decisions taken (§4). Not built.** Branch `refactor/excel-write-contract` (from `develop` 1353168, after PR #30).
 Goal: every feature that edits an Excel file goes through ONE save path, so every module behaves the same way when:
 - the file is open in Excel (locked);
 - the file was changed in Excel (merge);
@@ -105,11 +105,11 @@ adapter = {
 | **4** | Trainers tracker → kind `trainers` (side, editLog off); `planWriteback` output becomes ops keyed by session ID | M | Locked/changed no longer download a copy; pending sessions show in the badge |
 | **5** | Remove the allowlist; delete the dead code paths | S | Lint test then enforces the rule |
 
-## 4. Decisions needed from the owner
-1. **Autosave** for Domain registration and the MOS log (save right after each edit, as today, but keep the edit pending when the file is locked). *Recommended: yes.*
-2. **Trainers**: replace "download a copy" on locked / changed-in-Excel with "keep pending + merge". *Recommended: yes.*
-3. **EDIT LOG sheet**: keep it off for the domain tracker, the MOS log and the trainers tracker (they're shared files; the MOS log already records who/when itself). *Recommended: off.*
-4. **PR granularity**: one PR per phase (recommended), or Phase 0+1 together.
+## 4. Owner decisions (2026-10-28)
+1. **Autosave**: YES for Domain registration and the MOS log. They save right after each edit; a locked file keeps the edit pending with the red note.
+2. **Trainers**: keep pending + merge (no more "download a copy" when the tracker is locked or changed in Excel).
+3. **EDIT LOG sheet**: OFF for the domain tracker, the MOS Certificate Log and the trainers tracker (`editLog: false`).
+4. **PRs**: one PR per phase (0 → 5), each beta-checked on `develop` before the next starts.
 
 ## 5. Risks
 - **Phase 1 touches the save path of 5 kinds.** Mitigation: byte-for-byte comparison of saves before/after, the full suite, and a hosted beta pass before Phase 2.
