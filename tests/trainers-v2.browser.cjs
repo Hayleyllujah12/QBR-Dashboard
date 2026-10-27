@@ -173,8 +173,8 @@ async function fresh(browser) {
   await page.click('[data-traction="print-session"]'); await page.waitForTimeout(800);
   ok(await page.evaluate(() => window.__printed === 2 && /Participant feedback summary/.test(window.__printHtml) && /Recommendations/.test(window.__printHtml)),
     "E5 Session report (PDF) prints the feedback report");
-  ok(await page.evaluate(() => /tr-p-(pair|stack)/.test(window.__printHtml) && /tr-p-(keep|flow)/.test(window.__printHtml) && /--tr-tiles: ?5/.test(window.__printHtml)),
-    "E6 print layout decided from content (pairs / stacked long tables, 5 tiles per row)");
+  ok(await page.evaluate(() => /tr-p-(keep|flow)/.test(window.__printHtml) && (window.__printHtml.match(/trf-kpi /g) || []).length === 5),
+    "E6 print layout decided from content (keep/flow sections, 5 KPI tiles)");
   ok(await page.evaluate(() => { const f = QBR.trainers._state.lastFit; return !!f && f.pages >= 1 && !document.querySelector("#tr-print .tr-print-foot") && /printed /.test(window.__printHtml); }),
     "E7 page fitting ran before print (measured at paper width); no stray footer block");
   await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));

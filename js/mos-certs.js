@@ -21,8 +21,9 @@
   var BY_KEY = "qbr-mos-printedby";
   var C = {
     log: null,          // { name, where, handle, dirId, writable, bytes, parsed, dirty }
-    links: {}, sel: {}, folderId: "", busy: false, msg: "", limit: 300,
+    links: {}, sel: {}, folderId: "", busy: false, prog: null, msg: "", limit: 300,
     scope: "",          // "" = schools in the loaded results (all when none), "all" = every school folder
+    logStale: null, logViewOnly: false, justCreated: false,   // stale-log lineage guard (see useLog)
     f: { school: "", examNo: "", cert: "", status: "", q: "" }
   };
 
@@ -43,6 +44,21 @@
   function dateOf(iso) { return iso ? new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) : ""; }
   function M() { return QBR.mos && QBR.mos._state ? QBR.mos._state() : null; }
   function msg(t) { C.msg = t || ""; var el = $("mos-cert-msg"); if (el) el.textContent = C.msg; }
+  // Progress for the folder load: determinate bar where a real fraction
+  // exists (file reads), sliding bar where it doesn't (the folder scan).
+  // Without it a large folder looked hung and invited spam-clicking.
+  function progHtml() {
+    var p = C.prog; if (!p) return "";
+    if (p.frac == null) return '<div style="height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden"><i style="display:block;height:100%;width:40%;border-radius:3px;background:var(--amber,#e8a33d);animation:readslide 1.1s ease-in-out infinite"></i></div>' +
+      '<div class="small text-muted mt-1">' + esc(p.label || "Loading\u2026") + "</div>";
+    var pct = Math.max(0, Math.min(100, Math.round(p.frac * 100)));
+    return '<div class="progress" style="height:16px" role="progressbar" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:' + pct + '%"></div></div>' +
+      '<div class="small text-muted mt-1">' + esc(p.label || "") + " \u00b7 " + pct + "%</div>";
+  }
+  function setProg(label, frac) {
+    C.prog = label == null ? null : { label: label, frac: frac };
+    var el = $("mos-cert-prog"); if (el) el.innerHTML = progHtml();
+  }
 
   /* ---------------- log workbook ---------------- */
   function findLogSheet(wb) {
@@ -68,9 +84,45 @@
     XLSX.utils.book_append_sheet(wb, ws, P().LOG_SHEET);
     return new Uint8Array(XLSX.write(wb, { bookType: "xlsx", type: "array" }));
   }
+  /* Stale-log lineage: the browser remembers the last log seen per folder
+   * (path, row count, printed count, content hash — no student data). Opening
+   * a copy whose counts went BACKWARDS (an older version of the log) pauses
+   * saving (view-only) until the user confirms it is the file they mean. */
+  var LINEAGE_KEY = "qbr-mos-cert-log-lineage";
+  function lineageMap() { try { return JSON.parse(localStorage.getItem(LINEAGE_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function logStats(o) {
+    var rows = o.parsed ? o.parsed.order.length : 0;
+    var printed = o.parsed ? o.parsed.order.filter(function (c) { return P().logPrinted(o.parsed.rows[c].v); }).length : 0;
+    var hash = (typeof QBR.fsHashOf === "function" && o.bytes) ? QBR.fsHashOf(o.bytes) : (o.bytes ? o.bytes.length : 0);
+    return { rows: rows, printed: printed, hash: hash };
+  }
+  function saveLineage(o) {
+    if (!o || !o._lineageKey) return;
+    try {
+      var m = lineageMap(), st = logStats(o);
+      m[o._lineageKey] = { where: o.where || o.name, rows: st.rows, printed: st.printed, hash: st.hash, savedAt: new Date().toISOString() };
+      localStorage.setItem(LINEAGE_KEY, JSON.stringify(m));
+    } catch (e) {}
+  }
   function useLog(o) {
     o.parsed = parseLog(o.bytes);
+    o._lineageKey = o.dirId ? "dir:" + o.dirId : "file:" + o.name;
     C.log = o;
+    if (C.justCreated) {           // brand-new log: no check, it becomes the lineage
+      C.justCreated = false;
+      C.logStale = null; C.logViewOnly = false;
+      saveLineage(o);
+      return;
+    }
+    var st = logStats(o), rec = null;
+    try { rec = lineageMap()[o._lineageKey] || null; } catch (e) {}
+    if (rec && rec.hash !== st.hash && (st.rows < rec.rows || st.printed < rec.printed)) {
+      C.logStale = { recRows: rec.rows, recPrinted: rec.printed, recWhere: rec.where || "", rows: st.rows, printed: st.printed };
+      C.logViewOnly = true;
+      return;                      // do NOT refresh the record — the remembered (newer) lineage stands
+    }
+    C.logStale = null; C.logViewOnly = false;
+    saveLineage(o);
   }
   /* OneDrive / sync tools touch a file right after it is written: a File snapshot taken a moment earlier then
    * fails with NotReadableError ("…permission problems that have occurred after a reference to a file was
@@ -133,6 +185,7 @@
     await loadFromFolder();
   }
   async function createLog() {
+    C.justCreated = true;   // a log created here must not trip the stale-log check in useLog
     var d = currentFolder(), dir = d && QBR.fsFolderDir ? await QBR.fsFolderDir(d.id, { ask: true }) : null;
     if (dir) {
       var h = null;
@@ -181,7 +234,53 @@
     var col = parsed.col, hr = parsed.headerRow, next = parsed.header.length;
     P().LOG_COLS.forEach(function (n) { if (col[n] == null) { col[n] = next++; put(hr, col[n], n); } });
     var last = parsed.last;
+    /* Completion-certificate log: separate column block in the SAME sheet,
+     * safely away from the passer columns. Passer cols are LOG_COLS (17);
+     * the first free column stays blank as a separator; completion cols
+     * follow. Rows have no verification code, so parseLogRows ignores them
+     * (passer parsing untouched). Dedup key: name|exam|school. */
+    var COMP_COLS = ["Completion Name", "Completion Exam", "Completion School", "Completion Section", "Completion Given Date", "Completion Issued", "Completion Count"];
+    var compCol = null, compLast = parsed.last, compKeys = null;
+    function compOp(op) {
+      if (!compCol) {
+        compCol = {};
+        var hdr = parsed.header || [], nx = hdr.length;
+        COMP_COLS.forEach(function (n) {
+          for (var j = 0; j < hdr.length; j++) if (String(hdr[j] || "").trim().toLowerCase() === n.toLowerCase()) { compCol[n] = j; break; }
+        });
+        if (compCol[COMP_COLS[0]] == null) nx++; // reserve the blank separator column on first creation
+        COMP_COLS.forEach(function (n) { if (compCol[n] == null) { compCol[n] = nx++; put(hr, compCol[n], n); } });
+      }
+      if (!compKeys) {
+        compKeys = {};
+        var aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: true, raw: true });
+        for (var i = hr + 1; i < aoa.length; i++) {
+          var row = aoa[i] || [];
+          var nm = row[compCol["Completion Name"]], ex = row[compCol["Completion Exam"]], sc = row[compCol["Completion School"]];
+          if (nm !== "" || ex !== "") compKeys[String(nm).trim().toLowerCase() + "|" + String(ex).trim().toLowerCase() + "|" + String(sc).trim().toLowerCase()] = i;
+        }
+      }
+      var key = String(op.name || "").trim().toLowerCase() + "|" + String(op.exam || "").trim().toLowerCase() + "|" + String(op.school || "").trim().toLowerCase();
+      var r = compKeys[key];
+      if (r == null) {
+        r = ++compLast; compKeys[key] = r;
+        put(r, compCol["Completion Name"], op.name || "");
+        put(r, compCol["Completion Exam"], op.exam || "");
+        put(r, compCol["Completion School"], op.school || "");
+        put(r, compCol["Completion Section"], op.section || "");
+        put(r, compCol["Completion Given Date"], op.given || "");
+        put(r, compCol["Completion Issued"], op.at || "");
+        put(r, compCol["Completion Count"], 1);
+      } else {
+        var aoa2 = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: true, raw: true });
+        var cur = +(aoa2[r] || [])[compCol["Completion Count"]] || 0;
+        put(r, compCol["Completion Issued"], op.at || "");
+        put(r, compCol["Completion Given Date"], op.given || "");
+        put(r, compCol["Completion Count"], cur + 1);
+      }
+    }
     ops.forEach(function (op) {
+      if (op.t === "completion") { compOp(op); return; }
       var rec = parsed.rows[op.code];
       if (!rec) {
         if (!op.row) return;
@@ -212,6 +311,7 @@
   }
   async function commit(ops, label) {
     if (!ops.length || C.busy) return false;
+    if (C.logViewOnly) { msg("This log looks older than the last one used here — confirm \u2018Use this file anyway\u2019 in the warning above before saving changes into it."); return false; }
     if (!C.log) {
       var d = currentFolder();
       if (!window.confirm("No certificate log yet.\n\nCreate “" + LOG_NAME + "”" + (d ? " in " + d.name : " (download it afterwards)") + " to record this?")) return false;
@@ -242,6 +342,7 @@
         }
       } else C.log.dirty = true;
       C.log.bytes = out; C.log.parsed = parseLog(out);
+      saveLineage(C.log);
       msg(label + (saved ? " — saved to " + C.log.name + "." : " — not saved to a file yet: use “Download log”."));
       return true;
     } catch (e) {
@@ -334,17 +435,19 @@
     if (fs) h += '<div class="mos-cert-folder"><span class="small text-muted">Certificates folder</span> ' +
       (fl.length > 1 ? '<select class="form-select form-select-sm d-inline-block w-auto" data-mc="folder-pick" aria-label="Certificates folder">' + fl.map(function (d) { return '<option value="' + esc(d.id) + '"' + (cf && cf.id === d.id ? " selected" : "") + ">📁 " + esc(d.name) + "</option>"; }).join("") + "</select>"
         : cf ? "<b>📁 " + esc(cf.name) + "</b>" : '<span class="small text-muted">none linked yet</span>') +
-      ' <button type="button" class="btn btn-outline-secondary btn-sm" data-mc="folder-choose" title="Pick the MOS folder (e.g. the course folder with the school folders). It is remembered and kept with your other linked folders.">' + (fl.length ? "Link another folder…" : "Choose folder…") + "</button>" +
+      ' <button type="button" class="btn btn-outline-secondary btn-sm" data-mc="folder-choose"' + (C.busy ? " disabled" : "") + ' title="Pick the MOS folder (e.g. the course folder with the school folders). It is remembered and kept with your other linked folders.">' + (fl.length ? "Link another folder…" : "Choose folder…") + "</button>" +
       ' <select class="form-select form-select-sm d-inline-block w-auto" data-mc="scope" aria-label="Schools to read" title="Which school folders to read certificate PDFs from">' +
         '<option value=""' + (C.scope !== "all" ? " selected" : "") + '>Schools in my results</option><option value="all"' + (C.scope === "all" ? " selected" : "") + ">All schools</option></select>" +
-      ' <button type="button" class="btn btn-primary btn-sm" data-mc="folder"' + (cf ? "" : " disabled") + ' title="Find certificate PDFs (folders and files with “Certificate” in the name, up to 6 levels deep) and the log in ' +
-      esc(cf ? cf.name : "the folder") + '">Load certificates</button></div>';
-    h += "</div>";
+      ' <button type="button" class="btn btn-primary btn-sm" data-mc="folder"' + (cf && !C.busy ? "" : " disabled") + ' title="Find certificate PDFs (folders and files with “Certificate” in the name, up to 6 levels deep) and the log in ' +
+      esc(cf ? cf.name : "the folder") + '">' + (C.busy ? "Loading\u2026" : "Load certificates") + '</button></div>';
+    h += "</div>" + '<div id="mos-cert-prog" class="mt-2">' + progHtml() + "</div>";
     var folderOnly = all.filter(function (i) { return i.kind === "cert" && i.inLog && i.pf && !i.logPrinted; }).length;
     if (folderOnly) h += '<div class="mos-cert-pend"><span><b>' + plural(folderOnly, "certificate") + "</b> " + (folderOnly === 1 ? "is" : "are") + " in a PRINTED folder but not marked printed in the log.</span>" +
       '<button type="button" class="btn btn-primary btn-sm" data-mc="record-folder">Record in log</button></div>';
     if (notIn) h += '<div class="mos-cert-pend"><span><b>' + plural(notIn, "certificate") + "</b> loaded here " + (notIn === 1 ? "is" : "are") + " not in the log yet (newly generated).</span>" +
       '<button type="button" class="btn btn-primary btn-sm" data-mc="add-log">Add to log</button></div>';
+    if (C.logStale && C.log) h += '<div class="mos-cert-pend mos-cert-stale"><span>\u26a0 <b>This log looks older than the last one used here</b> — last seen ' + C.logStale.recRows + " rows \u00b7 " + C.logStale.recPrinted + " printed (" + esc(C.logStale.recWhere) + "). This file has " + C.logStale.rows + " rows \u00b7 " + C.logStale.printed + " printed. Saving is paused (view-only) so nothing is written into the older copy.</span>" +
+      '<button type="button" class="btn btn-warning btn-sm" data-mc="log-use-anyway">Use this file anyway</button></div>';
     return h + '<div id="mos-cert-msg" class="small text-muted mt-1" role="status" aria-live="polite">' + esc(C.msg) + "</div>";
   }
   function render(host) {
@@ -432,7 +535,7 @@
         '<div class="tr-hint">' + esc([it.school, it.examNo ? "Exam " + it.examNo : ""].filter(Boolean).join(" · ")) + "</div></td>" +
       "<td>" + esc(it.cert) + '<div class="tr-hint" title="' + esc(it.version || "") + '">' + esc(fmtDate(it.date)) + (it.version ? " · " + esc(it.version) : "") + "</div></td>" +
       '<td><code>' + esc(it.code || "—") + "</code>" + (it.fileName ? '<div class="tr-hint mos-cert-file" title="' + esc(it.file + (it.page ? " · page " + it.page : "")) + '">' + esc(it.fileName) + (it.page ? " · p." + esc(it.page) : "") + "</div>" : "") +
-        (it.file && it.how !== "auto" ? ' <button type="button" class="btn btn-link btn-sm p-0" data-mc="preview" data-code="' + esc(it.code) + '">Preview</button>' : "") + "</td>" +
+        (it.file ? ' <button type="button" class="btn btn-link btn-sm p-0" data-mc="preview" data-code="' + esc(it.code) + '">Preview</button>' : "") + "</td>" +
       "<td>" + res + "</td>" +
       '<td><span class="risk-badge ' + b[0] + '">' + b[1] + "</span></td>";
   }
@@ -661,6 +764,7 @@
     if (!list.length) { var id = QBR.fsFolderPickOnly ? await QBR.fsFolderPickOnly() : null; if (!id) return; setFolder(id); }
     var d = currentFolder(); if (!d) return;
     C.busy = true; msg("Scanning " + d.name + " for certificate PDFs…");
+    setProg("Scanning " + d.name + " for certificate PDFs…", null); render();
     // Read only the schools in the loaded results (a whole MOS folder can hold 700+ certificate PDFs);
     // "All schools" reads every school folder.
     var s0 = M(), rs = {};
@@ -689,13 +793,17 @@
       pdfs.forEach(function (x) { var sc = P().fileMeta(d.name + "/" + x.rel.join("/")).school; perSchool[sc] = (perSchool[sc] || 0) + 1; });
       // Cache File objects for ALL PDFs (even already-read ones) so Preview can read them on demand.
       var _ms = M(), _fr = _ms ? _ms.fileRefs : null;
-      if (_fr) { for (var _i = 0; _i < pdfs.length; _i++) { try { var _fo = (await readHandle(pdfs[_i].handle)).file; var _p = d.name + "/" + pdfs[_i].rel.join("/"); try { _fo._path = _p; } catch (e) {} _fr[_p] = _fo; } catch (e) {} } }
+      if (_fr && pdfs.length) setProg("Reading certificate files…", 0);
+      if (_fr) { for (var _i = 0; _i < pdfs.length; _i++) { try { var _fo = (await readHandle(pdfs[_i].handle)).file; var _p = d.name + "/" + pdfs[_i].rel.join("/"); try { _fo._path = _p; } catch (e) {} _fr[_p] = _fo; } catch (e) {} setProg("Reading certificate files \u00b7 " + (_i + 1) + " of " + pdfs.length, pdfs.length ? (_i + 1) / pdfs.length : 1); if (_i % 20 === 19) await sleep(0); } }
       pdfs = pdfs.filter(function (x) { return !already[d.name + "/" + x.rel.join("/")]; });
+      if (pdfs.length) setProg("Reading new certificate files…", 0);
       for (var i = 0; i < pdfs.length; i++) {
         try { var fo = (await readHandle(pdfs[i].handle)).file; try { fo._path = d.name + "/" + pdfs[i].rel.join("/"); } catch (e) {} fl.push(fo); } catch (e) {}
+        setProg("Reading new certificate files \u00b7 " + (i + 1) + " of " + pdfs.length, pdfs.length ? (i + 1) / pdfs.length : 1); if (i % 20 === 19) await sleep(0);
       }
       var before = (M() || { certs: [] }).certs.length;
       C.busy = false;
+      if (fl.length) setProg("Matching " + plural(fl.length, "certificate") + " — watch the progress bar above…", null);
       if (fl.length && QBR.mos && QBR.mos.addCertFiles) await QBR.mos.addCertFiles(fl);
       var added = (M() || { certs: [] }).certs.length - before;
       var otherN = Object.keys(other).reduce(function (a, k) { return a + other[k]; }, 0);
@@ -714,7 +822,7 @@
         (res.truncated ? " · stopped early (very large folder — link a narrower one if something is missing)" : "") +
         (res.depthCapped ? " · " + res.depthCapped + " folder(s) deeper than 6 levels not opened" : "") + ".");
     } catch (e) { msg("Could not read the folder: " + (e && e.message || e)); }
-    finally { C.busy = false; render(); }
+    finally { setProg(null); C.busy = false; render(); }
   }
   function wire(host) {
     // Filter inputs are recreated on every render — always re-wire them.
@@ -749,6 +857,7 @@
       else if (a === "open-log") pickLog();
       else if (a === "create-log") createLog().then(render, function (er) { window.alert("Could not create the log: " + (er && er.message || er)); });
       else if (a === "download") { if (C.log) { download(C.log.bytes, C.log.name); C.log.dirty = false; } }
+      else if (a === "log-use-anyway") { C.logViewOnly = false; C.logStale = null; if (C.log) saveLineage(C.log); render(); }
       else if (a === "add-log") {
         var nw = items().filter(function (i) { return i.kind === "cert" && !i.inLog; });
         commit(nw.map(function (i) { return { t: "add", code: i.code, row: logRow(i) }; }), plural(nw.length, "certificate") + " added to the log");
@@ -792,6 +901,7 @@
     reset: function () { C.links = {}; C.sel = {}; C.msg = ""; C.f = { school: "", examNo: "", cert: "", status: "", q: "" }; },
     // test seams
     _state: C, _applyOps: applyOps, _parseLog: parseLog, _newLogBytes: newLogBytes,
+    _commitCompletion: function (records, label) { var ops = (records || []).map(function (r) { return { t: "completion", name: r.name, exam: r.exam, school: r.school, section: r.section, given: r.given, at: r.at || new Date() }; }); return commit(ops, label); },
     _useLog: function (o) { useLog(o); }
   };
 })();

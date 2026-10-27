@@ -2602,23 +2602,29 @@ QBR.refreshGdapChip = function () {
 // THE single processing path — identical for upload and restore.
 // Renders from APP.model (parsed) and APP.files (accumulated list), so both
 // must be set to their intended values BEFORE this is called.
-function processBuffers(buffers, meta) {
+async function processBuffers(buffers, meta, prog) {
   meta = meta || {};
-  try { APP.model = QBR.loadWorkbooks(buffers); }
+  // prog (optional, from loadItems): { onPhase, onParse, onRender } drives the shared
+  // load bar. Parse semantics unchanged: same 6 passes over the same buffers, same
+  // per-pass failure handling (a failing pass yields null for that slice, never aborts).
+  const tick = function (pass, fi) { if (prog) prog.onParse(pass, fi); };
+  const cb = function (pass) { return prog ? function (fi) { tick(pass, fi); } : undefined; };
+  if (prog) prog.onPhase();
+  try { APP.model = await QBR.loadWorkbooks(buffers, cb(0)); }
   catch (e) { $("upload-status").textContent = "Error: " + e.message; return false; }
-  try { APP.model.inventory = (typeof QBR.parseInventoryBuffers === "function") ? QBR.parseInventoryBuffers(buffers) : null; }
+  try { APP.model.inventory = (typeof QBR.parseInventoryBuffers === "function") ? await QBR.parseInventoryBuffers(buffers, cb(1)) : null; }
   catch (e) { console.warn("[QBR] inventory parse failed:", e && e.message); APP.model.inventory = null; }
-  try { APP.model.supplies = (typeof QBR.parseSuppliesBuffers === "function") ? QBR.parseSuppliesBuffers(buffers) : null; }
+  try { APP.model.supplies = (typeof QBR.parseSuppliesBuffers === "function") ? await QBR.parseSuppliesBuffers(buffers, cb(2)) : null; }
   catch (e) { console.warn("[QBR] supplies parse failed:", e && e.message); APP.model.supplies = null; }
-  try { APP.model.audit = (typeof QBR.parseAuditBuffers === "function") ? QBR.parseAuditBuffers(buffers) : null; }
+  try { APP.model.audit = (typeof QBR.parseAuditBuffers === "function") ? await QBR.parseAuditBuffers(buffers, cb(3)) : null; }
   catch (e) { console.warn("[QBR] audit parse failed:", e && e.message); APP.model.audit = null; }
   // NB: APP.model.storage / .usage belong to the TRACKER (arrays). The wizard's
   // workbook models live under auditStorage / auditUsage to avoid clobbering them
   // (v1.27.0 bug: overwriting .storage/.usage with null broke renderStorage for
   // every upload, since the wizard parsers return null when their file is absent).
-  try { APP.model.auditStorage = (typeof QBR.parseStorageBuffers === "function") ? QBR.parseStorageBuffers(buffers) : null; }
+  try { APP.model.auditStorage = (typeof QBR.parseStorageBuffers === "function") ? await QBR.parseStorageBuffers(buffers, cb(4)) : null; }
   catch (e) { console.warn("[QBR] storage parse failed:", e && e.message); APP.model.auditStorage = null; }
-  try { APP.model.auditUsage = (typeof QBR.parseUsageBuffers === "function") ? QBR.parseUsageBuffers(buffers) : null; }
+  try { APP.model.auditUsage = (typeof QBR.parseUsageBuffers === "function") ? await QBR.parseUsageBuffers(buffers, cb(5)) : null; }
   catch (e) { console.warn("[QBR] usage parse failed:", e && e.message); APP.model.auditUsage = null; }
   const s = APP.model.sources;
   const n = Object.values(s).filter(Boolean).length;
@@ -2641,6 +2647,7 @@ function processBuffers(buffers, meta) {
   const lc = $("loaded-close"); if (lc) lc.addEventListener("click", e => { e.stopPropagation(); setLoadedOpen(false); });
   const ls = $("loaded-scrim"); if (ls) ls.addEventListener("click", () => setLoadedOpen(false));
   wireGdapChip();
+  if (prog) await prog.onRender();
   renderFileList();
   updateSavedState(meta.savedAt || null);
   $("app-body").classList.remove("d-none");
@@ -2691,30 +2698,55 @@ function loadItems(items, meta) {
   APP.files = items;
   // v1.30.0: wait for the journal's IndexedDB backup to merge before replaying (bounded wait).
   const jReady = (typeof QBR !== "undefined" && QBR.journalReady) || Promise.resolve();
-  return Promise.all([Promise.all(items.map(it => readU8(it.blob, it.name))), jReady]).then(([buffers]) => {
-    // Fingerprints let persist.js key journal entries to exact file bytes and
-    // map each file to the inventory kinds it contributed.
+  // 2026-10-25 load bar: this session owns the bar when outermost; a nested load
+  // (a per-file reload inside Reload-all) stays silent so the outer session keeps
+  // driving the display. The bar hides in `finally`, including every error path.
+  const LP = (typeof QBR !== "undefined" && QBR.loadProgress) || null;
+  const own = LP ? LP.begin() : false;
+  const prog = own ? {
+    onPhase: function () { LP.phase("Parsing"); },
+    onParse: function (pass, fi) {
+      LP.parse(pass * items.length + fi + 1, 6 * items.length, fi + 1, items.length, items[fi].name);
+    },
+    onRender: async function () { LP.render(); await LP.yield(); }
+  } : null;
+  return (async function () {
     try {
-      if (typeof QBR !== "undefined" && QBR.fpOf) {
-        QBR._currentFps = items.map(it => QBR.fpOf(it.name, it.blob));
-        QBR._kindByFp = {};
+      // Sequential reads (was Promise.all): same buffers, same order, but each
+      // file now reports Reading i/N and yields so the bar paints. The journal
+      // wait still runs concurrently — it is awaited below, before any parsing.
+      const buffers = [];
+      for (let i = 0; i < items.length; i++) {
+        if (own) LP.read(i + 1, items.length, items[i].name);
+        buffers.push(await readU8(items[i].blob, items[i].name));
+        if (own) await LP.yield();
       }
-    } catch (e) {}
-    // 2026-10-06: remember the parsed bytes as the merge base for linked files
-    try { if (typeof QBR !== "undefined" && QBR.fsRememberBase) QBR.fsRememberBase(items, buffers); } catch (e) {}
-    const ok = processBuffers(buffers, meta || {});
-    if (!ok) { APP.files = prev; return ok; }
-    try { detectGdap(items, buffers); } catch (e) {}
-    // Replay any journaled entries recorded against these exact files
-    // (covers both fresh uploads and session restores after Ctrl+R).
-    try {
-      if (typeof QBR !== "undefined" && QBR.journalReplayFor) {
-        const n = QBR.journalReplayFor(APP.files);
-        if (n > 0 && typeof renderAll === "function") renderAll();
-      }
-    } catch (e) { console.warn("[QBR] journal replay failed:", e && e.message); }
-    return ok;
-  }).catch(err => { APP.files = prev; throw err; });
+      await jReady;
+      // Fingerprints let persist.js key journal entries to exact file bytes and
+      // map each file to the inventory kinds it contributed.
+      try {
+        if (typeof QBR !== "undefined" && QBR.fpOf) {
+          QBR._currentFps = items.map(it => QBR.fpOf(it.name, it.blob));
+          QBR._kindByFp = {};
+        }
+      } catch (e) {}
+      // 2026-10-06: remember the parsed bytes as the merge base for linked files
+      try { if (typeof QBR !== "undefined" && QBR.fsRememberBase) QBR.fsRememberBase(items, buffers); } catch (e) {}
+      const ok = await processBuffers(buffers, meta || {}, prog);
+      if (!ok) { APP.files = prev; return ok; }
+      try { detectGdap(items, buffers); } catch (e) {}
+      // Replay any journaled entries recorded against these exact files
+      // (covers both fresh uploads and session restores after Ctrl+R).
+      try {
+        if (typeof QBR !== "undefined" && QBR.journalReplayFor) {
+          const n = QBR.journalReplayFor(APP.files);
+          if (n > 0 && typeof renderAll === "function") renderAll();
+        }
+      } catch (e) { console.warn("[QBR] journal replay failed:", e && e.message); }
+      return ok;
+    } catch (err) { APP.files = prev; throw err; }
+    finally { if (LP) LP.end(); }
+  })();
 }
 
 function cacheSession() {

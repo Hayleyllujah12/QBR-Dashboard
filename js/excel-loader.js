@@ -886,11 +886,13 @@ function captureRaw(wb, model) {
 }
 
 // Parse one or more ArrayBuffers (each an uploaded workbook) into a merged model.
-QBR.loadWorkbooks = function (buffers) {
+/* 2026-10-25 load bar: optional onFile(i) reports per-file progress;
+ * with onFile the loop runs async (yield after each file so the bar paints),
+ * without it the original synchronous loop runs unchanged. */
+QBR.loadWorkbooks = function (buffers, onFile) {
   const model = emptyModel();
   QBR._repUnknown = {};   // reset the unrecognised-reputation register for this load
-  for (let bi = 0; bi < buffers.length; bi++) {
-    const buf = buffers[bi];
+  const one = function (buf, bi) {
     const wb = XLSX.read(buf, { type: "array" });
     parseRisky(wb, model);
     parseSecurity(wb, model);
@@ -906,12 +908,27 @@ QBR.loadWorkbooks = function (buffers) {
       if (fp && typeof QBR !== "undefined") { const set = QBR._kindByFp[fp] || (QBR._kindByFp[fp] = new Set()); set.add("domainreg"); }
     }
     captureRaw(wb, model);
+  };
+  const finish = function () {
+    canonicalizeOrgs(model);
+    dedupePostmaster(model);
+    synthesizePmVerify(model);
+    buildMasterSchools(model);
+    return model;
+  };
+  if (typeof onFile === "function") {
+    return (async function () {
+      var list = buffers || [];
+      for (var bi = 0; bi < list.length; bi++) {
+        one(list[bi], bi);
+        onFile(bi);
+        await new Promise(function (r) { setTimeout(r, 0); });
+      }
+      return finish();
+    })();
   }
-  canonicalizeOrgs(model);
-  dedupePostmaster(model);
-  synthesizePmVerify(model);
-  buildMasterSchools(model);
-  return model;
+  (buffers || []).forEach(one);
+  return finish();
 };
 
 // The standalone GOOGLE POSTMASTERTOOLS.xlsx carries a dedicated verification sheet

@@ -6,6 +6,21 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-27 — MOS › Completion certificates: centred text + "Adjust layout"
+  - The title, "This is to certify that", the student name and the exam/given lines now share one centre line (the
+    middle of the page area right of the coloured bars). Before, each line had its own centre and visibly drifted.
+    Same in the print preview, Save as PDF and the PowerPoint export.
+  - New "Adjust layout" panel under the signatories: move any object (title, MOS badge, certify line, name, exam lines,
+    each signatory block, RAKSO + partner logos) in 0.01in steps (arrow keys; Shift + arrow = 0.1in) and change its
+    size (font size for text, picture size for the badge and logos). "Centre" puts an object on the centre line,
+    "Reset" / "Reset all" go back to the default. Tick "Drag objects on the preview" to drag them on the preview —
+    they snap to the centre line. Saved in this browser (like the signatories) and used by Print, Save as PDF and
+    Download PPTX. An object pushed past the page edge shows "Outside the page".
+
+UPDATE — 2026-10-27 — MOS › Completion certificates: accent colour follows the exam
+  - PowerPoint certificates use the PowerPoint badge colour (orange-red) and Word certificates the Word blue for the left
+    bar, stripe and wave art — in the print preview AND the PowerPoint export (Excel stays green). They were always green.
+
 UPDATE — 2026-10-27 — Revision list (no version bump)
   - Guided audit: with more than one copy of the storage or usage report loaded, the NEWEST file is used (it used to be
     whichever was read last, so an older copy could hide a school's Q4 row). "No row for … in Q4" now says which file and
