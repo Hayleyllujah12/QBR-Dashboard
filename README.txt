@@ -6,6 +6,13 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-28 — Save to Excel: one save path for every module (groundwork, no visible change)
+  - Behind the scenes, the Risky sign-ins editor, guided audit, Inventory and Supplies now plug into one shared "workbook kind"
+    registry. Their saves are byte-for-byte the same as before. MOS Certificate Log, Domain registration and Trainers move onto it next.
+  - Fix: when a direct save can't be written safely and the dashboard downloads a copy instead, the Risky sign-ins, Storage and
+    Usage editors now download a copy of THAT workbook with your edits ("<name> (dashboard copy).xlsx") — it used to download an
+    unrelated Inventory export. Your edits stay pending either way.
+
 UPDATE — 2026-10-28 — Save to Excel: clear "not saved" messages + faster reloads (no version bump)
   - Saving while the workbook is open in desktop Excel now shows, in red next to Save: "Not saved — <file> is open in
     Excel. Close it there, then click Save again. Your edits are kept." Before, the panel redrew right after the save and

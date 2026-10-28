@@ -839,6 +839,40 @@ QBR.patchWorkbookFromJournal = function (kind, wb, fp) {
   try { return pPatchPass(kind, wb, fp, report); }
   finally { if (QBR._lastPatch && QBR._lastPatch.fp === fp && QBR._lastPatch.kind === kind) QBR._lastPatch.stamps = pTakeStamps(srcSnap); else pTakeStamps(srcSnap); }
 };
+/* ===================== workbook-kind registry (Excel write contract) =====
+ * docs/EXCEL_WRITE_CONTRACT.md, Phase 1 (2026-10-28). Every workbook kind that
+ * the dashboard writes to registers ONE adapter:
+ *   { label, ops: { opName: (wb, fp, args) -> "ok"|"noop"|"skip: why" },
+ *     detect?(wb) -> bool, rowKey?(op, args) -> string|null,
+ *     editLog (default true: append the "EDIT LOG" sheet),
+ *     source ("loaded" = in APP.files | "side" = a tab-owned file, see
+ *             QBR.fsAttachSide), autosave (save right after each edit),
+ *     download?(mode) -> result  (fallback copy; default: patched copy of the
+ *             last-saved bytes, see persist.js fsDownloadKind) }
+ * The five existing kinds are registered below by wrapping PATCH_OPS — same
+ * cell writers, same order, so their saves are byte-identical to before. */
+var WB_KINDS = {};
+QBR.wbKinds = {
+  register: function (kind, ad) {
+    if (!kind || !ad || typeof ad.ops !== "object") throw new Error("wbKinds.register: kind and ops are required");
+    Object.keys(ad.ops).forEach(function (op) { if (typeof ad.ops[op] !== "function") throw new Error("wbKinds.register(" + kind + "): op " + op + " is not a function"); });
+    WB_KINDS[kind] = Object.assign({ label: kind, source: "loaded", editLog: true, autosave: false }, ad, { kind: kind });
+    return WB_KINDS[kind];
+  },
+  get: function (kind) { return WB_KINDS[kind] || null; },
+  list: function () { return Object.keys(WB_KINDS); },
+  opFor: function (kind, op) { var a = WB_KINDS[kind]; return (a && a.ops && typeof a.ops[op] === "function") ? a.ops[op] : null; }
+};
+(function registerBuiltinKinds() {
+  function pick(names) { var o = {}; names.forEach(function (n) { o[n] = PATCH_OPS[n]; }); return o; }
+  QBR.wbKinds.register("audit", { label: "Risky sign-ins", ops: pick(["auditUpdateCell", "auditAddRow", "auditPasteRow"]) });
+  QBR.wbKinds.register("storage", { label: "Storage report", ops: pick(["storagePasteRow"]) });
+  QBR.wbKinds.register("usage", { label: "Usage report", ops: pick(["usagePasteRow"]) });
+  QBR.wbKinds.register("assets", { label: "Inventory", ops: pick(["invIntake", "invDeploy", "invAddTicket", "invUpdateTicket", "invTicketNote",
+    "invLinkTicket", "invSetTicketStatus", "invResolveTicket", "invSetStatus", "invUpdateAsset", "invAddDeployment"]), download: "model" });
+  QBR.wbKinds.register("supplies", { label: "Supplies", ops: pick(["supRecordTransaction", "supAddItem"]), download: "model" });
+})();
+
 function pPatchPass(kind, wb, fp, report) {
   // v1.30.0: read through the journal module (in-memory store survives a full localStorage).
   if (typeof QBR.journalEntries !== "function") return Object.assign(report, { ok: false, error: "no journal" });
@@ -847,7 +881,7 @@ function pPatchPass(kind, wb, fp, report) {
   const ops = entry && entry.ops ? entry.ops.filter(o => o && o.kind === kind) : [];
   const logRows = [];
   ops.forEach(o => {
-    const fn = PATCH_OPS[o.op];
+    const fn = QBR.wbKinds.opFor(kind, o.op) || PATCH_OPS[o.op];   // adapter first; PATCH_OPS = legacy fallback
     if (typeof fn !== "function") { report.skipped++; report.notes.push(o.op + ": unknown op"); return; }
     let res;
     try { res = fn(wb, fp, o.args || []); }
@@ -861,7 +895,8 @@ function pPatchPass(kind, wb, fp, report) {
       report.notes.push(o.op + ": " + res);
     }
   });
-  if (logRows.length) {
+  const ad = QBR.wbKinds.get(kind);
+  if (logRows.length && (!ad || ad.editLog !== false)) {
     try { pAppendEditLog(wb, logRows); } catch (e) { report.notes.push("edit-log: " + (e && e.message)); }
   }
   /* 2026-10-13: remember exactly which ops this pass wrote, so the save clears only those
