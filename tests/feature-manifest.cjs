@@ -9,7 +9,7 @@ const read = f => { try { return fs.readFileSync(path.join(APP, f), "utf8"); } c
 const F = [
   // [feature, file, [markers…]]
   ["Tracker engine + version", "js/excel-loader.js", ["QBR.VERSION", "QBR.scoreTenantHealth", "QBR.parseAuthMethods", "QBR.domainStatus", "QBR.buildCleanRows"]],
-  ["Tenant Health Index + drill-down", "js/app.js", ["computeHealthIndex", "thi-drill-btn"]],
+  ["Tenant Health Index + drill-down", "js/app.js", ["computeHealthIndex", "thi-drill-body"]],
   ["School 360", "index.html", ["dash-school", "s360-body"]],
   ["Data Quality audit", "js/data-quality.js", ["QBR.audit"]],
   ["Exports (deck / images / clean)", "js/app.js", ["exportCleanData", "collectChartImages", "swapChartsForPrint"]],

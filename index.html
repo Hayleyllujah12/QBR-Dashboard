@@ -115,61 +115,65 @@
   <div id="sb-scrim" class="sb-scrim" hidden></div>
   <aside id="app-sidebar" class="app-sidebar" aria-label="Dashboard navigation">
     <nav class="sb-nav" aria-label="Dashboard sections">
+      <!-- 2026-10 revamp: five sections. Each .sb-group[data-module] is still one admin
+           module (admin.js hides it via its sbg-* id); a section hides itself when all
+           of its modules are off (CSS :has). -->
         <button class="tab-btn sb-item active" type="button" data-tab="dash-overview" data-group="" aria-current="page"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-home"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-home-f"/></svg><span class="sb-label">Overview</span></button>
         <button class="tab-btn sb-item" type="button" data-tab="dash-school" data-group=""><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-building"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-building-f"/></svg><span class="sb-label">School 360</span></button>
-      <div class="sb-group" role="group" aria-labelledby="sbg-sec" data-module="security">
-        <div class="sb-gh" id="sbg-sec">Security &amp; identity</div>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-risky" data-group="Security &amp; identity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-shield-error"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-shield-error-f"/></svg><span class="sb-label">Risky sign-ins</span></button>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-soc" data-group="Security &amp; identity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-shield-error"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-shield-error-f"/></svg><span class="sb-label">Risky investigation</span></button>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-sec" data-group="Security &amp; identity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-shield-checkmark"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-shield-checkmark-f"/></svg><span class="sb-label">Security defaults</span></button>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-gdap" data-group="Security &amp; identity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-key"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-key-f"/></svg><span class="sb-label">GDAP partner access</span></button>
+      <div class="sb-section" role="group" aria-labelledby="sbs-sec">
+        <div class="sb-gh" id="sbs-sec">Security</div>
+        <div class="sb-group" role="group" aria-labelledby="sbg-sec" data-module="security"><span class="vh" id="sbg-sec">Security &amp; identity</span>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-risky" data-group="Security"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-shield-error"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-shield-error-f"/></svg><span class="sb-label">Risky sign-ins</span></button>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-soc" data-group="Security"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-shield-error"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-shield-error-f"/></svg><span class="sb-label">Risky investigation</span></button>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-sec" data-group="Security"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-shield-checkmark"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-shield-checkmark-f"/></svg><span class="sb-label">Security defaults</span></button>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-gdap" data-group="Security"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-key"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-key-f"/></svg><span class="sb-label">GDAP partner access</span></button>
+        </div>
       </div>
-      <div class="sb-group" role="group" aria-labelledby="sbg-health" data-module="health">
-        <div class="sb-gh" id="sbg-health">Tenant health</div>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-health" data-group="Tenant health"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-heart-pulse"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-heart-pulse-f"/></svg><span class="sb-label">Tenant status</span></button>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-usermgmt" data-group="Tenant health"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-people-team"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-people-team-f"/></svg><span class="sb-label">User management</span></button>
+      <div class="sb-section" role="group" aria-labelledby="sbs-tenants">
+        <div class="sb-gh" id="sbs-tenants">Tenants &amp; adoption</div>
+        <div class="sb-group" role="group" aria-labelledby="sbg-health" data-module="health"><span class="vh" id="sbg-health">Tenant health</span>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-health" data-group="Tenants &amp; adoption"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-heart-pulse"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-heart-pulse-f"/></svg><span class="sb-label">Tenant status</span></button>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-usermgmt" data-group="Tenants &amp; adoption"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-people-team"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-people-team-f"/></svg><span class="sb-label">User management</span></button>
+        </div>
+        <div class="sb-group" role="group" aria-labelledby="sbg-adopt" data-module="adoption"><span class="vh" id="sbg-adopt">Adoption &amp; capacity</span>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-usage" data-group="Tenants &amp; adoption"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-data-bar-vertical"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-data-bar-vertical-f"/></svg><span class="sb-label">Microsoft 365 usage</span></button>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-canva" data-group="Tenants &amp; adoption"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-paint-brush"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-paint-brush-f"/></svg><span class="sb-label">Canva Education</span></button>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-storage" data-group="Tenants &amp; adoption"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-storage"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-storage-f"/></svg><span class="sb-label">Storage</span></button>
+        </div>
+        <div class="sb-group" role="group" aria-labelledby="sbg-mail" data-module="mail"><span class="vh" id="sbg-mail">Domains &amp; email</span>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-domainreg" data-group="Tenants &amp; adoption"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-globe"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-globe-f"/></svg><span class="sb-label">Domain registration</span></button>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-postmaster" data-group="Tenants &amp; adoption"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-mail"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-mail-f"/></svg><span class="sb-label">Google Postmaster</span></button>
+        </div>
       </div>
-      <div class="sb-group" role="group" aria-labelledby="sbg-adopt" data-module="adoption">
-        <div class="sb-gh" id="sbg-adopt">Adoption &amp; capacity</div>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-usage" data-group="Adoption &amp; capacity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-data-bar-vertical"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-data-bar-vertical-f"/></svg><span class="sb-label">Microsoft 365 usage</span></button>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-canva" data-group="Adoption &amp; capacity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-paint-brush"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-paint-brush-f"/></svg><span class="sb-label">Canva Education</span></button>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-storage" data-group="Adoption &amp; capacity"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-storage"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-storage-f"/></svg><span class="sb-label">Storage</span></button>
+      <div class="sb-section" role="group" aria-labelledby="sbs-ops">
+        <div class="sb-gh" id="sbs-ops">Operations</div>
+        <div class="sb-group" role="group" aria-labelledby="sbg-inv" data-module="inventory"><span class="vh" id="sbg-inv">Inventory</span>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-inventory" data-group="Operations"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-storage"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-storage-f"/></svg><span class="sb-label">Inventory</span></button>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-scan" data-group="Operations" data-feature="inventory.scan"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-scan"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-scan-f"/></svg><span class="sb-label">Scan</span></button>
+        </div>
+        <div class="sb-group" role="group" aria-labelledby="sbg-todo" data-module="todo"><span class="vh" id="sbg-todo">My work</span>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-todo" data-group="Operations"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-task"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-task-f"/></svg><span class="sb-label">My To-Do</span></button>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-gtickets" data-group="Operations"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-task"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-task-f"/></svg><span class="sb-label">General tickets</span></button>
+        </div>
+        <div class="sb-group" role="group" aria-labelledby="sbg-training" data-module="training" data-feature="trainers"><span class="vh" id="sbg-training">Training</span>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-trainers" data-group="Operations" data-feature="trainers"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-people-team"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-people-team-f"/></svg><span class="sb-label">Trainers</span></button>
+        </div>
+        <div class="sb-group" role="group" aria-labelledby="sbg-cert" data-module="certification" data-feature="mos"><span class="vh" id="sbg-cert">Certification</span>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-mos" data-group="Operations" data-feature="mos"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-cert"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-cert-f"/></svg><span class="sb-label">MOS results</span></button>
+        </div>
       </div>
-      <div class="sb-group" role="group" aria-labelledby="sbg-mail" data-module="mail">
-        <div class="sb-gh" id="sbg-mail">Domains &amp; email</div>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-domainreg" data-group="Domains &amp; email"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-globe"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-globe-f"/></svg><span class="sb-label">Domain registration</span></button>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-postmaster" data-group="Domains &amp; email"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-mail"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-mail-f"/></svg><span class="sb-label">Google Postmaster</span></button>
-      </div>
-      <div class="sb-group" role="group" aria-labelledby="sbg-rep" data-module="reporting">
-        <div class="sb-gh" id="sbg-rep">Reporting</div>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-report" data-group="Reporting"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-document-text"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-document-text-f"/></svg><span class="sb-label">Executive report</span></button>
-      </div>
-      <div class="sb-group" role="group" aria-labelledby="sbg-cert" data-module="certification" data-feature="mos">
-        <div class="sb-gh" id="sbg-cert">Certification</div>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-mos" data-group="Certification" data-feature="mos"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-cert"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-cert-f"/></svg><span class="sb-label">MOS results</span></button>
-      </div>
-      <div class="sb-group" role="group" aria-labelledby="sbg-training" data-module="training" data-feature="trainers">
-        <div class="sb-gh" id="sbg-training">Training</div>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-trainers" data-group="Training" data-feature="trainers"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-people-team"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-people-team-f"/></svg><span class="sb-label">Trainers</span></button>
-      </div>
-      <div class="sb-group" role="group" aria-labelledby="sbg-inv" data-module="inventory">
-        <div class="sb-gh" id="sbg-inv">Inventory</div>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-inventory" data-group="Inventory"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-storage"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-storage-f"/></svg><span class="sb-label">Inventory</span></button>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-scan" data-group="Inventory" data-feature="inventory.scan"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-scan"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-scan-f"/></svg><span class="sb-label">Scan</span></button>
-      </div>
-      <div class="sb-group" role="group" aria-labelledby="sbg-todo" data-module="todo">
-        <div class="sb-gh" id="sbg-todo">My work</div>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-todo" data-group="My work"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-task"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-task-f"/></svg><span class="sb-label">My To-Do</span></button>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-gtickets" data-group="My work"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-task"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-task-f"/></svg><span class="sb-label">General tickets</span></button>
-      </div>
-      <div class="sb-group" role="group" aria-labelledby="sbg-audit" data-module="audit">
-        <div class="sb-gh" id="sbg-audit">Audit</div>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-audit" data-group="Audit"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-document-text"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-document-text-f"/></svg><span class="sb-label">Risky sign-ins editor</span></button>
-      </div>
-      <div class="sb-group" role="group" aria-labelledby="sbg-data" data-module="data">
-        <div class="sb-gh" id="sbg-data">Data</div>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-quality" data-group="Data"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-clipboard-task-list-ltr"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-clipboard-task-list-ltr-f"/></svg><span class="sb-label">Data quality audit</span></button>
-        <button class="tab-btn sb-item" type="button" data-tab="dash-fulldata" data-group="Data"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-table-search"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-table-search-f"/></svg><span class="sb-label">Data explorer</span></button>
+      <div class="sb-section" role="group" aria-labelledby="sbs-data">
+        <div class="sb-gh" id="sbs-data">Reports &amp; data</div>
+        <div class="sb-group" role="group" aria-labelledby="sbg-rep" data-module="reporting"><span class="vh" id="sbg-rep">Reporting</span>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-report" data-group="Reports &amp; data"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-document-text"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-document-text-f"/></svg><span class="sb-label">Executive report</span></button>
+        </div>
+        <div class="sb-group" role="group" aria-labelledby="sbg-data" data-module="data"><span class="vh" id="sbg-data">Data</span>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-quality" data-group="Reports &amp; data"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-clipboard-task-list-ltr"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-clipboard-task-list-ltr-f"/></svg><span class="sb-label">Data quality audit</span></button>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-fulldata" data-group="Reports &amp; data"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-table-search"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-table-search-f"/></svg><span class="sb-label">Data explorer</span></button>
+        </div>
+        <div class="sb-group" role="group" aria-labelledby="sbg-audit" data-module="audit"><span class="vh" id="sbg-audit">Audit</span>
+          <button class="tab-btn sb-item" type="button" data-tab="dash-audit" data-group="Reports &amp; data"><svg class="fi fi-off" aria-hidden="true" focusable="false"><use href="#fi-document-text"/></svg><svg class="fi fi-on" aria-hidden="true" focusable="false"><use href="#fi-document-text-f"/></svg><span class="sb-label">Risky sign-ins editor</span></button>
+        </div>
       </div>
       <div class="sb-group sb-admin" role="group" aria-labelledby="sbg-admin" data-module="admin">
         <div class="sb-gh" id="sbg-admin">Admin</div>
@@ -269,83 +273,95 @@
     </section>
 
     <!-- DASH 0: OVERVIEW (executive landing) -->
-    <section id="dash-overview" class="dash-panel">
-      <div class="ov-welcome">
-        <div>
-          <h3 class="dash-h mb-1">Executive Overview</h3>
-          <div class="ov-sub text-muted" id="ov-scope">Portfolio summary across all tenant modules.</div>
+    <section id="dash-overview" class="dash-panel ov">
+      <!-- 2026-10 revamp: health and what needs attention first, then the KPI strip,
+           the per-tenant table, then supporting detail. Hidden .stl-export canvases
+           keep every chart available to Export Images. -->
+      <div class="ov-head">
+        <div class="ov-head-txt">
+          <div class="ov-eyebrow">Quarterly business review</div>
+          <h3 class="dash-h">Executive overview</h3>
+          <div class="ov-sub" id="ov-scope">Portfolio summary across all tenant modules.</div>
         </div>
-        <div class="ov-period badge-period" id="ov-period">—</div>
+        <div class="ov-head-act">
+          <div class="ov-period badge-period" id="ov-period">—</div>
+          <button type="button" class="btn btn-sm btn-outline-primary" data-goto="dash-report">Executive report</button>
+        </div>
       </div>
 
-      <!-- Hero KPI strip -->
-      <div id="kpi-overview" class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3 kpi-row"></div>
-
-      <!-- Tenant Health Index (composite) -->
-      <div class="row g-3 mt-1">
-        <div class="col-12"><div class="card-box">
-          <h6>Tenant Health Index</h6>
-          <div class="row align-items-center g-3">
-            <div class="col-md-3 text-center">
-              <div id="thi-score" style="font-size:3rem;font-weight:800;line-height:1.05">—</div>
-              <div id="thi-band" class="mt-1"></div>
-            </div>
-            <div class="col-md-5"><div class="chart-wrap" style="height:120px"><canvas id="ch-ov-thi"></canvas></div></div>
-            <div class="col-md-4 small text-muted" id="thi-note"></div>
+      <div class="ov-top">
+        <div class="card-box ov-thi">
+          <div class="ov-card-h">
+            <h6>Tenant health index</h6>
+            <details class="ov-how"><summary>How it's scored</summary><div class="ov-how-body" id="thi-note"></div></details>
           </div>
-          <!-- Per-tenant drill-down -->
-          <div class="mt-3 pt-3 border-top">
-            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-              <div class="fw-semibold small text-muted">Per-Tenant Health Detail</div>
-              <div class="d-flex flex-wrap align-items-center gap-2">
-                <div id="thi-band-filter" class="btn-group btn-group-sm flex-wrap" role="group" aria-label="Filter tenants by health band"></div>
-                <button id="thi-drill-toggle" type="button" class="btn btn-sm btn-outline-secondary thi-drill-btn" aria-expanded="false" aria-controls="thi-drill">Show detail ▾</button>
-              </div>
-            </div>
-            <div id="thi-drill" class="mt-2" hidden>
-              <div class="table-responsive">
-                <table class="table table-sm table-hover align-middle mb-0">
-                  <thead><tr>
-                    <th style="width:2.2rem">#</th><th>Tenant</th>
-                    <th class="text-center">Index</th><th>Band</th>
-                    <th class="text-center">Security</th><th class="text-center">Risky</th>
-                    <th class="text-center">Adoption</th><th class="text-center">Domain</th>
-                    <th class="text-center">Email Rep.</th><th class="text-center">Storage</th>
-                  </tr></thead>
-                  <tbody id="thi-drill-body"></tbody>
-                </table>
-              </div>
-              <div class="small text-muted mt-2">Ranked weakest-first. Each cell is a 0–100 sub-score; the tenant's weakest scored dimension is outlined. "—" means no data for that dimension — excluded from the index, never counted as zero.</div>
-            </div>
+          <div class="ov-thi-score">
+            <div class="ov-thi-num"><span id="thi-score">—</span><span class="ov-thi-max">/ 100</span></div>
+            <div class="ov-thi-meta"><div id="thi-band"></div><div class="ov-thi-sub" id="thi-sub"></div></div>
           </div>
-        </div></div>
+          <div id="thi-bar" class="ov-bandbar" role="group" aria-label="Tenants by health band"></div>
+          <div id="thi-legend" class="ov-legend"></div>
+          <div class="stl-export" hidden><div class="chart-wrap"><canvas id="ch-ov-thi"></canvas></div></div>
+        </div>
+        <div class="card-box ov-attn">
+          <div class="ov-card-h"><h6>Needs attention</h6><span class="ov-card-meta" id="ov-attn-count"></span></div>
+          <div id="ov-alerts" class="ov-alerts"></div>
+        </div>
       </div>
 
-      <!-- Trend + posture donuts + readiness gauge -->
-      <div class="row g-3 mt-1">
-        <div class="col-xl-6"><div class="card-box"><h6>Risky Users — Monthly Trend</h6><div class="chart-wrap"><canvas id="ch-ov-risky-trend"></canvas></div></div></div>
-        <div class="col-xl-3 col-md-6"><div class="card-box"><h6>Security Posture</h6><div id="ov-secposture" class="stl"></div><div class="stl-export" hidden><div class="chart-wrap"><canvas id="ch-ov-secposture"></canvas></div></div></div></div>
-        <div class="col-xl-3 col-md-6"><div class="card-box"><h6>Domain Health</h6><div id="ov-health" class="stl"></div><div class="stl-export" hidden><div class="chart-wrap"><canvas id="ch-ov-health"></canvas></div></div></div></div>
+      <div id="kpi-overview" class="ov-kpis kpi-row"></div>
+
+      <div class="card-box ov-tenants">
+        <div class="ov-card-h ov-card-h-wrap">
+          <div>
+            <h6>Tenant health by dimension</h6>
+            <div class="ov-card-meta">Weakest first. The weakest scored dimension per tenant is outlined; click a row for details.</div>
+          </div>
+          <div id="thi-band-filter" class="ov-chips" role="group" aria-label="Filter tenants by health band"></div>
+        </div>
+        <div id="thi-drill" class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0">
+            <thead><tr>
+              <th style="width:2.2rem">#</th><th>Tenant</th>
+              <th class="text-center">Index</th><th>Band</th>
+              <th class="text-center">Security</th><th class="text-center">Risky</th>
+              <th class="text-center">Adoption</th><th class="text-center">Domain</th>
+              <th class="text-center">Email rep.</th><th class="text-center">Storage</th>
+            </tr></thead>
+            <tbody id="thi-drill-body"></tbody>
+          </table>
+        </div>
+        <div class="ov-foot">Scores are 0–100. "—" means no data for that dimension: excluded from the index, never counted as zero.</div>
       </div>
 
-      <!-- Readiness gauge + adoption/storage bars -->
-      <div class="row g-3 mt-1">
-        <div class="col-xl-4 col-md-6"><div class="card-box">
-          <h6>School-Year Readiness</h6>
-          <div class="ov-gauge-wrap"><div class="chart-wrap ov-gauge"><canvas id="ch-ov-readiness"></canvas></div></div>
-        </div></div>
-        <div class="col-xl-4 col-md-6"><div class="card-box"><h6>Top 5 Storage Consumers (TB)</h6><div class="chart-wrap"><canvas id="ch-ov-storage"></canvas></div></div></div>
-        <div class="col-xl-4"><div class="card-box"><h6>Top 5 Canva Schools (Users)</h6><div class="chart-wrap"><canvas id="ch-ov-canva"></canvas></div></div></div>
+      <div class="ov-grid-3">
+        <div class="card-box">
+          <div class="ov-card-h"><h6>Risky users — monthly trend</h6><span class="ov-card-meta" id="ov-risky-meta"></span></div>
+          <div class="chart-wrap ov-trend"><canvas id="ch-ov-risky-trend"></canvas></div>
+          <div class="ov-foot" id="ov-risky-cov"></div>
+          <div class="ov-subh">Where they are</div>
+          <ol id="ov-risky-list" class="ov-rank"></ol>
+          <div class="ov-foot" id="ov-risky-note"></div>
+        </div>
+        <div class="card-box"><h6>Security posture</h6><div id="ov-secposture" class="stl"></div><div class="stl-export" hidden><div class="chart-wrap"><canvas id="ch-ov-secposture"></canvas></div></div></div>
+        <div class="card-box"><h6>Domain health</h6><div id="ov-health" class="stl"></div><div class="stl-export" hidden><div class="chart-wrap"><canvas id="ch-ov-health"></canvas></div></div></div>
       </div>
 
-      <!-- Top risky table + alerts + quick actions -->
-      <div class="row g-3 mt-1">
-        <div class="col-xl-5"><div class="card-box"><h6>Top 5 Risky Schools</h6>
-          <table class="table table-sm mt-1"><thead><tr><th>School</th><th class="text-end">Risky Users</th><th class="text-end" title="Share of all risky users in scope">Share</th><th>Flag</th></tr></thead><tbody id="tbl-ov-risky"></tbody></table><div class="small text-muted mt-1" id="ov-risky-note"></div>
-        </div></div>
-        <div class="col-xl-4"><div class="card-box"><h6>Priority Flags</h6><div id="ov-alerts" class="ov-alerts"></div></div></div>
-        <div class="col-xl-3"><div class="card-box"><h6>Quick Actions</h6><div id="ov-quick" class="ov-quick"></div></div></div>
+      <div class="ov-grid-2">
+        <div class="card-box">
+          <div class="ov-card-h"><h6>Top storage consumers</h6><button type="button" class="ov-link" data-goto="dash-storage">Storage</button></div>
+          <ol id="ov-storage-list" class="ov-rank ov-rank-num"></ol>
+          <div class="stl-export" hidden><div class="chart-wrap"><canvas id="ch-ov-storage"></canvas></div></div>
+        </div>
+        <div class="card-box">
+          <div class="ov-card-h"><h6>Top Canva schools</h6><button type="button" class="ov-link" data-goto="dash-canva">Canva Education</button></div>
+          <ol id="ov-canva-list" class="ov-rank ov-rank-num"></ol>
+          <div class="stl-export" hidden><div class="chart-wrap"><canvas id="ch-ov-canva"></canvas></div></div>
+        </div>
       </div>
+
+      <!-- School-year readiness is a status line in the header; the gauge stays here, hidden, for Export Images -->
+      <div class="card-box" hidden><h6>School-year readiness</h6><div class="chart-wrap ov-gauge"><canvas id="ch-ov-readiness"></canvas></div></div>
     </section>
 
     <!-- DASH 1: RISKY -->
@@ -355,11 +371,11 @@
       <div class="row g-3 mt-1">
         <div class="col-12"><div class="card-box">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <h6 class="mb-0">Monthly Comparison: Security Defaults Enabled vs Not Enabled (Total Risky Users)</h6>
+            <h6 class="mb-0">Monthly Comparison: Security Defaults Enabled vs Not Enabled (Risky Users per Tenant)</h6>
             <select id="risky-secdef-view" class="form-select form-select-sm" style="--w:240px" title="Security Defaults status shown in this chart">
               <option value="BOTH">Both statuses</option>
               <option value="ENABLED">Enabled / Conditional Access only</option>
-              <option value="DISABLED">Not Enabled / Not Managed only</option>
+              <option value="DISABLED">Not Enabled / No access only</option>
             </select>
           </div>
           <div class="small text-muted mb-1 mt-1" id="risky-secdef-note"></div>
@@ -367,7 +383,7 @@
         </div></div>
       </div>
       <div class="row g-3 mt-1">
-        <div class="col-lg-8"><div class="card-box"><h6>Monthly Trend</h6><div class="chart-wrap"><canvas id="ch-risky-monthly"></canvas></div></div></div>
+        <div class="col-lg-8"><div class="card-box"><h6>Monthly Trend</h6><div class="chart-wrap"><canvas id="ch-risky-monthly"></canvas></div><div class="small text-muted mt-1" id="risky-monthly-note"></div></div></div>
         <div class="col-lg-4"><div class="card-box"><h6>Quarterly Comparison</h6><div class="chart-wrap"><canvas id="ch-risky-quarter"></canvas></div></div></div>
         <div class="col-lg-6"><div class="card-box"><h6>Top 10 Risky Users Per School</h6><div class="chart-wrap"><canvas id="ch-risky-top"></canvas></div><div class="small text-muted mt-1 share-note" id="risky-top-note"></div></div></div>
         <div class="col-lg-6"><div class="card-box"><h6>Lowest Risky Users Per School</h6><div class="small text-muted mb-1" id="risky-low-note"></div><div class="chart-wrap"><canvas id="ch-risky-low"></canvas></div></div></div>
@@ -417,8 +433,8 @@
       <div id="kpi-sec" class="row row-cols-2 row-cols-lg-4 g-3 kpi-row"></div>
       <div class="alert alert-light border mt-2" id="sec-corr"></div>
       <div class="row g-3">
-        <div class="col-12"><div class="card-box"><h6>Monthly Risky Users — Security Defaults Enabled vs Not Enabled</h6><div class="chart-wrap"><canvas id="ch-sec-endis"></canvas></div></div></div>
-        <div class="col-lg-6"><div class="card-box"><h6>Avg Risky Users by Security Posture</h6><div class="chart-wrap"><canvas id="ch-sec-compare"></canvas></div></div></div>
+        <div class="col-12"><div class="card-box"><h6>Monthly Risky Users per Tenant — Security Defaults Enabled vs Not Enabled</h6><div class="chart-wrap"><canvas id="ch-sec-endis"></canvas></div></div></div>
+        <div class="col-lg-6"><div class="card-box"><h6>Avg Risky Users by Security Posture</h6><div class="chart-wrap"><canvas id="ch-sec-compare"></canvas></div><div class="small text-muted mt-1" id="sec-compare-note"></div></div></div>
         <div class="col-lg-6"><div class="card-box"><h6>Security Default Distribution</h6><div class="chart-wrap"><canvas id="ch-sec-dist"></canvas></div></div></div>
         <div class="col-lg-6"><div class="card-box"><h6>Security Control Coverage</h6><div class="chart-wrap"><canvas id="ch-sec-control"></canvas></div></div></div>
         <div class="col-lg-6"><div class="card-box"><h6>Schools with Security Defaults Not Enabled — highest risk first</h6><div class="chart-wrap"><canvas id="ch-sec-disabled"></canvas></div></div></div>

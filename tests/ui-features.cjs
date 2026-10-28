@@ -69,7 +69,7 @@ let pass = 0, fail = 0; const ok = (c, m, x) => { c ? pass++ : fail++; console.l
   } else ok(false, "found Risky Users header");
   console.log("-- THI detail pane");
   await p.click('.sb-item[data-tab="dash-overview"]'); await p.waitForTimeout(200);
-  await p.click("#thi-drill-toggle"); await p.waitForTimeout(200);
+  // per-tenant table is always visible (2026-10 Overview revamp)
   const nm = await p.$eval("#thi-drill-body .thi-row td:nth-child(2)", e => e.textContent);
   await p.click("#thi-drill-body .thi-row"); await p.waitForTimeout(400);
   const pane = await p.evaluate(() => ({ vis: !document.getElementById("detail-pane").hidden, title: document.getElementById("dp-title").textContent, dims: document.querySelectorAll(".dp-dim").length, focus: document.activeElement.id }));
@@ -121,7 +121,7 @@ let pass = 0, fail = 0; const ok = (c, m, x) => { c ? pass++ : fail++; console.l
   await p.click("#btn-theme"); await p.waitForTimeout(300); await p.setViewportSize({ width: 1440, height: 900 }); await p.waitForTimeout(300);
   console.log("-- THI pane → School 360");
   await p.click('.sb-item[data-tab="dash-overview"]'); await p.waitForTimeout(300);
-  if (!(await p.isVisible("#thi-drill-body .thi-row"))) { await p.click("#thi-drill-toggle"); await p.waitForTimeout(200); }
+  ok(await p.isVisible("#thi-drill-body .thi-row"), "per-tenant table visible without a toggle");
   const nm2 = await p.$eval("#thi-drill-body .thi-row td:nth-child(2)", e => e.textContent);
   await p.click("#thi-drill-body .thi-row"); await p.waitForTimeout(300);
   await p.click("#dp-s360"); await p.waitForTimeout(500);
