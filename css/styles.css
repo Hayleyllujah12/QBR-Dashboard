@@ -705,6 +705,10 @@ table.resizable th{position:relative}
   .ov .card-box{padding:10px 12px}
   #thi-score{font-size:40px}
   .chart-wrap.ov-trend{height:160px}
+  /* per-tenant table: the screen min-width (920px) is wider than A4, and .table-responsive clips on paper,
+     so Email rep. + Storage were cut off. Let it fit the page width instead. */
+  .ov-tenants .table-responsive{overflow:visible}
+  .ov-tenants .table{min-width:0;width:100%}
 
   /* ----- full-deck mode: every dashboard, one per page, narrative order -----
      Deck order is applied by MOVING NODES (applyDeckOrder() in app.js), never

@@ -6,6 +6,23 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-28 — Overview revamp, clearer charts, latest-quarter totals (no version bump)
+  - Overview: Tenant Health Index on top with a band bar, a "Needs attention" list (open items worst first; items with
+    nothing to do are folded into one "Also:" line), a KPI strip (risky-users sparkline, usage meter, context lines), the
+    per-tenant health table always visible with band filter chips, and top-5 lists for risky users, storage and Canva.
+    School-year readiness is now a status line under the title. The old "Quick actions" buttons are gone — use the sidebar
+    and the Export menu (Export Deck is unchanged). Every Overview chart is still offered by Export Images.
+  - Sidebar: regrouped into five sections. Admin module toggles and feature flags hide exactly the same pages as before.
+  - Charts: a month with no data is a gap (faint dashed line), never a zero, with a note on how many tenants reported
+    each month. Security Defaults Enabled vs Not enabled is compared per reporting tenant (group sizes shown; groups under
+    3 tenants are flagged instead of quoting a % difference). Pie/donut and line labels no longer overlap or leave the card.
+  - Numbers that change: with "All quarters", storage, Canva, usage (and the Health Index inputs) now use each school's
+    LATEST quarter with data instead of its highest quarter — totals show the current state, so they can be lower.
+    "Managed tenants" no longer counts Canva-only schools. The deck cover row "Schools in scope" is now "Managed tenants".
+  - Wording: Security Defaults "Not Managed" (tracker value NO ACCESS) now reads "No access".
+  - Fix: printing the Overview (Export Tab / Export Deck) cut off the Email rep. and Storage columns of the per-tenant
+    table; it now fits the page width.
+
 UPDATE — 2026-10-28 — Save to Excel: clear "not saved" messages + faster reloads (no version bump)
   - Saving while the workbook is open in desktop Excel now shows, in red next to Save: "Not saved — <file> is open in
     Excel. Close it there, then click Save again. Your edits are kept." Before, the panel redrew right after the save and
