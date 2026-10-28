@@ -69,7 +69,7 @@ let pass = 0, fail = 0; const ok = (c, m, x) => { c ? pass++ : fail++; console.l
   } else ok(false, "found Risky Users header");
   console.log("-- THI detail pane");
   await p.click('.sb-item[data-tab="dash-overview"]'); await p.waitForTimeout(200);
-  await p.click("#thi-drill-toggle"); await p.waitForTimeout(200);
+  // per-tenant table is always visible (2026-10 Overview revamp)
   const nm = await p.$eval("#thi-drill-body .thi-row td:nth-child(2)", e => e.textContent);
   await p.click("#thi-drill-body .thi-row"); await p.waitForTimeout(400);
   const pane = await p.evaluate(() => ({ vis: !document.getElementById("detail-pane").hidden, title: document.getElementById("dp-title").textContent, dims: document.querySelectorAll(".dp-dim").length, focus: document.activeElement.id }));
@@ -86,7 +86,13 @@ let pass = 0, fail = 0; const ok = (c, m, x) => { c ? pass++ : fail++; console.l
   await p.click('.sb-item[data-tab="dash-overview"]'); await p.waitForTimeout(200);
   await p.click("#btn-export"); await p.click("#btn-pdf"); await p.waitForTimeout(300);
   const snap = await p.evaluate(() => ({ imgs: document.querySelectorAll("#dash-overview .print-chart").length, cls: document.body.classList.contains("print-snap") }));
-  ok(snap.imgs >= 5 && snap.cls, "Export Tab swaps charts for print images", snap.imgs);
+  // 2026-10-28 Overview revamp: only the risky trend is a visible chart; the other Overview charts sit on
+  // hidden canvases (Export Images only) and print as ranked lists / the per-tenant table instead.
+  ok(snap.imgs >= 1 && snap.cls, "Export Tab swaps charts for print images", snap.imgs);
+  await p.setViewportSize({ width: 760, height: 900 }); await p.emulateMedia({ media: "print" }); await p.waitForTimeout(200);   // ≈ A4 printable width
+  const fit = await p.evaluate(() => { const w = document.getElementById("thi-drill"), t = w && w.querySelector("table"); return t ? { tw: Math.round(t.getBoundingClientRect().width), ww: Math.round(w.getBoundingClientRect().width), lists: document.querySelectorAll("#dash-overview .ov-rank-row").length } : null; });
+  await p.emulateMedia({ media: "screen" }); await p.setViewportSize({ width: 1440, height: 900 }); await p.waitForTimeout(200);
+  ok(fit && fit.tw <= fit.ww + 1 && fit.lists >= 5, "printed Overview: per-tenant table fits the page, ranked lists print", JSON.stringify(fit));
   await p.evaluate(() => window.dispatchEvent(new Event("afterprint"))); await p.waitForTimeout(300);
   ok(await p.evaluate(() => document.querySelectorAll(".print-chart").length === 0 && !document.body.classList.contains("print-snap")), "snapshots removed after print");
   console.log("-- Postmaster latest reputation (THI)");
@@ -121,7 +127,7 @@ let pass = 0, fail = 0; const ok = (c, m, x) => { c ? pass++ : fail++; console.l
   await p.click("#btn-theme"); await p.waitForTimeout(300); await p.setViewportSize({ width: 1440, height: 900 }); await p.waitForTimeout(300);
   console.log("-- THI pane → School 360");
   await p.click('.sb-item[data-tab="dash-overview"]'); await p.waitForTimeout(300);
-  if (!(await p.isVisible("#thi-drill-body .thi-row"))) { await p.click("#thi-drill-toggle"); await p.waitForTimeout(200); }
+  ok(await p.isVisible("#thi-drill-body .thi-row"), "per-tenant table visible without a toggle");
   const nm2 = await p.$eval("#thi-drill-body .thi-row td:nth-child(2)", e => e.textContent);
   await p.click("#thi-drill-body .thi-row"); await p.waitForTimeout(300);
   await p.click("#dp-s360"); await p.waitForTimeout(500);

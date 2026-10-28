@@ -57,7 +57,7 @@ const meta = p => p.evaluate(() => exportMeta().map(r => r[0]));
   ok((await p.textContent(btn)).trim() === "OFF" && await p.$eval(btn, el => el.getAttribute("aria-pressed") === "false") &&
      await p.evaluate(() => localStorage.getItem("qbr-report-stamp") === "0" && QBR.reportStampOn() === false), "toggle → OFF, stored, QBR.reportStampOn() false");
   const m = await meta(p);
-  ok(!m.includes("Generated") && m.includes("Schools in scope"), "OFF: no Generated row; other cover rows kept");
+  ok(!m.includes("Generated") && m.includes("Managed tenants")   /* cover row renamed 2026-10-28 (was "Schools in scope") */, "OFF: no Generated row; other cover rows kept");
   await p.evaluate(() => buildPrintCover());
   ok(!/Generated/.test(await p.textContent("#cover-meta")), "OFF: printed deck cover has no Generated row");
   await p.reload(); await p.waitForTimeout(400); await p.setInputFiles("#file-input", path.join(__dirname, "fixture.xlsx")); await p.waitForTimeout(1800);
