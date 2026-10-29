@@ -103,14 +103,36 @@ async function slide1(lay, sig) {
   await page.evaluate(() => localStorage.removeItem("qbr-mos-completion-layout-v1"));
   await page.setInputFiles("#file-input", path.join(ROOT, "tests", "fixture.xlsx")); await page.waitForTimeout(2000);
   await openCompletion();
+  // ---- D. "Adjust layout" toggle (2026-10-29): hidden by default, opens beside the preview ----
+  const st = () => page.evaluate(() => { const c = document.getElementById("mos-comp-layout"), b = document.getElementById("mos-comp-layout-btn"),
+    pv = document.getElementById("mos-comp-preview"), w = document.getElementById("mos-comp-work"), cert = pv && pv.querySelector(".mos-comp-cert");
+    const tag = document.getElementById("mos-comp-layout-tag"), warn = document.getElementById("mos-comp-layout-warn");
+    const cr = c.getBoundingClientRect(), pr = pv.getBoundingClientRect();
+    return { hidden: c.hidden || !c.offsetParent, btn: document.getElementById("mos-comp-layout-lbl").textContent, exp: b.getAttribute("aria-expanded"), pvShown: !pv.classList.contains("d-none"),
+      grid: getComputedStyle(w).display === "grid", beside: !c.hidden && cr.right <= pr.left + 1 && Math.abs(cr.top - pr.top) < 4,
+      zoom: cert ? cert.style.zoom : null, noHScroll: pv.scrollWidth <= pv.clientWidth + 1, tag: !tag.hidden, warn: warn.hidden ? "" : warn.textContent,
+      drag: document.getElementById("mos-lay-drag").checked || pv.classList.contains("mos-lay-drag") }; });
+  let t0 = await st();
+  ok(t0.hidden && t0.btn === "Adjust layout" && t0.exp === "false" && !t0.pvShown && !t0.tag && !t0.warn, "D: layout editor hidden on load; Adjust layout button shown " + JSON.stringify(t0));
+  await page.click("#mos-comp-layout-btn"); await page.waitForTimeout(300);
+  let t1 = await st();
+  ok(!t1.hidden && t1.btn === "Hide layout" && t1.exp === "true" && t1.pvShown, "D: Adjust layout opens the editor AND the preview");
+  ok(t1.grid && t1.beside && +t1.zoom > 0 && +t1.zoom < 1 && t1.noHScroll, "D: wide screen: editor beside the preview, certificate scaled to fit " + JSON.stringify(t1) + JSON.stringify(await page.evaluate(() => [document.getElementById("mos-comp-layout").getBoundingClientRect().width, document.getElementById("mos-comp-preview").clientWidth, document.getElementById("mos-comp-work").clientWidth])));
+  await page.click("#mos-comp-f-reset"); await page.waitForTimeout(400);
+  t1 = await st();
+  ok(!t1.hidden && t1.btn === "Hide layout" && t1.grid, "D: a filter re-render keeps the editor open");
+  await page.setViewportSize({ width: 1000, height: 900 }); await page.waitForTimeout(300);
+  const tn = await st();
+  ok(!tn.hidden && !tn.grid && tn.zoom === "", "D: narrow screen: editor and preview stack, preview at full size");
+  await page.setViewportSize({ width: 1400, height: 900 }); await page.waitForTimeout(300);
   ok(await page.locator("#mos-comp-layout tr[data-lay-row]").count() === 8, "C: Adjust layout panel lists 8 objects");
   ok(await page.locator("#mos-comp-layout table[data-nosort]").count() === 1, "C: layout table opts out of column sorting");
   await page.click("#mos-comp-preview-btn"); await page.waitForTimeout(300);
   const centres = () => page.evaluate(() => {
-    const c = document.querySelector("#mos-comp-preview .mos-comp-cert").getBoundingClientRect(), o = {};
+    const c = document.querySelector("#mos-comp-preview .mos-comp-cert").getBoundingClientRect(), o = {}, k = c.width / 11;   // px per inch (preview may be scaled)
     document.querySelectorAll("#mos-comp-preview [data-lay]").forEach(e => {
       const r = e.getBoundingClientRect(), id = e.getAttribute("data-lay") + (e.classList.contains("mos-comp-partner") ? "P" : "");
-      o[id] = { cx: (r.left - c.left + r.width / 2) / 96, cy: (r.top - c.top + r.height / 2) / 96, w: r.width / 96, l: (r.left - c.left) / 96, t: (r.top - c.top) / 96 };
+      o[id] = { cx: (r.left - c.left + r.width / 2) / k, cy: (r.top - c.top + r.height / 2) / k, w: r.width / k, l: (r.left - c.left) / k, t: (r.top - c.top) / k };
     });
     return o;
   });
@@ -118,7 +140,7 @@ async function slide1(lay, sig) {
   ok(["title", "certify", "name", "exam"].every(id => near(c0[id].cx, CX, 0.005)), "C: preview title/certify/name/exam on one centre line (" +
     ["title", "certify", "name", "exam"].map(id => c0[id].cx.toFixed(3)).join(", ") + ")");
   const tt = await page.evaluate(() => { const c = document.querySelector("#mos-comp-preview .mos-comp-cert").getBoundingClientRect(), r = document.createRange();
-    r.selectNodeContents(document.querySelector("#mos-comp-preview .mos-comp-title")); return (r.getBoundingClientRect().left - c.left) / 96; });
+    r.selectNodeContents(document.querySelector("#mos-comp-preview .mos-comp-title")); return (r.getBoundingClientRect().left - c.left) / (c.width / 11); });
   ok(tt > 1.242 + 1.931, "C: centred title text clears the exam badge (title starts " + tt.toFixed(2) + "in, badge ends 3.17in)");
 
   // Nudge + size via the inputs → saved + preview moved.
@@ -149,6 +171,10 @@ async function slide1(lay, sig) {
   ok(near(c1.badge.cx, c0.badge.cx, 0.005) && near(c1.badge.w, c0.badge.w, 0.005), "C: per-object Reset");
   await page.fill("#mos-lay-logos-dy", "-0.5"); await page.dispatchEvent("#mos-lay-logos-dy", "change"); await page.waitForTimeout(150);
   ok((await page.textContent("#mos-lay-logos-warn")) === "Outside the page", "C: 'Outside the page' warning");
+  await page.click("#mos-comp-layout-btn"); await page.waitForTimeout(200);
+  const th = await st();
+  ok(th.hidden && th.warn === "1 object outside the page" && th.tag, "D: while hidden the button area warns \"1 object outside the page\" and shows \"edited\"");
+  await page.click("#mos-comp-layout-btn"); await page.waitForTimeout(300);
   c1 = await centres();
   ok(near(c1.logos.cy - c0.logos.cy, -0.5, 0.006) && near(c1.logosP.cy - c0.logosP.cy, -0.5, 0.006), "C: RAKSO + partner logos move together");
   await page.fill("#mos-lay-logos-size", "80"); await page.dispatchEvent("#mos-lay-logos-size", "change"); await page.waitForTimeout(150);
@@ -175,8 +201,9 @@ async function slide1(lay, sig) {
   await page.check("#mos-lay-drag"); await page.waitForTimeout(100);
   await page.locator("#mos-comp-preview [data-lay=name]").scrollIntoViewIfNeeded();
   const nm = await page.locator("#mos-comp-preview [data-lay=name]").boundingBox();
+  const K = await page.evaluate(() => document.querySelector("#mos-comp-preview .mos-comp-cert").getBoundingClientRect().width / 11);
   await page.mouse.move(nm.x + nm.width / 2, nm.y + nm.height / 2); await page.mouse.down();
-  await page.mouse.move(nm.x + nm.width / 2 + 48, nm.y + nm.height / 2 + 24, { steps: 4 });
+  await page.mouse.move(nm.x + nm.width / 2 + 0.5 * K, nm.y + nm.height / 2 + 0.25 * K, { steps: 4 });
   const guideOn1 = await page.evaluate(() => document.querySelector("#mos-comp-preview .mos-comp-guide").classList.contains("on"));
   await page.mouse.up(); await page.waitForTimeout(150);
   let s2 = await page.evaluate(() => JSON.parse(localStorage.getItem("qbr-mos-completion-layout-v1")));
@@ -185,7 +212,7 @@ async function slide1(lay, sig) {
   await page.locator("#mos-comp-preview [data-lay=name]").scrollIntoViewIfNeeded();
   const nm2 = await page.locator("#mos-comp-preview [data-lay=name]").boundingBox();
   await page.mouse.move(nm2.x + nm2.width / 2, nm2.y + nm2.height / 2); await page.mouse.down();
-  await page.mouse.move(nm2.x + nm2.width / 2 - 46, nm2.y + nm2.height / 2, { steps: 4 });
+  await page.mouse.move(nm2.x + nm2.width / 2 - 0.48 * K, nm2.y + nm2.height / 2, { steps: 4 });
   const guideOn2 = await page.evaluate(() => document.querySelector("#mos-comp-preview .mos-comp-guide").classList.contains("on"));
   await page.mouse.up(); await page.waitForTimeout(150);
   s2 = await page.evaluate(() => JSON.parse(localStorage.getItem("qbr-mos-completion-layout-v1")));
@@ -194,12 +221,18 @@ async function slide1(lay, sig) {
   s2 = await page.evaluate(() => JSON.parse(localStorage.getItem("qbr-mos-completion-layout-v1")));
   ok(s2.name.dx === 0.01 && near(s2.name.dy, 0.35, 1e-9), "C: arrow keys nudge the selected object (0.01 / Shift 0.1)");
   ok(await page.evaluate(() => !!document.querySelector("#mos-comp-preview [data-lay=name].mos-lay-sel")), "C: selected object outlined");
+  ok((await st()).drag, "D: drag mode on before closing");
+  await page.click("#mos-comp-layout-btn"); await page.waitForTimeout(200);
+  const tc = await st();
+  ok(tc.hidden && !tc.drag && tc.pvShown && tc.zoom === "", "D: Hide layout turns drag mode off; preview stays, back at full size");
 
   // Persistence across reload.
   await page.reload({ waitUntil: "domcontentloaded" }); await page.waitForTimeout(800);
   await page.setInputFiles("#file-input", path.join(ROOT, "tests", "fixture.xlsx")); await page.waitForTimeout(2000);
   await openCompletion();
   ok(await page.inputValue("#mos-lay-name-dx") === "0.01" && await page.inputValue("#mos-lay-name-dy") === "0.35", "C: layout survives a reload");
+  const tr = await st();
+  ok(tr.hidden && tr.btn === "Adjust layout" && tr.tag, "D: after a reload the editor starts hidden again (open state not remembered); \"edited\" shown");
 
   // Print host carries the layout.
   await page.evaluate(() => { window.print = function () { window.__printed = document.getElementById("mos-completion-print").innerHTML; }; });

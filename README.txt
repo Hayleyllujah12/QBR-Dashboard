@@ -6,6 +6,15 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-29 — MOS › Completion certificates: "Adjust layout" hidden until you need it (no version bump)
+  - The layout editor (X / Y / Size / Centre / Reset for each object) no longer fills the page. It starts hidden every time
+    the page loads; click "Adjust layout" next to "Preview first certificate" to open it (the button then reads "Hide layout").
+  - Opening it also shows the preview. On wide screens the editor sits beside the preview, which is scaled to fit so every
+    nudge is visible without scrolling; on narrower screens they stack. Changing the filters keeps it open.
+  - While hidden, the button shows "edited" when your saved layout differs from the default, and a red note such as
+    "1 object outside the page" if anything is off the page. Hide layout also turns "Drag objects on the preview" off.
+  - Nothing else changes: the saved layout, Print, Save as PDF and Download PPTX produce the same output as before.
+
 UPDATE — 2026-10-28 — Save to Excel: one save path for every module (groundwork, no visible change)
   - Behind the scenes, the Risky sign-ins editor, guided audit, Inventory and Supplies now plug into one shared "workbook kind"
     registry. Their saves are byte-for-byte the same as before. MOS Certificate Log, Domain registration and Trainers move onto it next.
