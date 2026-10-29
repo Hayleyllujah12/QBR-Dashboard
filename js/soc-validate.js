@@ -324,8 +324,67 @@
     return W;
   }
 
+  /* ---------------- drop-all: plan a batch (Phase A2) ---------------- */
+  var LOAD_ORDER = ["risky", "all", "auth", "noni", "noniad"];   // 04 is pre-filtered to 01's risky users
+  var SKIP_WHY = {
+    riskyUsers: "Risky users list — Source 01 needs the Risky sign-ins download",
+    appSignins: "app / managed-identity sign-ins — not used here",
+    authDetails_int: "Interactive AuthDetails — not used here (Source 05 takes the Non-interactive one)",
+    unknown: "not recognised"
+  };
+  function nameStamp(n) { var m = /(\d{8})[_-]?(\d{6})/.exec(n || ""); return m ? +(m[1] + m[2]) : 0; }
+  // items: [{ name, size, lastModified, cls }] (cls = classify(); null when the header could not be read)
+  // opts.school: the school code picked when the batch holds more than one.
+  // → { needSchool, schools: [{code, count}], picks: [{slot, index}] (load order), skipped: [{index, reason}] }
+  function planBatch(items, opts) {
+    opts = opts || {};
+    var skipped = [], cands = [];
+    (items || []).forEach(function (it, i) {
+      var c = it.cls;
+      if (it.size === 0) return skipped.push({ index: i, reason: "empty file (0 bytes)" });
+      if (/RiskyInvestigation/i.test(it.name || "")) return skipped.push({ index: i, reason: "saved SOC report — use Import past investigation" });
+      if (!c || !c.headers || !c.headers.length) return skipped.push({ index: i, reason: "no header row — not a CSV or Excel export" });
+      var slot = c.kind === "unknown" ? null : homeSlot(c);
+      if (!slot) return skipped.push({ index: i, reason: SKIP_WHY[c.kind + (c.variant ? "_" + c.variant : "")] || SKIP_WHY[c.kind] || ("not used here (" + c.label + ")") });
+      cands.push({ index: i, slot: slot, it: it, n: c.name || {} });
+    });
+    // more than one school code → ask which (largest set first); files with no code stay in
+    var counts = {};
+    cands.forEach(function (c) { if (c.n.school) counts[c.n.school] = (counts[c.n.school] || 0) + 1; });
+    var schools = Object.keys(counts).map(function (k) { return { code: k, count: counts[k] }; })
+      .sort(function (a, b) { return b.count - a.count || (a.code < b.code ? -1 : 1); });
+    if (schools.length > 1 && !opts.school) return { needSchool: true, schools: schools, picks: [], skipped: skipped };
+    if (opts.school) cands = cands.filter(function (c) {
+      if (c.n.school && c.n.school !== opts.school) { skipped.push({ index: c.index, reason: "another school (" + c.n.school + ")" }); return false; }
+      return true;
+    });
+    // reference window = the most common name date range (ties → the latest)
+    var win = {};
+    cands.forEach(function (c) { if (c.n.from && c.n.to) { var k = c.n.from + "_" + c.n.to; win[k] = (win[k] || 0) + 1; } });
+    var ref = Object.keys(win).sort(function (a, b) { return win[b] - win[a] || (a < b ? 1 : -1); })[0] || null;
+    var picks = [];
+    LOAD_ORDER.forEach(function (slot) {
+      var list = cands.filter(function (c) { return c.slot === slot; });
+      if (!list.length) return;
+      var score = function (c) {
+        var k = c.n.from && c.n.to ? c.n.from + "_" + c.n.to : null;
+        return [(k && k === ref) ? 2 : (ref && c.n.from && c.n.to && !(c.n.to < ref.slice(0, 10) || c.n.from > ref.slice(11))) ? 1 : 0,
+          c.n.to || "", nameStamp(c.it.name), c.it.lastModified || 0];
+      };
+      list.sort(function (a, b) {
+        var x = score(a), y = score(b);
+        for (var i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] > y[i] ? -1 : 1;
+        return 0;
+      });
+      picks.push({ slot: slot, index: list[0].index });
+      list.slice(1).forEach(function (c) { skipped.push({ index: c.index, reason: "another file was picked for " + SLOT_NAME[slot] + (c.n.from ? " (this one is " + c.n.from + " to " + c.n.to + ")" : "") }); });
+    });
+    skipped.sort(function (a, b) { return a.index - b.index; });
+    return { needSchool: false, schools: schools, picks: picks, skipped: skipped };
+  }
+
   var api = { parseHeaderLine: parseHeaderLine, headersOfRows: headersOfRows, parseName: parseName, classify: classify,
-    slotCheck: slotCheck, homeSlot: homeSlot, fileStats: fileStats, crossCheck: crossCheck,
+    slotCheck: slotCheck, homeSlot: homeSlot, planBatch: planBatch, fileStats: fileStats, crossCheck: crossCheck,
     SLOT_NAME: SLOT_NAME, CAP: CAP, _ymd: ymd };
   root.QBR = root.QBR || {}; root.QBR.socValidate = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
