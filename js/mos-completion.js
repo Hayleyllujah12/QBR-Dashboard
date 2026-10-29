@@ -512,6 +512,7 @@
       });
       var w = $("mos-lay-" + id + "-warn"); if (w) w.textContent = L.outside(id, lay) ? "Outside the page" : "";
     });
+    layoutBtnState(lay);
   }
   function setLayMsg(t) { var el = $("mos-lay-msg"); if (el) el.textContent = t || ""; }
   function commitLayout(lay, msg) {
@@ -573,6 +574,43 @@
   // Drag on the preview (only while "Drag objects" is ticked). Pointer
   // moves convert to inches from the rendered page width; within 0.06in
   // of the shared centre line the object snaps onto it (guide shown).
+  /* "Adjust layout" toggle (2026-10-29): the editor starts hidden on every page load (not
+   * remembered) and is opened from the action row. Open = editor beside the preview on wide
+   * screens (stacked on narrow ones) with the preview scaled to fit; a filter re-render keeps
+   * it open. Closing turns drag mode off. Screen only: saved layout, Print, PDF, PPTX untouched. */
+  var _layOpen = false;
+  function layoutBtnState(lay) {
+    var L = LAYM(), btn = $("mos-comp-layout-btn"); if (!L || !btn) return;
+    lay = L.layoutOf(lay || loadLayout());
+    var out = L.ORDER.filter(function (id) { return L.outside(id, lay); }).length;
+    var lbl = $("mos-comp-layout-lbl"); if (lbl) lbl.textContent = _layOpen ? "Hide layout" : "Adjust layout";
+    btn.setAttribute("aria-expanded", _layOpen ? "true" : "false");
+    btn.classList.toggle("active", _layOpen);
+    var tag = $("mos-comp-layout-tag");
+    if (tag) { tag.hidden = L.isDefault(lay); }
+    var w = $("mos-comp-layout-warn");
+    if (w) { w.textContent = out ? out + " object" + (out === 1 ? "" : "s") + " outside the page" : ""; w.hidden = !out; }
+  }
+  // Scale the preview certificate to the preview column while the editor is beside it.
+  function fitPreview() {
+    var box = $("mos-comp-preview"), wrap = $("mos-comp-work"); if (!box) return;
+    var cert = box.querySelector(".mos-comp-cert"); if (!cert) return;
+    var split = !!(wrap && wrap.classList.contains("is-split") && getComputedStyle(wrap).display === "grid");
+    var avail = box.clientWidth - 24, z = split && avail > 0 ? Math.max(0.4, Math.min(1, avail / (11 * 96))) : 1;
+    cert.style.zoom = z === 1 ? "" : String(Math.floor(z * 1000) / 1000);
+  }
+  function setLayoutOpen(open) {
+    _layOpen = !!open;
+    var card = $("mos-comp-layout"), wrap = $("mos-comp-work"), box = $("mos-comp-preview");
+    if (card) card.hidden = !_layOpen;
+    if (wrap) wrap.classList.toggle("is-split", _layOpen);
+    if (!_layOpen) {
+      var dg = $("mos-lay-drag"); if (dg) dg.checked = false;
+      if (box) box.classList.remove("mos-lay-drag");
+      setLayMsg("");
+    } else if (box && box.classList.contains("d-none")) preview();
+    layoutBtnState(); fitPreview();
+  }
   var _drag = null, _sel = null;
   function wirePreviewDrag(box) {
     if (!box || box._layWired) return;
@@ -645,6 +683,9 @@
       '<div class="d-flex gap-2 align-items-end flex-wrap mb-2">' +
       '<label class="small mb-0">Batch date <input type="date" class="form-control form-control-sm" id="mos-comp-date" value="' + esc(batchDate) + '"></label>' +
       '<button type="button" class="btn btn-sm btn-outline-secondary" id="mos-comp-preview-btn">Preview first certificate</button>' +
+      (LAYM() ? '<button type="button" class="btn btn-sm btn-outline-secondary" id="mos-comp-layout-btn" aria-controls="mos-comp-layout" aria-expanded="false"><span id="mos-comp-layout-lbl">Adjust layout</span>' +
+        ' <span class="badge text-bg-secondary mos-comp-layout-tag" id="mos-comp-layout-tag" title="The saved layout differs from the default positions" hidden>edited</span></button>' +
+        '<span class="small mos-lay-out" id="mos-comp-layout-warn" role="status" hidden></span>' : "") +
       '<button type="button" class="btn btn-sm btn-primary" id="mos-comp-print" ' + (batch.certs.length ? "" : "disabled") + ">Print\u2026</button>" +
       '<button type="button" class="btn btn-sm btn-primary" id="mos-comp-pdf" ' + (batch.certs.length ? "" : "disabled") + ">Save as PDF\u2026</button>" +
       '<button type="button" class="btn btn-sm btn-primary" id="mos-comp-pptx" ' + (batch.certs.length ? "" : "disabled") + ">Download PPTX\u2026</button>" +
@@ -652,8 +693,10 @@
       '<div class="small text-muted mb-2">Print opens the browser print dialog (pick a printer). Save as PDF opens the same dialog with the batch filename preset — pick \u201cSave as PDF\u201d as the destination. Download PPTX builds a PowerPoint file from the master template (one slide per certificate) \u2014 open it in PowerPoint, then Save as PDF for the fixed-layout export. Issuance is logged when you start any of these.</div>' +
       '<div class="small mb-2" id="mos-comp-msg"></div>' +
       '<div class="card-box mt-2">' + sigEditorHtml(sig) + "</div>" +
-      (LAYM() ? '<div class="card-box mt-2" id="mos-comp-layout">' + layoutEditorHtml(loadLayout()) + "</div>" : "") +
-      '<div id="mos-comp-preview" class="mos-comp-preview mt-3 d-none"></div>' +
+      '<div id="mos-comp-work" class="mos-comp-work mt-2">' +
+      (LAYM() ? '<div class="card-box mos-comp-layout" id="mos-comp-layout" hidden>' + layoutEditorHtml(loadLayout()) + "</div>" : "") +
+      '<div id="mos-comp-preview" class="mos-comp-preview d-none"></div>' +
+      "</div>" +
       "</div>";
     $("mos-comp-date").addEventListener("change", function (e) { batchDate = e.target.value || isoToday(); refreshPreview(); });
     $("mos-comp-preview-btn").addEventListener("click", function () { preview(); });
@@ -662,6 +705,11 @@
     $("mos-comp-pptx").addEventListener("click", function () { outputPptx(); });
     wireLayoutEditor();
     wirePreviewDrag($("mos-comp-preview"));
+    var lb = $("mos-comp-layout-btn");
+    if (lb) lb.addEventListener("click", function () { setLayoutOpen(!_layOpen); });
+    setLayoutOpen(_layOpen);   // re-render (filters) keeps the open state; page load starts closed
+    if (window.ResizeObserver && !render._ro) { render._ro = new ResizeObserver(function () { fitPreview(); }); }
+    if (render._ro) { render._ro.disconnect(); render._ro.observe($("mos-comp-preview")); }
     $("mos-comp-sigsave").addEventListener("click", function () {
       // Fresh read: the render-time snapshot goes stale once a picked image
       // auto-saves (see the change listeners below) — saving from it would
@@ -714,7 +762,7 @@
     var sec = box.querySelector(".mos-comp-cert");
     if (sec && LAYM()) { var g = document.createElement("div"); g.className = "mos-comp-guide"; sec.appendChild(g); }
     if (_sel) Array.prototype.forEach.call(box.querySelectorAll('[data-lay="' + _sel + '"]'), function (el) { el.classList.add("mos-lay-sel"); });
-    box.classList.remove("d-none");
+    box.classList.remove("d-none"); fitPreview();
     setMsg("Previewing the first certificate of " + batch.certs.length + " (" + batch.certs[0].name + " — " + batch.certs[0].family + ").");
   }
   function refreshPreview() {

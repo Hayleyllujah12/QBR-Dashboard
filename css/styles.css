@@ -2601,6 +2601,18 @@ body.identity-gated:not(.identity-authed) :is(.app-header,#app-sidebar,main,#det
 @media print{.mos-comp-guide{display:none !important}}
 .mos-comp-preview{overflow:auto;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--subtle);padding:12px}
 .mos-comp-preview .mos-comp-cert{margin:0 auto;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+/* Adjust layout open (2026-10-29): editor beside the preview on wide screens, stacked below 1200px. */
+.mos-comp-work>*+*{margin-top:12px}
+@media (min-width:1200px){
+  .mos-comp-work.is-split{display:grid;grid-template-columns:minmax(0,31rem) minmax(0,1fr);gap:12px;align-items:start}
+  .mos-comp-work.is-split .mos-lay-table input[type=number]{width:3.7rem;padding-left:.3rem;padding-right:.2rem}
+  .mos-comp-work.is-split .mos-lay-table .btn{padding:.1rem .35rem}
+  .mos-comp-work.is-split .mos-lay-table td.small{white-space:normal;min-width:0;padding:0}
+  .mos-comp-work.is-split>*+*{margin-top:0}
+  .mos-comp-work.is-split .mos-comp-preview{position:sticky;top:calc(var(--topbar-h,48px) + 8px)}
+}
+.mos-comp-layout-tag{font-size:.7em;vertical-align:middle;margin-left:.15rem}
+#mos-comp-layout-warn{align-self:center;margin-top:1.3rem}
 #mos-print .mos-sum-doc{font-family:"Segoe UI",system-ui,sans-serif;color:#000;font-size:10.5pt;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 #mos-print .mos-sum-brand{display:flex;align-items:center;gap:28px;margin:0 2px 8px;height:calc(var(--logo-h,40px) + 4px)}
 #mos-print .mos-sum-brand.mos-al-center{justify-content:center}
