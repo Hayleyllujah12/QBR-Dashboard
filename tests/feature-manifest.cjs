@@ -44,6 +44,8 @@ const F = [
   ["SOC risky investigation (v1.32.0)", "js/soc.js", ["QBR.socInit", "socImportReport", "socFilePrefix"]],
   ["SOC upload validation (2026-10-29)", "js/soc-validate.js", ["QBR.socValidate", "slotCheck", "crossCheck", "parseHeaderLine"]],
   ["SOC upload validation wired", "js/soc.js", ["renderValidation", "showReject", "data-val-move", "valReportNote"]],
+  ["SOC drop all files (auto-route)", "js/soc.js", ["initDropAll", "runBatch", "planAndLoad", "collectDropped"]],
+  ["SOC drop-all bar", "index.html", ["soc-dropall", "soc-dropall-dir", "webkitdirectory"]],
   ["Bulk user generator (v1.32.0)", "js/usergen.js", ["QBR.usergenInit", "ugFilePrefix", "O365_Users_Export.csv"]],
   ["Script library + GDAP", "js/scripts.js", ["QBR.scriptCopyText", "QBR.scriptsOpen", "QBR.scriptsRenderInline", "inlineRoot"]],
   ["Admin › PowerShell scripts", "js/admin.js", ["renderScriptsSection", "admin-scripts-host", "keepScripts"]],

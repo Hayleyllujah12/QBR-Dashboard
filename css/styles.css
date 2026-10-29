@@ -1464,6 +1464,25 @@ body.identity-gated:not(.identity-authed) :is(.app-header,#app-sidebar,main,#det
 #dash-soc .val-sum.bad{ color: var(--crimson); font-weight: 600; }
 #dash-soc .val-report{ margin-top: 14px; padding: 8px 12px; border-left: 3px solid var(--amber); background: var(--amber-bg); font-size: 13px; }
 #dash-soc .val-report ul{ margin: 4px 0 0 18px; padding: 0; }
+/* Drop all files (2026-10-29): one zone above the five cards. */
+#dash-soc .dropall{ margin-bottom: 20px; border: 1px dashed var(--line-bright); background: var(--bg-panel); padding: 14px 18px; }
+#dash-soc .dropall.dragging{ border-color: var(--cyan); border-style: solid; background: var(--cyan-bg); }
+#dash-soc .dropall-main{ display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+#dash-soc .dropall .drop-icon{ width: 26px; height: 26px; flex: none; }
+#dash-soc .dropall-txt{ flex: 1 1 280px; min-width: 0; }
+#dash-soc .dropall-title{ font-weight: 700; font-size: 15px; }
+#dash-soc .dropall-sub{ font-size: 12.5px; color: var(--text-secondary); }
+#dash-soc .dropall-btns{ display: flex; gap: 8px; flex-wrap: wrap; }
+#dash-soc .dropall-btn{ font: inherit; font-size: 13px; font-weight: 600; padding: 6px 12px; min-height: 32px; border: 1px solid var(--cyan); background: transparent; color: var(--cyan); cursor: pointer; border-radius: 3px; }
+#dash-soc .dropall-btn:hover, #dash-soc .dropall-btn:focus-visible{ background: var(--cyan); color: #fff; }
+#dash-soc .dropall-sum{ margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; line-height: 1.5; }
+#dash-soc .dropall-sum[hidden]{ display: none; }
+#dash-soc .dropall-sum ul{ margin: 6px 0 0 18px; padding: 0; }
+#dash-soc .dropall-sum li.bad{ color: var(--crimson); }
+#dash-soc .dropall-sum li.skip{ color: var(--text-muted); }
+#dash-soc .dropall-schools{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+#dash-soc .dropall-x{ font: inherit; border: 0; background: transparent; cursor: pointer; padding: 0 6px; color: inherit; }
+@media print{ #dash-soc .dropall{ display: none !important; } }
 #dash-soc .readbar{
     display: block;
     height: 6px;

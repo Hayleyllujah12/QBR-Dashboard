@@ -742,6 +742,24 @@
 </header>
 
 <main>
+  <!-- Drop all files (2026-10-29): each file is detected and routed to its card below -->
+  <div class="dropall" id="soc-dropall">
+    <div class="dropall-main">
+      <svg class="drop-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+      <div class="dropall-txt">
+        <div class="dropall-title">Drop all your files here</div>
+        <div class="dropall-sub">Risky sign-ins, sign-in logs, AuthDetails and AuthMethodLogs — or a whole month folder. Each file goes to its own card below.</div>
+      </div>
+      <div class="dropall-btns">
+        <button type="button" class="dropall-btn" id="soc-dropall-pick">Choose files</button>
+        <button type="button" class="dropall-btn" id="soc-dropall-pickdir">Choose folder</button>
+      </div>
+      <input type="file" id="soc-dropall-files" multiple accept=".csv,.xlsx,.xls" hidden>
+      <input type="file" id="soc-dropall-dir" webkitdirectory multiple hidden>
+    </div>
+    <div class="dropall-sum" id="soc-dropall-sum" role="status" aria-live="polite" hidden></div>
+  </div>
+
   <!-- Upload stage -->
   <div class="upload-stage" id="uploadStage">
     <div class="ingest-card" id="card-risky">

@@ -6,6 +6,17 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-29 — Risky Investigation: "Drop all your files here" (no version bump)
+  - New bar above the Source cards: drop every file at once, Choose files, or Choose folder (e.g. a whole month folder).
+    Each file is recognised from its columns and name and goes to its own card — Risky sign-ins → 01, Interactive →
+    02, AuthMethodLogs → 03, Non-interactive → 04, Non-interactive AuthDetails → 05 — loaded in that order, so Source
+    04 is pre-filtered to the risky users automatically.
+  - Files for more than one school (a month folder) → it asks once which school this investigation is for.
+  - Two files for the same card → it keeps the one whose dates match the rest of the set (else the newest).
+  - A summary lists what went where and every file it skipped, with the reason (Risky users list, app / managed-
+    identity sign-ins, Interactive AuthDetails, an older duplicate, a saved SOC report, an empty file). All the
+    drop checks and amber notes still apply; dropping on a single card works as before.
+
 UPDATE — 2026-10-29 — Risky Investigation: files are checked the moment you drop them (no version bump)
   - Each Source card now recognises the file you drop by its columns and its name. A wrong file is refused straight
     away (from the CSV's header row, before the whole file is read) with the reason, and the file already in that card

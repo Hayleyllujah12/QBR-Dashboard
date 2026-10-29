@@ -133,5 +133,30 @@ ok((W.auth || []).some(m => /1 NotFound/.test(m)) && (W.auth || []).some(m => /O
 W = V.crossCheck(base({ auth: am(RU.map(u => amRow(u, "Success", "2026-11-20 09:00:00"))) }));
 ok((W.auth || []).some(m => /days after the investigation window/.test(m)), "auth methods extracted weeks after the window are flagged", W);
 
+console.log("== drop all: batch plan");
+const it = (name, cols, extra = {}) => Object.assign({ name, size: 100, lastModified: 0, cls: cols ? V.classify(H(cols), name) : null }, extra);
+const SET = [
+  it(nm("RiskySignIns"), RISKY_COLS), it(nm("InteractiveSignIns"), SIGNIN_COLS), it(nm("NonInteractiveSignIns"), SIGNIN_COLS),
+  it(nm("NonInteractiveSignIns_AuthDetails"), AUTHDET_COLS), it("DEMO_OCT_AuthMethodLogs_20261030_101500.csv", AUTHM_COLS),
+  it(nm("InteractiveSignIns_AuthDetails"), AUTHDET_COLS), it(nm("ApplicationSignIns"), APP_COLS), it("DEMO_RiskyUsers.csv", RISKYUSERS_COLS),
+  it("DEMO_OCT_SOC_RiskyInvestigation_2026-10-29T09-53-01.xlsx", "Foo,Bar"), it("empty.csv", null, { size: 0 }),
+  it(nm("InteractiveSignIns", "2026-10-15", "2026-10-22"), SIGNIN_COLS)];
+let P = V.planBatch(SET);
+const slotOf = sl => (P.picks.find(x => x.slot === sl) || {}).index;
+ok(!P.needSchool && P.picks.map(x => x.slot).join(",") === "risky,all,auth,noni,noniad", "one file per card, in load order 01→02→03→04→05", P.picks);
+ok(slotOf("all") === 1, "the Source 02 file matching the set's dates wins over another week", P.picks);
+const why = i => (P.skipped.find(x => x.index === i) || {}).reason || "";
+ok(/Interactive AuthDetails/.test(why(5)) && /app \/ managed-identity/.test(why(6)) && /Risky users list/.test(why(7)), "Interactive AuthDetails, app sign-ins and Risky users are skipped with reasons", P.skipped);
+ok(/saved SOC report/.test(why(8)) && /empty/.test(why(9)) && /another file was picked for Source 02 \(this one is 2026-10-15/.test(why(10)), "saved report, empty file and the older duplicate are skipped with reasons", P.skipped);
+const TWO = SET.slice(0, 2).concat([it(nm("RiskySignIns", "2026-10-22", "2026-10-29", "OTHER_OCT_"), RISKY_COLS)]);
+P = V.planBatch(TWO);
+ok(P.needSchool && P.schools.map(x => x.code + ":" + x.count).join(",") === "DEMO:2,OTHER:1", "two school codes → ask which (largest first)", P);
+P = V.planBatch(TWO, { school: "OTHER" });
+ok(!P.needSchool && P.picks.length === 1 && P.picks[0].index === 2 && /another school \(DEMO\)/.test(P.skipped.map(x => x.reason).join("|")), "picking a school keeps only its files", P);
+P = V.planBatch([it("renamed-signins.csv", SIGNIN_COLS), it("risky.csv", RISKY_COLS)]);
+ok(P.picks.map(x => x.slot).join(",") === "risky,all", "files without the naming convention still route by their columns", P.picks);
+P = V.planBatch([it("A_AuthMethodLogs_20261001_080000.csv", AUTHM_COLS), it("A_AuthMethodLogs_20261030_101500.csv", AUTHM_COLS)]);
+ok(P.picks[0].index === 1, "two AuthMethodLogs → the newest extraction wins", P.picks);
+
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

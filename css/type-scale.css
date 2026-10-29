@@ -202,6 +202,10 @@
 :root[data-qbr-fs] #dash-soc .file-pill{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-soc .val-note{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-soc .val-report{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .dropall-title{font-size:calc(15px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-soc .dropall-sub{font-size:calc(12.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .dropall-btn{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .dropall-sum{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-soc .kpi-value{font-size:calc(26px * var(--fs-h,1))}
 :root[data-qbr-fs] #dash-soc .kpi-label{font-size:calc(11px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-soc .kpi-desc{font-size:calc(11px * var(--fs-t,1))}

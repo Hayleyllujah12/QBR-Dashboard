@@ -29,6 +29,7 @@ const state = {
   // Upload validation (2026-10-29, js/soc-validate.js): per-card classification + stats,
   // rejected drops (kept for "Move to Source 0X"), cross-file warnings, pill snapshot.
   val: {}, valReject: {}, valWarnings: {}, pillPrev: {},
+  batch: null,          // drop-all: { files, items } while a batch is being planned / loaded
 };
 
 // ============================================================
@@ -397,8 +398,12 @@ function failIngest(slot, filename, msg) {
   showToast('Failed to parse ' + filename + ': ' + msg);
 }
 
+// ctx.done (drop-all batch): called once the file has been stored, refused or failed.
 function applyParsed(slot, filename, json, ctx) {
-  ctx = ctx || {};
+  try { applyParsedInner(slot, filename, json, ctx || {}); }
+  finally { if (ctx && ctx.done) ctx.done(); }
+}
+function applyParsedInner(slot, filename, json, ctx) {
   if (slot === 'noni' && json && !json.length && json.__meta && json.__meta.filtered) {
     failIngest(slot, filename, `none of ${json.__meta.totalWithUser.toLocaleString()} rows belong to the risky users in Source 01`); return;
   }
@@ -467,20 +472,21 @@ function applyParsed(slot, filename, json, ctx) {
 
 // Upload validation (2026-10-29): a CSV is checked from its header row (first 64 KB) the moment it is
 // dropped — a wrong export is refused before the full file is read. Excel files are checked after parsing.
-function handleFile(file, slot) {
+function handleFile(file, slot, done) {
+  done = done || function () {};
   clearReject(slot);
   const SVd = QBR.socValidate;
-  if (SVd && file.size === 0) { showReject(slot, file, { message: 'The file is empty (0 bytes) — download it again.' }); return; }
+  if (SVd && file.size === 0) { showReject(slot, file, { message: 'The file is empty (0 bytes) — download it again.' }); done(); return; }
   if (SVd && /\.(csv|txt)$/i.test(file.name)) {
     readHead(file).then(text => {
       const cls = SVd.classify(SVd.parseHeaderLine(text), file.name);
       const chk = SVd.slotCheck(slot, cls, { size: file.size });
-      if (!chk.ok) { showReject(slot, file, chk); return; }
-      readWhole(file, slot, { cls, chk, file });
-    }, () => readWhole(file, slot, { file }));
+      if (!chk.ok) { showReject(slot, file, chk); done(); return; }
+      readWhole(file, slot, { cls, chk, file, done });
+    }, () => readWhole(file, slot, { file, done }));
     return;
   }
-  readWhole(file, slot, { file });
+  readWhole(file, slot, { file, done });
 }
 function readHead(file) {
   const part = file.slice(0, 65536);
@@ -498,10 +504,10 @@ function readWhole(file, slot, ctx) {
       .catch(() =>                                 // worker unavailable → fallback
         parseWorkbookMainThread(buffer, opts)
           .then(json => applyParsed(slot, file.name, json, ctx))
-          .catch(err => failIngest(slot, file.name, err.message))
+          .catch(err => { failIngest(slot, file.name, err.message); if (ctx && ctx.done) ctx.done(); })
       );
   };
-  reader.onerror = () => { failIngest(slot, file.name, 'could not read file'); };
+  reader.onerror = () => { failIngest(slot, file.name, 'could not read file'); if (ctx && ctx.done) ctx.done(); };
   reader.readAsArrayBuffer(file);
 }
 
@@ -567,6 +573,90 @@ function valSummary() {
   if (rej) parts.push(`<span class="val-sum bad">\u2715 ${rej} file${rej === 1 ? '' : 's'} not loaded</span>`);
   if (n) parts.push(`<span class="val-sum warn">\u26A0 ${n} warning${n === 1 ? '' : 's'} on ${Object.keys(state.valWarnings).map(k => SVd.SLOT_NAME[k]).join(', ')} — see the cards above</span>`);
   return { n, rej, html: parts.length ? ' · ' + parts.join(' · ') : '' };
+}
+
+// ---- Drop all files (Phase A2): detect each file's type, route it to its card --------
+// Headers are read first (CSV: first 64 KB; Excel: first rows), planBatch() picks one file per card
+// (asking for the school when the batch holds several), then the picks load in 01→02→03→04→05 order
+// through the normal single-card path, so every check and note still applies.
+function dropAllSum(html) { const el = $('soc-dropall-sum'); if (!el) return; el.hidden = !html; el.innerHTML = html || ''; }
+function batchClassify(file) {
+  const SVd = QBR.socValidate;
+  if (!file.size) return Promise.resolve(null);
+  if (/\.(csv|txt)$/i.test(file.name))
+    return readHead(file).then(t => SVd.classify(SVd.parseHeaderLine(t), file.name), () => null);
+  return file.arrayBuffer().then(buf => {
+    const wb = XLSX.read(new Uint8Array(buf), { type: 'array', sheetRows: 2 });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
+    return SVd.classify((rows[0] || []).filter(h => h != null && String(h).trim() !== ''), file.name);
+  }).catch(() => null);
+}
+function collectDropped(dt) {
+  const items = dt && dt.items ? [...dt.items] : [];
+  const entries = items.map(i => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null)).filter(Boolean);
+  if (!entries.length) return Promise.resolve(dt ? [...dt.files] : []);
+  const out = [];
+  const walk = entry => new Promise(res => {
+    if (entry.isFile) { entry.file(f => { out.push(f); res(); }, () => res()); return; }
+    if (!entry.isDirectory) { res(); return; }
+    const reader = entry.createReader(), kids = [];
+    const more = () => reader.readEntries(batch => {
+      if (!batch.length) { Promise.all(kids.map(walk)).then(() => res()); return; }
+      kids.push(...batch); more();
+    }, () => res());
+    more();
+  });
+  return Promise.all(entries.map(walk)).then(() => out);
+}
+async function runBatch(files) {
+  const SVd = QBR.socValidate; if (!SVd) return;
+  const all = [...files];
+  files = all.filter(f => /\.(csv|xlsx|xls)$/i.test(f.name));
+  if (!files.length) { dropAllSum('<b>No CSV or Excel files found</b>' + (all.length ? ` in the ${all.length} item${all.length === 1 ? '' : 's'} dropped.` : '.') + dropAllClose()); return; }
+  dropAllSum(`Reading ${files.length} file header${files.length === 1 ? '' : 's'}…`);
+  const items = await Promise.all(files.map(f => batchClassify(f).then(cls => ({ name: f.name, size: f.size, lastModified: f.lastModified, cls }))));
+  state.batch = { files, items };
+  planAndLoad(null);
+}
+function dropAllClose() { return ' <button type="button" class="dropall-x" data-dropall-close aria-label="Dismiss">\u2715</button>'; }
+async function planAndLoad(school) {
+  const SVd = QBR.socValidate, b = state.batch; if (!b) return;
+  const plan = SVd.planBatch(b.items, { school });
+  if (plan.needSchool) {
+    dropAllSum(`<b>Files for ${plan.schools.length} schools found — which one is this investigation?</b><div class="dropall-schools">` +
+      plan.schools.map(s => `<button type="button" class="dropall-btn" data-dropall-school="${escapeHtml(s.code)}">${escapeHtml(s.code)} · ${s.count} file${s.count === 1 ? '' : 's'}</button>`).join('') + '</div>');
+    return;
+  }
+  dropAllSum(`Loading ${plan.picks.length} file${plan.picks.length === 1 ? '' : 's'}…`);
+  for (const pk of plan.picks) await new Promise(res => handleFile(b.files[pk.index], pk.slot, res));
+  const loaded = [], refused = [];
+  plan.picks.forEach(pk => {
+    const nm = escapeHtml(b.files[pk.index].name), rj = state.valReject[pk.slot];
+    if (rj) refused.push(`<li class="bad">\u2715 ${nm} — ${escapeHtml(rj.chk.message)}</li>`);
+    else loaded.push(`<li>${SVd.SLOT_NAME[pk.slot]} \u2190 ${nm}</li>`);
+  });
+  const skipped = plan.skipped.map(s => `<li class="skip">${escapeHtml(b.items[s.index].name)} — ${escapeHtml(s.reason)}</li>`);
+  dropAllSum(`<b>Loaded ${loaded.length} of ${b.files.length} file${b.files.length === 1 ? '' : 's'}</b>` +
+    (skipped.length ? ` · skipped ${skipped.length}` : '') + (refused.length ? ` · ${refused.length} refused` : '') +
+    (school ? ` · school ${escapeHtml(school)}` : '') + dropAllClose() +
+    `<ul>${loaded.join('')}${refused.join('')}${skipped.join('')}</ul>`);
+  state.batch = null;
+}
+function initDropAll() {
+  const bar = $('soc-dropall'); if (!bar || !QBR.socValidate) return;
+  const fi = $('soc-dropall-files'), di = $('soc-dropall-dir');
+  $('soc-dropall-pick').addEventListener('click', () => fi.click());
+  $('soc-dropall-pickdir').addEventListener('click', () => di.click());
+  fi.addEventListener('change', () => { runBatch(fi.files); fi.value = ''; });
+  di.addEventListener('change', () => { runBatch(di.files); di.value = ''; });
+  bar.addEventListener('dragover', e => { e.preventDefault(); bar.classList.add('dragging'); });
+  bar.addEventListener('dragleave', e => { if (!bar.contains(e.relatedTarget)) bar.classList.remove('dragging'); });
+  bar.addEventListener('drop', e => { e.preventDefault(); bar.classList.remove('dragging'); collectDropped(e.dataTransfer).then(runBatch); });
+  bar.addEventListener('click', e => {
+    const sc = e.target.closest('[data-dropall-school]');
+    if (sc) { planAndLoad(sc.getAttribute('data-dropall-school')); return; }
+    if (e.target.closest('[data-dropall-close]')) { dropAllSum(''); state.batch = null; }
+  });
 }
 
 // ============================================================
@@ -2657,7 +2747,7 @@ function reset() {
   state.allFilename = null;
   state.authFilename = null;
   state.report = null;
-  state.val = {}; state.valWarnings = {}; state._authIds = null;
+  state.val = {}; state.valWarnings = {}; state._authIds = null; state.batch = null; dropAllSum('');
   VAL_SLOTS.forEach(s => { clearReject(s); $('card-' + s).classList.remove('val-warn'); });
   $('pill-risky').classList.add('hidden');
   $('pill-all').classList.add('hidden');
@@ -2705,6 +2795,7 @@ QBR.socInit = function () {
   bindDrop($('drop-noni'), $('file-noni'), 'noni');       // v12.3
   bindDrop($('drop-noniad'), $('file-noniad'), 'noniad'); // v12.3
   $('analyzeBtn').addEventListener('click', runInvestigation);
+  initDropAll();
   // Upload validation: "Move to Source 0X" on a refused drop loads the same file into the right card.
   $('uploadStage').addEventListener('click', e => {
     const b = e.target.closest('[data-val-move]'); if (!b) return;
