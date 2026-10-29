@@ -301,6 +301,8 @@
 :root[data-qbr-fs] #dash-todo .todo-ctl .todo-prio{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-todo .todo-empty{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-mos .mos-fl{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-mos .mos-mx-n{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-mos .mos-mx-flag{font-size:calc(11px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-mos .mos-out{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-mos .mos-retake{font-size:calc(10px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-mos .mos-sk{font-size:calc(11px * var(--fs-t,1))}

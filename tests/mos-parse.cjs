@@ -127,6 +127,28 @@ function walk(d) { let o = []; for (const f of fs.readdirSync(d)) { const p = pa
   ok(sk[0].avg <= sk[sk.length - 1].avg && sk[0].exam === "Excel", "weakest skill areas sorted ascending");
   ok(M.bandOf(699) === "<700" && M.bandOf(700) === "700–799" && M.bandOf(1000) === "900–1000", "score bands");
 
+  console.log("== analytics: school × exam performance");
+  const pf0 = M.performance(m.rows);
+  ok(pf0.total.attempts === s.attempts && pf0.total.passed === s.passed && pf0.total.firstAttempts === s.firstAttempts &&
+    Math.abs(pf0.total.firstPassRate - s.firstPassRate) < 1e-9 && pf0.total.students === s.students, "matrix total = Results summary for the same rows", pf0.total);
+  const cellSum = pf0.schools.reduce((a, sc) => a + Object.values(pf0.cells[sc]).reduce((b, c) => b + c.attempts, 0), 0);
+  ok(cellSum === pf0.total.attempts && pf0.schools.every(sc => pf0.bySchool[sc].attempts === Object.values(pf0.cells[sc]).reduce((b, c) => b + c.attempts, 0)),
+    "cells add up to their school row and to the total");
+  ok(pf0.exams.every(e => pf0.byExam[e].attempts === pf0.schools.reduce((a, sc) => a + ((pf0.cells[sc][e] || {}).attempts || 0), 0)), "cells add up to their exam column");
+  ok(pf0.exams.every((e, i) => i === 0 || pf0.byExam[pf0.exams[i - 1]].attempts >= pf0.byExam[e].attempts), "exams ordered by volume");
+  // fail then pass (same student, same exam), a single pass, and an in-progress row
+  const pm = M.performance(M.buildModel([
+    { ref: "70001", name: "Ana Uno", email: "ana@x.example", exam: "Excel", date: "2026-01-05", score: 600, outcome: "FAIL", school: "S" },
+    { ref: "70002", name: "Ana Uno", email: "ana@x.example", exam: "Excel", date: "2026-02-05", score: 820, outcome: "PASS", school: "S" },
+    { ref: "70003", name: "Ben Dos", email: "ben@x.example", exam: "Excel", date: "2026-01-05", score: 900, outcome: "PASS", school: "S" },
+    { ref: "70004", name: "Cy Tres", email: "cy@x.example", exam: "Word", date: "2026-01-05", score: null, outcome: "IN PROGRESS", school: "S" }], []).rows);
+  const ex1 = pm.cells.S.Excel;
+  ok(ex1.attempts === 3 && Math.abs(ex1.passRate - 2 / 3) < 1e-9, "pass rate counts every scored attempt (2 of 3)", ex1);
+  ok(ex1.firstAttempts === 2 && Math.abs(ex1.firstPassRate - 0.5) < 1e-9, "first-attempt pass rate: 1 of 2 first takes");
+  ok(ex1.takers === 2 && ex1.certified === 2 && ex1.certRate === 1, "certified = best take passed: both students (the retake counts)");
+  ok(pm.total.pending === 1 && !pm.cells.S.Word.attempts && pm.cells.S.Word.passRate === null, "in-progress row is pending, never a fail");
+  ok(ex1.small === true && M.SMALL_GROUP === 5 && pm.cells.S.Word.small === false, "fewer than 5 scored attempts is flagged small; an empty cell is not");
+
   console.log("== Certiport results export (.xlsx)");
   const XLSX = require(path.join(ROOT, "libs/xlsx.full.min.js"));
   const xb = require("./mos-export-fixture.cjs")(XLSX);
