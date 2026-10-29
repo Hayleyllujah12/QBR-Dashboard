@@ -1450,6 +1450,20 @@ body.identity-gated:not(.identity-authed) :is(.app-header,#app-sidebar,main,#det
 #dash-soc .file-pill .rows{ color: var(--green); font-weight: 700; white-space: nowrap; }
 #dash-soc .file-pill.reading{ background: var(--amber-bg); border-left-color: var(--amber); }
 #dash-soc .file-pill.reading .rows{ color: var(--amber); }
+/* Upload validation (2026-10-29): refused drop (red) / loaded with warnings (amber), under the file pill. */
+#dash-soc .ingest-card.val-warn, #dash-soc .ingest-card.loaded.val-warn{ border-color: var(--amber); }
+#dash-soc .ingest-card.val-bad{ border-color: var(--crimson); }
+#dash-soc .val-note{ margin-top: 8px; padding: 6px 9px; border-left: 3px solid; border-radius: 3px; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+#dash-soc .val-note[hidden]{ display: none; }
+#dash-soc .val-note.warn{ background: var(--amber-bg); border-color: var(--amber); color: var(--amber); }
+#dash-soc .val-note.bad{ background: var(--crimson-bg); border-color: var(--crimson); color: var(--crimson); }
+#dash-soc .val-note div + div{ margin-top: 3px; }
+#dash-soc .val-move{ margin-left: 4px; font: inherit; font-weight: 700; padding: 2px 8px; border: 1px solid currentColor; border-radius: 3px; background: transparent; color: inherit; cursor: pointer; }
+#dash-soc .val-move:hover, #dash-soc .val-move:focus-visible{ background: var(--crimson); color: #fff; }
+#dash-soc .val-sum.warn{ color: var(--amber); font-weight: 600; }
+#dash-soc .val-sum.bad{ color: var(--crimson); font-weight: 600; }
+#dash-soc .val-report{ margin-top: 14px; padding: 8px 12px; border-left: 3px solid var(--amber); background: var(--amber-bg); font-size: 13px; }
+#dash-soc .val-report ul{ margin: 4px 0 0 18px; padding: 0; }
 #dash-soc .readbar{
     display: block;
     height: 6px;
