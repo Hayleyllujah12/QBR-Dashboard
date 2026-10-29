@@ -6,6 +6,17 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-29 — PowerShell scripts: every script asks where to save, and Usage saves only its CSV (no version bump)
+  - Storage and Usage extraction scripts now open with the same "WHERE TO SAVE" question: it shows the default folder,
+    then Enter = use it, type another folder path, P = pick a folder in a window, :q = cancel. The folder is created if
+    missing and checked for write access BEFORE sign-in, and the chosen path is printed ("[OK] Saving to: …").
+  - Usage script (v3.1) writes ONLY the report file M365_UsageReport_<period>_<timestamp>.csv — no more run-log CSV,
+    .jsonl, _FAILED.csv or raw_<timestamp> folder. Run details and any failed endpoint are shown in the console instead.
+    Its default folder is now Documents\M365-Reports\UsageReport (was …\UsageReport\Logs).
+  - Future scripts: built-in scripts reuse the same question (a test fails if one doesn't ask or writes extra files).
+    For a custom script added in Admin › PowerShell scripts, put the line  # QBR_OUTPUT_FOLDER  in it; Copy swaps in the
+    same question, then call  $OutputFolder = Select-QbrOutputFolder -Default <folder> -Purpose '<what is saved>'.
+
 UPDATE — 2026-10-29 — MOS › Completion certificates: "Adjust layout" hidden until you need it (no version bump)
   - The layout editor (X / Y / Size / Centre / Reset for each object) no longer fills the page. It starts hidden every time
     the page loads; click "Adjust layout" next to "Preview first certificate" to open it (the button then reads "Hide layout").

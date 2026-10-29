@@ -18,6 +18,81 @@ var QBR = (window.QBR = window.QBR || {});
   /* ------------------------------------------------------------------ */
   /* Built-in scripts (bodies generated verbatim from the .ps1 sources).  */
   /* ------------------------------------------------------------------ */
+  /* Output-folder convention (2026-10-29, every script asks where to save):
+     OUTPUT_FOLDER_FN is ONE PowerShell function, Select-QbrOutputFolder, inlined into every built-in
+     script. It asks up front where to save (Enter = default, a typed path, P = folder window, :q =
+     cancel), creates the folder, checks it can be written and prints the chosen path.
+     New built-ins: put ${OUTPUT_FOLDER_FN} in the body and call
+       $OutputFolder = Select-QbrOutputFolder -Default <default> -Purpose '<what is saved>'
+     Custom scripts (Admin panel): put the line  # QBR_OUTPUT_FOLDER  in the script; Copy replaces it
+     with the same function. Built-ins also write ONLY their report CSV (no run-log, JSONL, FAILED or raw
+     files). tests/scripts-output-folder.cjs fails if a built-in breaks either rule. */
+  var OUTPUT_FOLDER_MARK = "# QBR_OUTPUT_FOLDER";
+  var OUTPUT_FOLDER_FN = [
+    "function Select-QbrOutputFolder {",
+    "    # RCT OpsDesk standard \"where to save\" question (js/scripts.js OUTPUT_FOLDER_FN) - every script asks this.",
+    "    # Enter = default | a typed path | P = folder window | :q = cancel. Creates the folder, checks it can be",
+    "    # written, returns the full path (or $null when cancelled).",
+    "    param([Parameter(Mandatory)][string]$Default, [string]$Purpose = 'the report and logs')",
+    "    Write-Host ''",
+    "    Write-Host '=== WHERE TO SAVE ===' -ForegroundColor Cyan",
+    "    Write-Host \"  This run saves $Purpose to:\" -ForegroundColor Gray",
+    "    Write-Host \"    $Default\" -ForegroundColor White",
+    "    $invisible = @([char]0x00A0,[char]0x202A,[char]0x202B,[char]0x202C,[char]0x202D,[char]0x202E,[char]0x200B,[char]0x200E,[char]0x200F,[char]0xFEFF)",
+    "    while ($true) {",
+    "        $ans = [string](Read-Host '  Enter = use this folder | type another folder path | P = pick in a window | :q = cancel')",
+    "        foreach ($c in $invisible) { $ans = $ans.Replace([string]$c, [string]'') }",
+    "        $ans = $ans.Trim().Trim('\"').Trim(\"'\").Trim()",
+    "        if ($ans -eq ':q') { Write-Host '  [CANCELLED] No folder chosen - nothing will be written.' -ForegroundColor Yellow; return $null }",
+    "        $path = $ans",
+    "        if ([string]::IsNullOrWhiteSpace($ans)) {",
+    "            $path = $Default",
+    "        } elseif ($ans -ieq 'P') {",
+    "            $path = $null",
+    "            $nonWin = (Get-Variable -Name IsLinux -ValueOnly -ErrorAction SilentlyContinue) -or (Get-Variable -Name IsMacOS -ValueOnly -ErrorAction SilentlyContinue)",
+    "            if ($nonWin -or [System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {",
+    "                Write-Host '  [WARN] The folder window is not available in this console. Type the folder path instead.' -ForegroundColor Yellow",
+    "                continue",
+    "            }",
+    "            try {",
+    "                Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop",
+    "                $owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false }",
+    "                $dlg = New-Object System.Windows.Forms.FolderBrowserDialog",
+    "                $dlg.Description = \"Where should $Purpose be saved?\"",
+    "                $dlg.ShowNewFolderButton = $true",
+    "                if (Test-Path -LiteralPath $Default -PathType Container) { $dlg.SelectedPath = $Default }",
+    "                if ($dlg.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { $path = $dlg.SelectedPath }",
+    "                $dlg.Dispose(); $owner.Dispose()",
+    "            } catch {",
+    "                Write-Host \"  [WARN] Could not open the folder window ($($_.Exception.Message)). Type the folder path instead.\" -ForegroundColor Yellow",
+    "                continue",
+    "            }",
+    "            if (-not $path) { Write-Host '  [INFO] No folder picked.' -ForegroundColor Yellow; continue }",
+    "        }",
+    "        if (-not (Test-Path -LiteralPath $path -PathType Container)) {",
+    "            try {",
+    "                New-Item -Path $path -ItemType Directory -Force -ErrorAction Stop | Out-Null",
+    "                Write-Host \"  [OK] Created folder: $path\" -ForegroundColor Green",
+    "            } catch {",
+    "                Write-Host \"  [FAIL] Cannot create '$path': $($_.Exception.Message)\" -ForegroundColor Red",
+    "                continue",
+    "            }",
+    "        }",
+    "        $probe = Join-Path $path ('.qbr-write-test-' + [guid]::NewGuid().ToString('N') + '.tmp')",
+    "        try {",
+    "            [System.IO.File]::WriteAllText($probe, '')",
+    "            Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue",
+    "        } catch {",
+    "            Write-Host \"  [FAIL] Cannot write to '$path': $($_.Exception.Message)\" -ForegroundColor Red",
+    "            continue",
+    "        }",
+    "        $full = (Resolve-Path -LiteralPath $path).ProviderPath",
+    "        Write-Host \"  [OK] Saving to: $full\" -ForegroundColor Green",
+    "        return $full",
+    "    }",
+    "}"
+  ].join("\n");
+
   var BUILTINS = [
     {
       id: "storage",
@@ -101,6 +176,8 @@ function Remove-InvisibleChars {
     return ($s -replace '[\\u200B-\\u200F\\u202A-\\u202E\\u2066-\\u2069\\uFEFF\\u00A0\\u202F\\u1680\\u2000-\\u200A\\u205F\\u3000]', '')
 }
 
+${OUTPUT_FOLDER_FN}
+
 # --- Dynamic path defaults ---------------------------------------------------
 # No machine-specific path is stored in this file. Defaults resolve at runtime to
 # the script's own folder. When the script is pasted block-by-block into a
@@ -118,26 +195,9 @@ if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
 $DefaultOutputFolder = Join-Path $ScriptDir 'Reports'
 $Period = "D30"
 
-Write-Host ""
-Write-Host "Default output folder:" -ForegroundColor Gray
-Write-Host "  $DefaultOutputFolder" -ForegroundColor DarkGray
-$InputFolder = Read-Host "Enter output folder (or press Enter to use default)"
-if ([string]::IsNullOrWhiteSpace($InputFolder)) {
-    $OutputFolder = $DefaultOutputFolder
-} else {
-    $OutputFolder = (Remove-InvisibleChars $InputFolder).Trim('"').Trim("'").Trim()
-}
-
-# Create folder if missing
-if (-not (Test-Path -LiteralPath $OutputFolder)) {
-    try {
-        New-Item -Path $OutputFolder -ItemType Directory -Force | Out-Null
-        Write-Host "Created output folder: $OutputFolder" -ForegroundColor DarkGray
-    } catch {
-        Write-Host "ERROR: Could not create folder '$OutputFolder': $($_.Exception.Message)" -ForegroundColor Red
-        return
-    }
-}
+# Where to save: the shared question every RCT OpsDesk script asks (creates + checks the folder).
+$OutputFolder = Select-QbrOutputFolder -Default $DefaultOutputFolder -Purpose 'the storage report CSV'
+if (-not $OutputFolder) { return }
 
 # Timestamped output path
 $TimeStamp  = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -568,8 +628,8 @@ try {
 #                   2. getOffice365ActivationsUserCounts               -> Assigned / Activated
 #                   3. getOffice365ActivationCounts                    -> Desktop / Mobile activations
 #                   4. subscribedSkus                                  -> Total assigned licences
-#                 Consolidates them into a single-row, 19-column CSV. Raw endpoint responses are kept in a
-#                 raw_<timestamp> subfolder for audit. Makes NO changes to the tenant.
+#                 Consolidates them into a single-row, 19-column CSV - the ONLY file written (asked where to save
+#                 up front). Run details are shown in the console, not saved. Makes NO changes to the tenant.
 #                 Ends with a choice to STAY SIGNED IN (default) or SIGN OUT - never forces a sign-out.
 #
 #                 NAVIGATION: menus accept B (back one question) and ? (redisplay). Free-text prompts accept
@@ -577,13 +637,17 @@ try {
 #                 PHASE RE-ENTRY: results live in $Global:RunState. Re-pasting one phase block re-runs only
 #                 that phase; the Graph session and correlation ID are preserved.
 # .AUTHOR         Generated with Claude for Rakso CT Education IT.
-# .VERSION        3.0
+# .VERSION        3.1
 # .DATE           2026-09-30
 # .REQUIREMENTS   PowerShell 7+; Microsoft.Graph.Authentication.
 # .PERMISSIONS    Delegated: Reports.Read.All, Organization.Read.All
 #                 Role: Reports Reader / Global Reader / Global Administrator
-# .SAFETY         Read-only; retry with backoff on every Graph call; correlation-ID stamped CSV + JSONL logs.
-# .CHANGELOG      v3.0 - Rebuilt on the current project helpers: Read-Choice (-Valid/-MenuLines), Read-Value,
+# .SAFETY         Read-only; retry with backoff on every Graph call; correlation-ID stamped console log.
+# .CHANGELOG      v3.1 - Asks where to save through the shared Select-QbrOutputFolder question (Enter =
+#                        default, a path, or P = folder window). Writes ONLY the report CSV: no run-log CSV,
+#                        JSONL, FAILED CSV or raw_<timestamp> folder (Graph CSV downloads use a temp file
+#                        that is deleted). Failed endpoints are listed in the console summary.
+#                 v3.0 - Rebuilt on the current project helpers: Read-Choice (-Valid/-MenuLines), Read-Value,
 #                        Read-YesNo, navigation state + $Global:RunState, phase guards, Accept/Redo/Cancel
 #                        gates, tenant-name Y/N confirmation, Y/R/N execution gate. Phase 5 builds its own
 #                        timestamped file names so re-pasting Phases 4-5 never overwrites a prior run.
@@ -712,6 +776,8 @@ function Sanitize-Path {
     foreach ($c in $invisible) { $p = $p.Replace([string]$c, [string]'') }
     return $p
 }
+
+${OUTPUT_FOLDER_FN}
 
 function Ensure-Module {
     param([Parameter(Mandatory)][string]$Name, [string]$MinVersion)
@@ -874,7 +940,7 @@ Write-Host '=== PHASE 1: Configure Paths + Period ===' -ForegroundColor Cyan
 $Global:ScriptName = 'Bulk-ExtractM365UsageReport'
 $DocsRoot          = [Environment]::GetFolderPath('MyDocuments')
 if ([string]::IsNullOrWhiteSpace($DocsRoot)) { $DocsRoot = $HOME }   # redirected/empty Documents
-$DefaultOutFolder  = Join-Path $DocsRoot 'M365-Reports\\UsageReport\\Logs'
+$DefaultOutFolder  = Join-Path $DocsRoot 'M365-Reports\\UsageReport'
 
 if (-not $Global:RunState.Contains('CorrelationId')) {
     $Global:RunState['CorrelationId'] = [guid]::NewGuid().ToString('N').Substring(0,12)
@@ -889,31 +955,10 @@ while (-not $phaseDone) {
     while ($sub -le 2) {
         if ($sub -eq 1) {
             $defFolder = if ($Global:RunState.Contains('Phase1')) { $Global:RunState['Phase1'].OutputFolder } else { $DefaultOutFolder }
-            $raw = Read-Value -Prompt 'Output log folder' -Default $defFolder -Required
-            if ($raw -eq $Global:NAV_QUIT) { $cancelled = $true; break }
-
-            $clean = Sanitize-Path $raw
-            $stripped = @($raw.ToCharArray() | Where-Object { [int]$_ -gt 127 -or [char]::IsControl($_) } |
-                          ForEach-Object { 'U+{0:X4}' -f [int]$_ })
-            if ($stripped.Count -gt 0) {
-                Write-Host "[WARN] Stripped invisible chars: $($stripped -join ' ')" -ForegroundColor Yellow
-                Write-Host "       Cleaned path: $clean" -ForegroundColor Yellow
-            }
-            if ([string]::IsNullOrWhiteSpace($clean)) { Write-Host '[WARN] Path is empty after cleaning.' -ForegroundColor Yellow; continue }
-
-            if (-not (Test-Path -LiteralPath $clean)) {
-                $mk = Read-YesNo -Prompt "Folder does not exist. Create '$clean'?" -Default 'Y' -AllowBack
-                if ($mk -is [string] -and $mk -eq $Global:NAV_QUIT) { $cancelled = $true; break }
-                if ($mk -ne $true) { continue }   # N or B -> re-ask the folder
-                try {
-                    New-Item -Path $clean -ItemType Directory -Force | Out-Null
-                    Write-Host "[OK] Created folder: $clean" -ForegroundColor Green
-                } catch {
-                    Write-Host "[FAIL] Cannot create folder '$clean': $($_.Exception.Message)" -ForegroundColor Red
-                    continue
-                }
-            }
-            $folder = $clean
+            # Where to save: the shared question every RCT OpsDesk script asks (creates + checks the folder).
+            $picked = Select-QbrOutputFolder -Default $defFolder -Purpose 'the usage report CSV'
+            if (-not $picked) { $cancelled = $true; break }
+            $folder = $picked
             $sub = 2
         } else {
             $defPeriod = if ($Global:RunState.Contains('Phase1')) { $Global:RunState['Phase1'].Period } else { 'D30' }
@@ -930,7 +975,7 @@ while (-not $phaseDone) {
     Write-Host "  Correlation ID : $Global:CorrelationId" -ForegroundColor Green
     Write-Host "  Output folder  : $folder"               -ForegroundColor Green
     Write-Host "  Period         : $period"               -ForegroundColor Green
-    Write-Host "  Files          : M365_UsageReport_\${period}_<timestamp>.csv + run log .csv/.jsonl (named at Phase 5)" -ForegroundColor Green
+    Write-Host "  File           : M365_UsageReport_\${period}_<timestamp>.csv (the only file saved; named at Phase 5)" -ForegroundColor Green
 
     $accept = Read-Choice -Prompt 'Accept?' -Valid @('A','R','Q') -Default 'A' -MenuLines @(
         '[A] Accept and continue', '[R] Redo this phase', '[Q] Cancel')
@@ -1148,16 +1193,12 @@ $OutFolder   = $Global:RunState['Phase1'].OutputFolder
 $Endpoints   = @($Global:RunState['Phase3'])
 $TimeStamp   = Get-Date -Format 'yyyyMMdd_HHmmss'
 $OutputPath  = Join-Path $OutFolder "M365_UsageReport_\${Period}_$TimeStamp.csv"
-$LogFile     = Join-Path $OutFolder "$($Global:ScriptName)_$TimeStamp.csv"
-$FailedFile  = Join-Path $OutFolder "$($Global:ScriptName)_\${TimeStamp}_FAILED.csv"
-$RawFolder   = Join-Path $OutFolder "raw_$TimeStamp"
-$Global:JsonLogFile = Join-Path $OutFolder "$($Global:ScriptName)_$TimeStamp.jsonl"
+$Global:JsonLogFile = $null   # v3.1: only the report CSV is written; run details stay in the console
 $Global:RetryCount  = 0
 
 $sw     = [Diagnostics.Stopwatch]::StartNew()
 $RunLog = [System.Collections.Generic.List[object]]::new()
 $Data   = @{}
-New-Item -Path $RawFolder -ItemType Directory -Force | Out-Null
 Write-Log "Run started. Endpoints=$($Endpoints.Count) Period=$Period Tenant=$($Global:RunState['Phase2'].TenantId)" 'AUDIT'
 
 $n = 0; $ok = 0; $fail = 0
@@ -1167,25 +1208,28 @@ foreach ($ep in $Endpoints) {
     $row = [ordered]@{
         CorrelationId = $Global:CorrelationId; Timestamp = (Get-Date -Format 'o')
         Endpoint = $ep.Name; Type = $ep.Type; Uri = $ep.Uri
-        Status = ''; Retries = 0; RowsReturned = 0; RawFile = ''; ErrorCode = ''; ErrorMessage = ''
+        Status = ''; Retries = 0; RowsReturned = 0; ErrorCode = ''; ErrorMessage = ''
     }
     try {
         if ($ep.Type -eq 'csv') {
-            $rawFile = Join-Path $RawFolder "$($ep.Name).csv"
-            Invoke-GraphWithRetry -Action {
-                Invoke-MgGraphRequest -Method GET -Uri $ep.Uri -OutputFilePath $rawFile -ErrorAction Stop
-            } | Out-Null
-            $rows = @(Import-Csv -LiteralPath $rawFile -Encoding UTF8)
+            # Graph serves these reports as a CSV download: read it from a temp file, then delete it.
+            $rawFile = Join-Path ([System.IO.Path]::GetTempPath()) ("qbr_" + $ep.Name + "_" + [guid]::NewGuid().ToString('N') + ".csv")
+            try {
+                Invoke-GraphWithRetry -Action {
+                    Invoke-MgGraphRequest -Method GET -Uri $ep.Uri -OutputFilePath $rawFile -ErrorAction Stop
+                } | Out-Null
+                $rows = @(Import-Csv -LiteralPath $rawFile -Encoding UTF8)
+            } finally {
+                Remove-Item -LiteralPath $rawFile -Force -ErrorAction SilentlyContinue
+            }
         } else {
-            $rawFile = Join-Path $RawFolder "$($ep.Name).json"
             $resp = Invoke-GraphWithRetry -Action {
                 Invoke-MgGraphRequest -Method GET -Uri $ep.Uri -OutputType PSObject -ErrorAction Stop
             }
-            $resp | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $rawFile -Encoding UTF8
             $rows = @($resp.value)
         }
         $Data[$ep.Name] = $rows
-        $row.Status = 'OK'; $row.RowsReturned = $rows.Count; $row.RawFile = $rawFile
+        $row.Status = 'OK'; $row.RowsReturned = $rows.Count
         $ok++
         Write-Host ("  [OK]   {0}  ({1} rows)" -f $ep.Name, $rows.Count) -ForegroundColor Green
     } catch {
@@ -1279,9 +1323,7 @@ try {
 } catch {
     Write-Log "Report export failed: $($_.Exception.Message)" 'ERROR'
 }
-$RunLog | Export-Csv -LiteralPath $LogFile -NoTypeInformation -Encoding UTF8
 $FailedRows = @($RunLog | Where-Object { $_.Status -eq 'FAIL' })
-if ($FailedRows.Count -gt 0) { $FailedRows | Export-Csv -LiteralPath $FailedFile -NoTypeInformation -Encoding UTF8 }
 
 $sw.Stop()
 Write-Host ''
@@ -1293,11 +1335,11 @@ Write-Host ("Failed          : {0}" -f $fail)
 Write-Host  "Skipped         : 0   (read-only; n/a)"
 Write-Host ("Retried         : {0}" -f $Global:RetryCount)
 Write-Host ("Duration        : {0}" -f $sw.Elapsed.ToString('hh\\:mm\\:ss'))
-Write-Host ("Log file        : {0}" -f $LogFile)
 Write-Host ("Report CSV      : {0}" -f $OutputPath)
-Write-Host ("Raw responses   : {0}" -f $RawFolder)
 if ($FailedRows.Count -gt 0) {
-    Write-Host ("Failed CSV      : {0}" -f $FailedFile) -ForegroundColor Red
+    foreach ($fr in $FailedRows) {
+        Write-Host ("Failed          : {0}  {1} {2}" -f $fr.Endpoint, $fr.ErrorCode, $fr.ErrorMessage) -ForegroundColor Red
+    }
     Write-Host  "Re-run          : fix scopes/role, then paste Phases 4 and 5 again" -ForegroundColor Yellow
 }
 Write-Host '=========================' -ForegroundColor Cyan
@@ -1387,6 +1429,9 @@ Write-Host '>>> Phase 5 complete. To pull again with the same settings, paste Ph
        (a stray CSV cell, quotes, a domain) is never substituted. */
     tenantId = String(tenantId == null ? "" : tenantId).trim();
     if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(tenantId)) tenantId = "";
+    // Output-folder convention: a custom script's "# QBR_OUTPUT_FOLDER" line becomes the shared function.
+    if (text.indexOf(OUTPUT_FOLDER_MARK) >= 0 && text.indexOf("function Select-QbrOutputFolder") < 0)
+      text = text.split(/\r?\n/).map(function (l) { return l.trim() === OUTPUT_FOLDER_MARK ? OUTPUT_FOLDER_FN : l; }).join("\n");
     if (tenantId && text.indexOf(TENANT_PLACEHOLDER) >= 0) {
       text = text.split(TENANT_PLACEHOLDER).join(tenantId);
       prefilled = true;
