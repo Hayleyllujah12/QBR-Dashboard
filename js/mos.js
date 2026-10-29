@@ -32,7 +32,8 @@
     fileRefs: {},  // v1.41.0: File objects by path, for certificate preview (bytes read on demand)
     model: null, built: false, busy: false, progress: "",
     f: { school: "", section: "", exam: "", examNo: "", proctor: "", outcome: "", min: "", max: "", pmode: "all", pval: "", q: "", firstOnly: false },
-    sort: "score-desc", groupBy: "auto", limit: 200, trend: "month", open: {}, charts: {}
+    sort: "score-desc", groupBy: "auto", limit: 200, trend: "month", open: {}, charts: {},
+    measure: "passRate"   // Analytics matrix measure: passRate | firstPassRate | certRate | avg
   };
 
   function $(id) { return document.getElementById(id); }
@@ -218,13 +219,13 @@
       '<div id="mos-main" class="d-none">' +
         '<div class="mos-viewbar"><div class="btn-group btn-group-sm" role="group" aria-label="MOS view">' +
           '<button type="button" class="btn btn-outline-secondary" data-mos-view="results">Results</button>' +
+          '<button type="button" class="btn btn-outline-secondary" data-mos-view="analytics">Analytics</button>' +
           '<button type="button" class="btn btn-outline-secondary" data-mos-view="certs">Certificates <span id="mos-cert-n" class="badge bg-secondary"></span></button>' +
           '<button type="button" class="btn btn-outline-secondary" data-mos-view="reconcile">Reconcile <span id="mos-rec-n" class="badge bg-secondary"></span></button><button type="button" class="btn btn-outline-secondary" data-mos-view="completion">Completion <span id="mos-comp-n" class="badge bg-secondary"></span></button></div></div>' +
         '<div id="mos-view-certs" class="d-none"></div>' +
         '<div id="mos-view-reconcile" class="d-none"></div>' +
         '<div id="mos-view-completion" class="d-none"></div>' +
-        '<div id="mos-view-results">' +
-        '<div class="card-box mos-filters" role="search" aria-label="MOS filters">' +
+        '<div id="mos-filters" class="card-box mos-filters" role="search" aria-label="MOS filters">' +
           '<div class="mos-frow">' +
             fsel("mos-f-school", "School") + fsel("mos-f-section", "Section") + fsel("mos-f-exam", "Exam") + fsel("mos-f-examno", "Exam No. / batch") + fsel("mos-f-proctor", "Proctor") +
             '<label class="mos-fl"><span>Result</span><select id="mos-f-outcome" class="form-select form-select-sm"><option value="">Pass &amp; fail</option><option value="PASS">Pass</option><option value="FAIL">Fail</option><option value="IN PROGRESS">In progress</option><option value="RETAKE">Retake eligible</option></select></label>' +
@@ -243,6 +244,8 @@
             '<button id="mos-profile" class="btn btn-outline-secondary btn-sm" type="button" title="School logo, name, address and acronym, plus the company logos, used on the Exam Summary (saved in this browser)">School profile…</button>' +
           '</div>' +
         '</div>' +
+        '<div id="mos-view-analytics" class="d-none"></div>' +
+        '<div id="mos-view-results">' +
         '<div id="mos-kpi" class="row row-cols-2 row-cols-md-4 row-cols-xl-8 g-3 kpi-row mt-1"></div>' +
         '<div id="mos-certtiles" class="mos-certtiles mt-1"></div>' +
         '<div class="row g-3 mt-1">' +
@@ -327,6 +330,16 @@
     });
     $("mos-more").addEventListener("click", function (e) { if (e.target.closest("button")) { S.limit += 500; renderResults(rows()); } });
     $("mos-check-body").addEventListener("change", onCheckEdit);
+    // Analytics: measure toggle; a cell / exam / school opens exactly those attempts in Results
+    $("mos-view-analytics").addEventListener("click", function (e) {
+      var mb = e.target.closest("[data-mx-measure]");
+      if (mb) { S.measure = mb.getAttribute("data-mx-measure"); update(); return; }
+      var cb = e.target.closest("[data-mx-school]"); if (!cb) return;
+      var sc = cb.getAttribute("data-mx-school"), ex = cb.getAttribute("data-mx-exam");
+      if (sc !== S.f.school) { S.f.section = ""; S.f.examNo = ""; }
+      S.f.school = sc; S.f.exam = ex; S.limit = 200; S.view = "results"; render();
+      var h = $("mos-res-h"); if (h && h.scrollIntoView) try { h.scrollIntoView({ block: "start" }); } catch (err) {}
+    });
     host.querySelectorAll("[data-mos-view]").forEach(function (b) {
       b.addEventListener("click", function () { S.view = b.getAttribute("data-mos-view"); render(); });
     });
@@ -367,16 +380,18 @@
     $("mos-main").classList.toggle("d-none", !has);
     $("mos-empty").classList.toggle("d-none", has);
     if (!has) { renderEmpty(); destroyCharts(); return; }
-    if (!hasRows && (S.view === "results" || S.view === "completion")) S.view = (QBR.mosReconcile && QBR.mosReconcile.hasSaved()) ? "reconcile" : "certs";
+    if (!hasRows && (S.view === "results" || S.view === "analytics" || S.view === "completion")) S.view = (QBR.mosReconcile && QBR.mosReconcile.hasSaved()) ? "reconcile" : "certs";
     var cn = $("mos-cert-n"); if (cn) cn.textContent = S.certs.length ? String(S.certs.length) : "";
     var rn = $("mos-rec-n"); if (rn) rn.textContent = QBR.mosReconcile && QBR.mosReconcile.count() ? String(QBR.mosReconcile.count()) : "";
     var cn2 = $("mos-comp-n"); if (cn2) cn2.textContent = (QBR.mosCompletion && QBR.mosCompletion.count) ? String(QBR.mosCompletion.count()) : "";
     document.querySelectorAll(".mos-viewbar [data-mos-view]").forEach(function (b) {
       var a = b.getAttribute("data-mos-view") === S.view; b.classList.toggle("active", a); b.setAttribute("aria-pressed", String(a));
-      if (b.getAttribute("data-mos-view") === "results") b.disabled = !hasRows;
+      if (b.getAttribute("data-mos-view") === "results" || b.getAttribute("data-mos-view") === "analytics") b.disabled = !hasRows;
       if (b.getAttribute("data-mos-view") === "completion") b.disabled = !hasRows;
     });
     $("mos-view-results").classList.toggle("d-none", S.view !== "results");
+    $("mos-view-analytics").classList.toggle("d-none", S.view !== "analytics");
+    $("mos-filters").classList.toggle("d-none", S.view !== "results" && S.view !== "analytics");   // one filter bar for both
     $("mos-view-certs").classList.toggle("d-none", S.view !== "certs");
     $("mos-view-reconcile").classList.toggle("d-none", S.view !== "reconcile");
     $("mos-view-completion").classList.toggle("d-none", S.view !== "completion");
@@ -433,7 +448,91 @@
       var a = b.getAttribute("data-mos-trend") === S.trend; b.classList.toggle("active", a); b.setAttribute("aria-pressed", String(a));
     });
     var R = rows();
+    if (S.view === "analytics") { destroyCharts(); renderAnalytics(R); return; }
     renderKpis(R); renderCertTiles(); renderCharts(R); renderSummary(R); renderResults(R); renderCheck();
+  }
+
+  /* ---------------- analytics: school × exam (same filters as Results) ---------------- */
+  var MEASURES = {
+    passRate: { label: "Pass rate", rate: true, hint: "Passed attempts ÷ scored attempts (retakes count)." },
+    firstPassRate: { label: "First-attempt pass rate", rate: true, hint: "Passed first takes ÷ first takes." },
+    certRate: { label: "Certified", rate: true, hint: "Exam takers whose best take passed ÷ exam takers." },
+    avg: { label: "Average score", rate: false, hint: "Mean score of scored attempts (700 passes)." }
+  };
+  function scoreTone(v) { return v == null ? "blue" : v >= 800 ? "green" : v >= 700 ? "orange" : "red"; }
+  function mval(c, m) { return c ? c[m] : null; }
+  function mfmt(v, m) { return v == null ? "—" : MEASURES[m].rate ? pct(v, 0) : Math.round(v); }
+  function mtone(v, m) { return MEASURES[m].rate ? rateTone(v) : scoreTone(v); }
+  // One matrix cell: the measure as a pill, attempts underneath; a small group is muted and says why.
+  function mxCell(c, m, school, exam) {
+    if (!c || !c.attempts) return '<td class="mos-mx-c mos-mx-none">' + (c && c.pending ? '<span class="small text-muted" title="In progress — no score yet">' + c.pending + ' pending</span>' : "—") + "</td>";
+    var v = mval(c, m), t = c.small ? "Fewer than " + P().SMALL_GROUP + " attempts — one or two students decide this" : "";
+    return '<td class="mos-mx-c' + (c.small ? " mos-mx-small" : "") + '"><button type="button" class="mos-mx-btn" data-mx-school="' + esc(school) + '" data-mx-exam="' + esc(exam) + '"' +
+      ' title="' + esc((t ? t + ". " : "") + "Open these attempts in Results") + '">' +
+      '<span class="mos-rate mos-rate-' + mtone(v, m) + '">' + mfmt(v, m) + "</span>" +
+      '<span class="mos-mx-n">' + num(c.attempts) + " att." + (c.small ? " · small" : "") + "</span></button></td>";
+  }
+  function renderAnalytics(R) {
+    var host = $("mos-view-analytics"); if (!host) return;
+    var A = P().performance(R), m = MEASURES[S.measure] ? S.measure : "passRate";
+    if (!A.total.attempts) { host.innerHTML = '<div class="card-box small text-muted">No scored attempts for the current filters.</div>'; return; }
+    var T = A.total;
+    var kp = kpi("Scored attempts", num(T.attempts), "blue") + kpi("Students", num(T.students), "blue") +
+      kpi("Pass rate", pct(T.passRate), rateTone(T.passRate), MEASURES.passRate.hint) +
+      kpi("First-attempt pass rate", pct(T.firstPassRate), rateTone(T.firstPassRate), MEASURES.firstPassRate.hint) +
+      kpi("Certified", pct(T.certRate), rateTone(T.certRate), MEASURES.certRate.hint) +
+      kpi("Average score", T.avg == null ? "—" : Math.round(T.avg), scoreTone(T.avg)) +
+      (T.pending ? kpi("In progress", num(T.pending), "orange", "No score yet — not counted as a fail") : "");
+    // schools ranked by the chosen measure; small schools rank after the rest
+    var schools = A.schools.slice().sort(function (a, b) {
+      var x = A.bySchool[a], y = A.bySchool[b];
+      return (x.small - y.small) || ((mval(y, m) == null ? -1 : mval(y, m)) - (mval(x, m) == null ? -1 : mval(x, m))) || a.localeCompare(b);
+    });
+    var btns = Object.keys(MEASURES).map(function (k) {
+      return '<button type="button" class="btn btn-outline-secondary' + (k === m ? " active" : "") + '" data-mx-measure="' + k + '" aria-pressed="' + (k === m) + '" title="' + esc(MEASURES[k].hint) + '">' + MEASURES[k].label + "</button>";
+    }).join("");
+    var head = "<thead><tr><th>School</th>" + A.exams.map(function (e) { return '<th class="mos-mx-h">' + esc(e) + "</th>"; }).join("") + '<th class="mos-mx-h mos-mx-tot">All exams</th></tr></thead>';
+    var body = schools.map(function (s) {
+      return "<tr><th scope=\"row\">" + esc(s) + "</th>" + A.exams.map(function (e) { return mxCell(A.cells[s][e], m, s, e); }).join("") +
+        mxCell(A.bySchool[s], m, s, "").replace('class="mos-mx-c', 'class="mos-mx-c mos-mx-tot') + "</tr>";
+    }).join("");
+    var foot = '<tfoot><tr><th scope="row">All schools</th>' + A.exams.map(function (e) { return mxCell(A.byExam[e], m, "", e); }).join("") +
+      mxCell(T, m, "", "").replace('class="mos-mx-c', 'class="mos-mx-c mos-mx-tot') + "</tr></tfoot>";
+
+    // per-exam table: volume, the three rates, average, weakest skill area
+    var examRows = A.exams.map(function (e) {
+      var c = A.byExam[e], sk = P().skillAreas(R.filter(function (r) { return r.exam === e; }))[0];
+      return '<tr><th scope="row"><button type="button" class="btn btn-link btn-sm p-0" data-mx-school="" data-mx-exam="' + esc(e) + '">' + esc(e) + "</button>" + (c.small ? ' <span class="mos-mx-flag">small</span>' : "") + "</th>" +
+        '<td class="num">' + num(c.attempts) + '</td><td class="num">' + num(c.students) + "</td>" +
+        rateCell(c.passRate) + rateCell(c.firstPassRate) + rateCell(c.certRate) +
+        '<td class="num">' + (c.avg == null ? "—" : Math.round(c.avg)) + "</td>" +
+        "<td>" + (sk ? esc(sk.area) + ' <span class="text-muted">(' + Math.round(sk.avg) + "%)</span>" : '<span class="text-muted" title="Skill areas come from the score-report PDFs; the Certiport export has none">— (PDFs only)</span>') + "</td></tr>";
+    }).join("");
+
+    // per-school table: rank (non-small schools), strongest / weakest exam by pass rate (exams with ≥ small-group attempts)
+    var rank = 0;
+    var schoolRows = schools.map(function (s) {
+      var c = A.bySchool[s];
+      var ex = Object.keys(A.cells[s]).map(function (e) { return { e: e, c: A.cells[s][e] }; }).filter(function (x) { return x.c.attempts && !x.c.small; })
+        .sort(function (a, b) { return b.c.passRate - a.c.passRate || b.c.attempts - a.c.attempts; });
+      var exTxt = function (x) { return x ? esc(x.e) + ' <span class="text-muted">' + pct(x.c.passRate, 0) + "</span>" : '<span class="text-muted">—</span>'; };
+      return '<tr><td class="num">' + (c.small ? '<span class="text-muted" title="Fewer than ' + P().SMALL_GROUP + ' attempts — not ranked">–</span>' : ++rank) + "</td>" +
+        '<th scope="row"><button type="button" class="btn btn-link btn-sm p-0" data-mx-school="' + esc(s) + '" data-mx-exam="">' + esc(s) + "</button></th>" +
+        '<td class="num">' + num(c.attempts) + '</td><td class="num">' + num(c.students) + "</td>" +
+        rateCell(c.passRate) + rateCell(c.firstPassRate) + rateCell(c.certRate) +
+        '<td class="num">' + (c.avg == null ? "—" : Math.round(c.avg)) + "</td><td>" + exTxt(ex[0]) + "</td><td>" + (ex.length > 1 ? exTxt(ex[ex.length - 1]) : '<span class="text-muted">—</span>') + "</td></tr>";
+    }).join("");
+    var rh = '<th class="num">Attempts</th><th class="num">Students</th><th class="num">Pass rate</th><th class="num">First attempt</th><th class="num">Certified</th><th class="num">Avg score</th>';
+
+    host.innerHTML =
+      '<div id="mos-an-kpi" class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3 kpi-row mt-1">' + kp + "</div>" +
+      '<div class="card-box mt-3"><div class="mos-ch-head"><h6 class="mb-0">Performance by school and exam</h6>' +
+        '<div class="btn-group btn-group-sm flex-wrap" role="group" aria-label="Measure">' + btns + "</div></div>" +
+        '<div class="small text-muted mb-2">' + esc(MEASURES[m].hint) + " Click a cell to open its attempts in Results. Cells with fewer than " + P().SMALL_GROUP + " attempts are muted.</div>" +
+        '<div class="table-responsive"><table class="table table-sm mos-tbl mos-mx">' + head + "<tbody>" + body + "</tbody>" + foot + "</table></div></div>" +
+      '<div class="card-box mt-3"><h6>By exam</h6><div class="table-responsive"><table class="table table-sm mos-tbl"><thead><tr><th>Exam</th>' + rh + "<th>Weakest skill area</th></tr></thead><tbody>" + examRows + "</tbody></table></div></div>" +
+      '<div class="card-box mt-3"><h6>By school</h6><div class="table-responsive"><table class="table table-sm mos-tbl"><thead><tr><th class="num">Rank</th><th>School</th>' + rh + "<th>Strongest exam</th><th>Weakest exam</th></tr></thead><tbody>" + schoolRows + "</tbody></table></div>" +
+        '<div class="small text-muted mt-1">Ranked by ' + esc(MEASURES[m].label.toLowerCase()) + ". Strongest / weakest exam by pass rate, among exams with at least " + P().SMALL_GROUP + " attempts.</div></div>";
   }
 
   function kpi(label, val, tone, title) {

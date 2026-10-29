@@ -16,6 +16,19 @@ UPDATE — 2026-10-29 — PowerShell scripts: every script asks where to save, a
   - Future scripts: built-in scripts reuse the same question (a test fails if one doesn't ask or writes extra files).
     For a custom script added in Admin › PowerShell scripts, put the line  # QBR_OUTPUT_FOLDER  in it; Copy swaps in the
     same question, then call  $OutputFolder = Select-QbrOutputFolder -Default <folder> -Purpose '<what is saved>'.
+UPDATE — 2026-10-29 — Risky Investigation: files are checked the moment you drop them (no version bump)
+  - Each Source card now recognises the file you drop by its columns and its name. A wrong file is refused straight
+    away (from the CSV's header row, before the whole file is read) with the reason, and the file already in that card
+    stays. When it belongs in another card you get a "Move to Source 0X" button — e.g. a Non-interactive sign-ins
+    file dropped on Source 02 moves to Source 04 in one click. Refused outright: the Risky users list (Source 01 needs
+    Risky sign-ins), Interactive AuthDetails, Application / managed-identity sign-ins, empty (0-byte) files.
+  - After loading, amber notes flag files that don't belong together: another week or school code, a month label that
+    doesn't match the dates, a file at Entra's 100,000-row download limit (probably cut off), risky users missing from
+    the interactive log, Source 05 Request IDs that don't match Source 04, interactive/non-interactive mix-ups, and in
+    Source 03 users NotFound / missing or methods extracted long after the window.
+  - Warnings never block Run Investigation: the status bar counts them and the report header lists them.
+  - The school code and month boxes fill in from the file name (SCHOOL_MON_…) when empty. Excel files are still
+    accepted and are checked after they are read.
 
 UPDATE — 2026-10-29 — MOS › Completion certificates: "Adjust layout" hidden until you need it (no version bump)
   - The layout editor (X / Y / Size / Centre / Reset for each object) no longer fills the page. It starts hidden every time
