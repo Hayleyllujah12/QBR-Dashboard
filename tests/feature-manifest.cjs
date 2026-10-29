@@ -55,6 +55,8 @@ const F = [
   ["MOS certificates parser (v1.41.0)", "js/mos-parse.js", ["parseCertificatePage", "matchCertificates", "parseLogRows", "LOG_COLS"]],
   ["MOS certificate tracker (v1.41.0)", "js/mos-certs.js", ["QBR.mosCerts", "MOS Certificate Log.xlsx", "surgicalSave", "fsFolderFiles", "reprint"]],
   ["MOS certificate hooks (v1.41.0)", "js/mos.js", ["parseCertificatePage", "addCert", "data-mos-view"]],
+  ["MOS analytics: school × exam (2026-10-29)", "js/mos.js", ["renderAnalytics", "data-mx-measure", "data-mx-school", "mos-view-analytics", "mos-filters"]],
+  ["MOS analytics counting rules", "js/mos-parse.js", ["function performance", "certRate", "firstPassRate", "SMALL_GROUP"]],
   ["Domain registration edit (v1.41.0)", "js/domain-edit.js", ["QBR.domainEdit", "surgicalSave", "headerIndex", "Safety stop", "VALIDPD"]],
   ["Domain edit wired (v1.41.0)", "js/app.js", ["data-dr-edit", "drEditKey", "domainEdit.wire"]],
   ["Domain edit uses the linked tracker (2026-10-21)", "js/domain-edit.js", ["linkedHandle", "isDomainLink", "afterWrite", "fsSetBase"]],

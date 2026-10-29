@@ -711,8 +711,57 @@
       .sort(function (a, b) { return a.avg - b.avg; });
   }
 
+  // School × exam performance (MOS › Analytics). Same counting as summarize(): only
+  // scored attempts count; "In Progress" rows go to `pending`, never to a fail.
+  //   passRate      = passed attempts / scored attempts
+  //   firstPassRate = passed FIRST takes / first takes (attemptNo 1)
+  //   certRate      = exam takers (student × exam) whose BEST take passed / exam takers
+  //   small         = fewer than SMALL_GROUP scored attempts — one or two students decide the rate
+  // → { schools, exams, cells[school][exam], bySchool[school], byExam[exam], total }
+  var SMALL_GROUP = 5;
+  function performance(all) {
+    function blank() { return { attempts: 0, passed: 0, sum: 0, first: 0, firstPass: 0, pending: 0, students: {}, takers: {} }; }
+    function add(c, r) {
+      if (r.score == null) { c.pending++; return; }
+      c.attempts++; c.sum += r.score; if (r.pass) c.passed++;
+      if (r.attemptNo === 1) { c.first++; if (r.pass) c.firstPass++; }
+      c.students[r.studentKey] = 1;
+      var t = r.studentKey + "|" + r.exam; c.takers[t] = c.takers[t] || !!r.pass;
+    }
+    function done(c) {
+      var takers = Object.keys(c.takers), cert = takers.filter(function (k) { return c.takers[k]; }).length;
+      return {
+        attempts: c.attempts, passed: c.passed, failed: c.attempts - c.passed, pending: c.pending,
+        passRate: c.attempts ? c.passed / c.attempts : null,
+        firstAttempts: c.first, firstPassRate: c.first ? c.firstPass / c.first : null,
+        avg: c.attempts ? c.sum / c.attempts : null,
+        students: Object.keys(c.students).length, takers: takers.length, certified: cert,
+        certRate: takers.length ? cert / takers.length : null,
+        small: c.attempts > 0 && c.attempts < SMALL_GROUP
+      };
+    }
+    var cells = {}, bySchool = {}, byExam = {}, total = blank();
+    (all || []).forEach(function (r) {
+      var s = r.school || "Unassigned school", e = r.exam || "(unknown exam)";
+      var row = cells[s] || (cells[s] = {});
+      add(row[e] || (row[e] = blank()), r);
+      add(bySchool[s] || (bySchool[s] = blank()), r);
+      add(byExam[e] || (byExam[e] = blank()), r);
+      add(total, r);
+    });
+    var out = { schools: Object.keys(bySchool).sort(), exams: [], cells: {}, bySchool: {}, byExam: {}, total: done(total) };
+    out.schools.forEach(function (s) {
+      out.bySchool[s] = done(bySchool[s]); out.cells[s] = {};
+      Object.keys(cells[s]).forEach(function (e) { out.cells[s][e] = done(cells[s][e]); });
+    });
+    Object.keys(byExam).forEach(function (e) { out.byExam[e] = done(byExam[e]); });
+    // most-taken exam first, so the matrix reads left to right by volume
+    out.exams = Object.keys(byExam).sort(function (a, b) { return out.byExam[b].attempts - out.byExam[a].attempts || a.localeCompare(b); });
+    return out;
+  }
+
   var api = {
-    VERSION: "1.37.0",
+    VERSION: "1.37.0", SMALL_GROUP: SMALL_GROUP, performance: performance,
     toItems: toItems, toLines: toLines, cleanTitle: cleanTitle, examFamily: examFamily, examVersion: examVersion,
     parseDate: parseDate, schoolYear: schoolYear, parseScorePage: parseScorePage, fileMeta: fileMeta,
     parseRosterRows: parseRosterRows, tokens: tokens, matchRoster: matchRoster, buildModel: buildModel,
