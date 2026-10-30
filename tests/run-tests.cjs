@@ -69,8 +69,15 @@ let mojiCount = 0;
 ["risky", "security", "storage", "usage", "canva", "postmaster", "pmVerify"].forEach(sh =>
   (model[sh] || []).forEach(r => { if (r.schoolRaw && MOJI.test(r.schoolRaw)) mojiCount++; }));
 ok(mojiCount === 0, "INV", "no mojibake left in any display name (schoolRaw)", "found " + mojiCount);
-const dasmar = [...model.master.values()].find(m => /se[ñn]ora/i.test(m.name) && /- Villa Se/i.test(m.name));
-ok(!!dasmar && /ñ/.test(dasmar.name), "INV", 'accented name repaired ("Villa Señora")', dasmar && dasmar.name);
+// The fixture carries a deliberately mojibaked "Villa SeÃ±ora" school; the real tracker has no such row,
+// so there the invariant is "no repaired name still shows the Ã± / Ã© mojibake" (2026-10-30).
+if (PROFILE === "fixture") {
+  const dasmar = [...model.master.values()].find(m => /se[ñn]ora/i.test(m.name) && /- Villa Se/i.test(m.name));
+  ok(!!dasmar && /ñ/.test(dasmar.name), "INV", 'accented name repaired ("Villa Señora")', dasmar && dasmar.name);
+} else {
+  const moji = [...model.master.values()].filter(m => /Ã[±©¡³ºÑ‰]/.test(m.name)).length;
+  ok(moji === 0, "INV", "accented names repaired (no Ã± / Ã© mojibake left)", moji + " name(s) still mojibaked");
+}
 
 /* ---- null vs 0 kept distinct (missing data never becomes 0) ---- */
 const rNull = model.risky.some(r => r.risky === null), rZero = model.risky.some(r => r.risky === 0), rPos = model.risky.some(r => r.risky > 0);
@@ -226,7 +233,7 @@ if (model.domainreg && model.domainreg.length) {
 /* ---- SNAPSHOTS (per profile) -------------------------------------------- */
 console.log("\n-- snapshots [" + PROFILE + "] --");
 const EXP = {
-  tracker: { canvaQ1: 52, canvaQ2: 64, orgGaps: 12, pmVerify: 106, thiIndex: 69, thiScored: 109, thiDist: { Excellent: 0, Healthy: 44, "Attention Needed": 44, Critical: 21 },
+  tracker: { canvaQ1: 52, canvaQ2: 64, orgGaps: 12, pmVerify: 106, thiIndex: 67, thiScored: 109, thiDist: { Excellent: 0, Healthy: 30, "Attention Needed": 56, Critical: 23 },   // re-recorded 2026-10-30 (v1.22.0: latest-quarter rule)
              amEmailOtp: 90, amMfa: 41, amPhish: 33, amWeakOnly: 48, amOtpOnly: 37 },
   fixture: { canvaQ1: 2,  canvaQ2: 3,  orgGaps: 2,  pmVerify: 7,   thiIndex: 73, thiScored: 8,   thiDist: { Excellent: 0, Healthy: 5,  "Attention Needed": 0,  Critical: 3  },
              amEmailOtp: 7,  amMfa: 4,  amPhish: 3,  amWeakOnly: 2,  amOtpOnly: 2,
