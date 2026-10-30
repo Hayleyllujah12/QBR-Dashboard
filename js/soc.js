@@ -26,6 +26,10 @@ const state = {
   noniAuthMap: null,    // v12.3 Source 05 — Map<Request ID, {satisfiedByToken, method, detail}>
   noniAuthFilename: null,
   report: null,
+  // Upload validation (2026-10-29, js/soc-validate.js): per-card classification + stats,
+  // rejected drops (kept for "Move to Source 0X"), cross-file warnings, pill snapshot.
+  val: {}, valReject: {}, valWarnings: {}, pillPrev: {},
+  batch: null,          // drop-all: { files, items } while a batch is being planned / loaded
 };
 
 // ============================================================
@@ -376,6 +380,9 @@ function parseWorkbookMainThread(buffer, opts) {
 
 function showReadingState(slot, filename) {
   const pill = $('pill-' + slot);
+  state.pillPrev[slot] = { hidden: pill.classList.contains('hidden'), done: pill.classList.contains('done'),
+    name: pill.querySelector('.filename').textContent, rows: pill.querySelector('.rows').innerHTML,
+    loaded: $('card-' + slot).classList.contains('loaded') };
   pill.classList.remove('hidden', 'done');
   pill.classList.add('reading');
   pill.querySelector('.filename').textContent = filename;
@@ -391,14 +398,30 @@ function failIngest(slot, filename, msg) {
   showToast('Failed to parse ' + filename + ': ' + msg);
 }
 
-function applyParsed(slot, filename, json) {
+// ctx.done (drop-all batch): called once the file has been stored, refused or failed.
+function applyParsed(slot, filename, json, ctx) {
+  try { applyParsedInner(slot, filename, json, ctx || {}); }
+  finally { if (ctx && ctx.done) ctx.done(); }
+}
+function applyParsedInner(slot, filename, json, ctx) {
   if (slot === 'noni' && json && !json.length && json.__meta && json.__meta.filtered) {
     failIngest(slot, filename, `none of ${json.__meta.totalWithUser.toLocaleString()} rows belong to the risky users in Source 01`); return;
   }
-  if (!json || !json.length) { failIngest(slot, filename, 'Sheet is empty'); return; }
+  if (!json || !json.length) {
+    if (ctx.file && QBR.socValidate) { restorePill(slot); showReject(slot, ctx.file, { message: 'It has a header row but no data rows — nothing to load. Check the filters / date range used for the download.' }); return; }
+    failIngest(slot, filename, 'Sheet is empty'); return;
+  }
+  // Upload validation: CSVs were checked from their header row before parsing; Excel files are checked here.
+  const SVd = QBR.socValidate;
+  let vcls = ctx.cls || null, vchk = ctx.chk || null;
+  if (SVd && !vcls) {
+    vcls = SVd.classify(SVd.headersOfRows(json), filename);
+    vchk = SVd.slotCheck(slot, vcls, { size: ctx.file ? ctx.file.size : null });
+    if (!vchk.ok && ctx.file) { restorePill(slot); showReject(slot, ctx.file, vchk); return; }
+  }
   if (slot === 'risky' && state.noniMeta && state.noniMeta.filtered) {
     // Source 04 was pre-filtered for the PREVIOUS risky list — it would now be stale.
-    state.noniData = null; state.noniFilename = null; state.noniMeta = null;
+    state.noniData = null; state.noniFilename = null; state.noniMeta = null; delete state.val.noni;
     $('pill-noni').classList.add('hidden'); $('card-noni').classList.remove('loaded'); $('file-noni').value = '';
     showToast('Source 04 was filtered for the previous risky list — please re-load the non-interactive file.');
   }
@@ -436,25 +459,204 @@ function applyParsed(slot, filename, json) {
       ? (json.length.toLocaleString() + ' rows · load Source 01 first to pre-filter')
       : (json.length.toLocaleString() + ' rows');
   $('card-' + slot).classList.add('loaded');
+  if (SVd && vcls) {
+    const meta = (slot === 'noni' && json.__meta) ? { totalRows: json.__meta.totalWithUser } : null;
+    state.val[slot] = { name: vcls.name, kind: vcls.kind, variant: vcls.variant, stats: SVd.fileStats(vcls.kind, json, meta),
+      soft: vchk && vchk.warn ? vchk.message : null };
+    if (slot === 'noniad') state._authIds = null;
+    socAutofillPrefix(vcls.name);
+  }
+  renderValidation();
   updateAnalyzeReady();
 }
 
-function handleFile(file, slot) {
+// Upload validation (2026-10-29): a CSV is checked from its header row (first 64 KB) the moment it is
+// dropped — a wrong export is refused before the full file is read. Excel files are checked after parsing.
+function handleFile(file, slot, done) {
+  done = done || function () {};
+  clearReject(slot);
+  const SVd = QBR.socValidate;
+  if (SVd && file.size === 0) { showReject(slot, file, { message: 'The file is empty (0 bytes) — download it again.' }); done(); return; }
+  if (SVd && /\.(csv|txt)$/i.test(file.name)) {
+    readHead(file).then(text => {
+      const cls = SVd.classify(SVd.parseHeaderLine(text), file.name);
+      const chk = SVd.slotCheck(slot, cls, { size: file.size });
+      if (!chk.ok) { showReject(slot, file, chk); done(); return; }
+      readWhole(file, slot, { cls, chk, file, done });
+    }, () => readWhole(file, slot, { file, done }));
+    return;
+  }
+  readWhole(file, slot, { file, done });
+}
+function readHead(file) {
+  const part = file.slice(0, 65536);
+  if (part.text) return part.text();
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsText(part); });
+}
+function readWhole(file, slot, ctx) {
   const reader = new FileReader();
   reader.onload = e => {
     const buffer = e.target.result;
     showReadingState(slot, file.name);            // immediate feedback (v8)
     const opts = slot === 'noni' ? { keepCols: BG_KEEP_COLS, keepUsers: atRiskUserKeys() } : undefined;  // v12.3
     parseWorkbookInWorker(buffer, opts)
-      .then(json => applyParsed(slot, file.name, json))
+      .then(json => applyParsed(slot, file.name, json, ctx))
       .catch(() =>                                 // worker unavailable → fallback
         parseWorkbookMainThread(buffer, opts)
-          .then(json => applyParsed(slot, file.name, json))
-          .catch(err => failIngest(slot, file.name, err.message))
+          .then(json => applyParsed(slot, file.name, json, ctx))
+          .catch(err => { failIngest(slot, file.name, err.message); if (ctx && ctx.done) ctx.done(); })
       );
   };
-  reader.onerror = () => { failIngest(slot, file.name, 'could not read file'); };
+  reader.onerror = () => { failIngest(slot, file.name, 'could not read file'); if (ctx && ctx.done) ctx.done(); };
   reader.readAsArrayBuffer(file);
+}
+
+// ---- Upload validation UI (cards, Move to Source 0X, status bar) -------------
+const VAL_SLOTS = ['risky', 'all', 'auth', 'noni', 'noniad'];
+function valNote(slot) {
+  let el = $('val-' + slot);
+  if (!el) {
+    el = document.createElement('div'); el.id = 'val-' + slot; el.className = 'val-note'; el.hidden = true;
+    el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+    $('card-' + slot).appendChild(el);
+  }
+  return el;
+}
+function restorePill(slot) {
+  const pr = state.pillPrev[slot], pill = $('pill-' + slot);
+  pill.classList.remove('reading');
+  if (!pr || pr.hidden) { pill.classList.add('hidden'); pill.classList.remove('done'); }
+  else { pill.classList.toggle('done', pr.done); pill.querySelector('.filename').textContent = pr.name; pill.querySelector('.rows').innerHTML = pr.rows; }
+  $('card-' + slot).classList.toggle('loaded', !!(pr && pr.loaded));
+}
+function showReject(slot, file, chk) {
+  state.valReject[slot] = { file, chk };
+  const el = valNote(slot), SVd = QBR.socValidate;
+  el.hidden = false; el.className = 'val-note bad';
+  el.innerHTML = '<b>Not loaded:</b> ' + escapeHtml(file.name) + ' — ' + escapeHtml(chk.message) +
+    (chk.moveTo && SVd ? ' <button type="button" class="val-move" data-val-move="' + slot + '">Move to ' + SVd.SLOT_NAME[chk.moveTo] + '</button>' : '');
+  $('card-' + slot).classList.add('val-bad');
+  updateAnalyzeReady();
+}
+function clearReject(slot) {
+  delete state.valReject[slot];
+  $('card-' + slot).classList.remove('val-bad');
+  const el = $('val-' + slot); if (el) { el.hidden = true; el.innerHTML = ''; }
+}
+function socAutofillPrefix(n) {
+  const ti = $('soc-tenant'), mi = $('soc-month');
+  if (ti && !ti.value && n && n.school) ti.value = n.school;
+  if (mi && !mi.value && n && n.mon) mi.value = n.mon.slice(0, 3);
+}
+function renderValidation() {
+  const SVd = QBR.socValidate; if (!SVd) return;
+  const files = {};
+  VAL_SLOTS.forEach(s => { if (state.val[s]) files[s] = state.val[s]; });
+  if (state.noniAuthMap && !state._authIds) { const o = {}; for (const k of state.noniAuthMap.keys()) o[k] = 1; state._authIds = o; }
+  const W = SVd.crossCheck(files, { authMapIds: state.noniAuthMap ? state._authIds : null });
+  state.valWarnings = {};
+  VAL_SLOTS.forEach(s => {
+    const list = state.val[s] ? [].concat(state.val[s].soft ? [state.val[s].soft] : [], W[s] || []) : [];
+    if (list.length) state.valWarnings[s] = list;
+    $('card-' + s).classList.toggle('val-warn', list.length > 0);
+    if (state.valReject[s]) return;                         // a refused drop keeps its own note
+    const el = valNote(s);
+    el.hidden = !list.length; el.className = 'val-note warn';
+    el.innerHTML = list.map(m => '<div>\u26A0 ' + escapeHtml(m) + '</div>').join('');
+  });
+}
+function valSummary() {
+  const SVd = QBR.socValidate; if (!SVd) return { n: 0, rej: 0, html: '' };
+  const n = Object.keys(state.valWarnings || {}).reduce((a, k) => a + state.valWarnings[k].length, 0);
+  const rej = Object.keys(state.valReject || {}).length;
+  const parts = [];
+  if (rej) parts.push(`<span class="val-sum bad">\u2715 ${rej} file${rej === 1 ? '' : 's'} not loaded</span>`);
+  if (n) parts.push(`<span class="val-sum warn">\u26A0 ${n} warning${n === 1 ? '' : 's'} on ${Object.keys(state.valWarnings).map(k => SVd.SLOT_NAME[k]).join(', ')} — see the cards above</span>`);
+  return { n, rej, html: parts.length ? ' · ' + parts.join(' · ') : '' };
+}
+
+// ---- Drop all files (Phase A2): detect each file's type, route it to its card --------
+// Headers are read first (CSV: first 64 KB; Excel: first rows), planBatch() picks one file per card
+// (asking for the school when the batch holds several), then the picks load in 01→02→03→04→05 order
+// through the normal single-card path, so every check and note still applies.
+function dropAllSum(html) { const el = $('soc-dropall-sum'); if (!el) return; el.hidden = !html; el.innerHTML = html || ''; }
+function batchClassify(file) {
+  const SVd = QBR.socValidate;
+  if (!file.size) return Promise.resolve(null);
+  if (/\.(csv|txt)$/i.test(file.name))
+    return readHead(file).then(t => SVd.classify(SVd.parseHeaderLine(t), file.name), () => null);
+  return file.arrayBuffer().then(buf => {
+    const wb = XLSX.read(new Uint8Array(buf), { type: 'array', sheetRows: 2 });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
+    return SVd.classify((rows[0] || []).filter(h => h != null && String(h).trim() !== ''), file.name);
+  }).catch(() => null);
+}
+function collectDropped(dt) {
+  const items = dt && dt.items ? [...dt.items] : [];
+  const entries = items.map(i => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null)).filter(Boolean);
+  if (!entries.length) return Promise.resolve(dt ? [...dt.files] : []);
+  const out = [];
+  const walk = entry => new Promise(res => {
+    if (entry.isFile) { entry.file(f => { out.push(f); res(); }, () => res()); return; }
+    if (!entry.isDirectory) { res(); return; }
+    const reader = entry.createReader(), kids = [];
+    const more = () => reader.readEntries(batch => {
+      if (!batch.length) { Promise.all(kids.map(walk)).then(() => res()); return; }
+      kids.push(...batch); more();
+    }, () => res());
+    more();
+  });
+  return Promise.all(entries.map(walk)).then(() => out);
+}
+async function runBatch(files) {
+  const SVd = QBR.socValidate; if (!SVd) return;
+  const all = [...files];
+  files = all.filter(f => /\.(csv|xlsx|xls)$/i.test(f.name));
+  if (!files.length) { dropAllSum('<b>No CSV or Excel files found</b>' + (all.length ? ` in the ${all.length} item${all.length === 1 ? '' : 's'} dropped.` : '.') + dropAllClose()); return; }
+  dropAllSum(`Reading ${files.length} file header${files.length === 1 ? '' : 's'}…`);
+  const items = await Promise.all(files.map(f => batchClassify(f).then(cls => ({ name: f.name, size: f.size, lastModified: f.lastModified, cls }))));
+  state.batch = { files, items };
+  planAndLoad(null);
+}
+function dropAllClose() { return ' <button type="button" class="dropall-x" data-dropall-close aria-label="Dismiss">\u2715</button>'; }
+async function planAndLoad(school) {
+  const SVd = QBR.socValidate, b = state.batch; if (!b) return;
+  const plan = SVd.planBatch(b.items, { school });
+  if (plan.needSchool) {
+    dropAllSum(`<b>Files for ${plan.schools.length} schools found — which one is this investigation?</b><div class="dropall-schools">` +
+      plan.schools.map(s => `<button type="button" class="dropall-btn" data-dropall-school="${escapeHtml(s.code)}">${escapeHtml(s.code)} · ${s.count} file${s.count === 1 ? '' : 's'}</button>`).join('') + '</div>');
+    return;
+  }
+  dropAllSum(`Loading ${plan.picks.length} file${plan.picks.length === 1 ? '' : 's'}…`);
+  for (const pk of plan.picks) await new Promise(res => handleFile(b.files[pk.index], pk.slot, res));
+  const loaded = [], refused = [];
+  plan.picks.forEach(pk => {
+    const nm = escapeHtml(b.files[pk.index].name), rj = state.valReject[pk.slot];
+    if (rj) refused.push(`<li class="bad">\u2715 ${nm} — ${escapeHtml(rj.chk.message)}</li>`);
+    else loaded.push(`<li>${SVd.SLOT_NAME[pk.slot]} \u2190 ${nm}</li>`);
+  });
+  const skipped = plan.skipped.map(s => `<li class="skip">${escapeHtml(b.items[s.index].name)} — ${escapeHtml(s.reason)}</li>`);
+  dropAllSum(`<b>Loaded ${loaded.length} of ${b.files.length} file${b.files.length === 1 ? '' : 's'}</b>` +
+    (skipped.length ? ` · skipped ${skipped.length}` : '') + (refused.length ? ` · ${refused.length} refused` : '') +
+    (school ? ` · school ${escapeHtml(school)}` : '') + dropAllClose() +
+    `<ul>${loaded.join('')}${refused.join('')}${skipped.join('')}</ul>`);
+  state.batch = null;
+}
+function initDropAll() {
+  const bar = $('soc-dropall'); if (!bar || !QBR.socValidate) return;
+  const fi = $('soc-dropall-files'), di = $('soc-dropall-dir');
+  $('soc-dropall-pick').addEventListener('click', () => fi.click());
+  $('soc-dropall-pickdir').addEventListener('click', () => di.click());
+  fi.addEventListener('change', () => { runBatch(fi.files); fi.value = ''; });
+  di.addEventListener('change', () => { runBatch(di.files); di.value = ''; });
+  bar.addEventListener('dragover', e => { e.preventDefault(); bar.classList.add('dragging'); });
+  bar.addEventListener('dragleave', e => { if (!bar.contains(e.relatedTarget)) bar.classList.remove('dragging'); });
+  bar.addEventListener('drop', e => { e.preventDefault(); bar.classList.remove('dragging'); collectDropped(e.dataTransfer).then(runBatch); });
+  bar.addEventListener('click', e => {
+    const sc = e.target.closest('[data-dropall-school]');
+    if (sc) { planAndLoad(sc.getAttribute('data-dropall-school')); return; }
+    if (e.target.closest('[data-dropall-close]')) { dropAllSum(''); state.batch = null; }
+  });
 }
 
 // ============================================================
@@ -614,6 +816,7 @@ function updateAnalyzeReady() {
     dot.classList.add('idle');
     live.textContent = 'AWAITING INGEST';
   }
+  status.insertAdjacentHTML('beforeend', valSummary().html);   // upload validation: never blocks Analyze
 }
 
 // ============================================================
@@ -1386,7 +1589,7 @@ function renderSummary(report) {
     <p style="margin-top:14px">${successTxt}
     A <strong>"risky sign-in" classification alone is not evidence of compromise</strong> — only a downstream <em>Success</em> status from
     the flagged source constitutes a confirmed unauthorized authentication.</p>
-  `;
+  ` + valReportNote();
 
   const overallVerdict = agg.compromised > 0
     ? { tag: 'CRITICAL', cls: 'crit', val: 'COMPROMISE', unit: 'INDICATED' }
@@ -1420,6 +1623,15 @@ function renderSummary(report) {
       <div class="v-value">${agg.mitigated}<span class="unit">account${agg.mitigated === 1 ? '' : 's'}</span></div>
     </div>
   `;
+}
+
+// Upload-validation warnings carried into the report header (empty when the files were clean).
+function valReportNote() {
+  const SVd = QBR.socValidate, W = state.valWarnings || {}, ks = Object.keys(W);
+  if (!SVd || !ks.length) return '';
+  const n = ks.reduce((a, k) => a + W[k].length, 0), items = [];
+  ks.forEach(k => W[k].forEach(m => items.push(`<li><b>${SVd.SLOT_NAME[k]}:</b> ${escapeHtml(m)}</li>`)));
+  return `<div class="val-report" role="note"><b>Loaded with ${n} data warning${n === 1 ? '' : 's'}</b> — read the findings with these in mind:<ul>${items.slice(0, 6).join('')}${items.length > 6 ? `<li>…and ${items.length - 6} more</li>` : ''}</ul></div>`;
 }
 
 function statusBadge(status) {
@@ -2535,6 +2747,8 @@ function reset() {
   state.allFilename = null;
   state.authFilename = null;
   state.report = null;
+  state.val = {}; state.valWarnings = {}; state._authIds = null; state.batch = null; dropAllSum('');
+  VAL_SLOTS.forEach(s => { clearReject(s); $('card-' + s).classList.remove('val-warn'); });
   $('pill-risky').classList.add('hidden');
   $('pill-all').classList.add('hidden');
   $('pill-auth').classList.add('hidden');
@@ -2581,6 +2795,16 @@ QBR.socInit = function () {
   bindDrop($('drop-noni'), $('file-noni'), 'noni');       // v12.3
   bindDrop($('drop-noniad'), $('file-noniad'), 'noniad'); // v12.3
   $('analyzeBtn').addEventListener('click', runInvestigation);
+  initDropAll();
+  // Upload validation: "Move to Source 0X" on a refused drop loads the same file into the right card.
+  $('uploadStage').addEventListener('click', e => {
+    const b = e.target.closest('[data-val-move]'); if (!b) return;
+    e.stopPropagation();
+    const from = b.getAttribute('data-val-move'), r = state.valReject[from];
+    if (!r || !r.chk.moveTo) return;
+    clearReject(from); updateAnalyzeReady();
+    handleFile(r.file, r.chk.moveTo);
+  });
   $('resetBtn').addEventListener('click', reset);
   $('exportInvestBtn').addEventListener('click', exportInvestigationTable);
   $('exportUserTimelinesBtn').addEventListener('click', exportPerUserTimelines);

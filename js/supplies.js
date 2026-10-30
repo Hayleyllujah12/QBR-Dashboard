@@ -169,12 +169,15 @@ QBR.supParseSheets = function (sheets, ctx) {
   return acc;
 };
 
-QBR.parseSuppliesBuffers = function (buffers) {
+/* 2026-10-25 load bar: optional onFile(i) reports per-file progress; 
+ * with onFile the loop runs async (yield after each file so the bar paints), 
+ * without it the original synchronous loop runs unchanged. */
+QBR.parseSuppliesBuffers = function (buffers, onFile) {
   QBR._supAcc = null;
   const fps = QBR._currentFps || [];
-  (buffers || []).forEach((buf, bi) => {
+  const one = (buf, bi) => {
     try {
-      const wb = XLSX.read(buf, { type: "array", cellStyles: true }); // cellStyles: keep !cols/styles for patch-in-place save
+      const wb = (QBR.readWorkbook ? QBR.readWorkbook(buf, { type: "array", cellStyles: true }) : XLSX.read(buf, { type: "array", cellStyles: true })); // cellStyles: keep !cols/styles for patch-in-place save
       const fp = fps[bi];
       if (fp) { (QBR._origWb || (QBR._origWb = {}))[fp] = wb; }
       const sheets = {};
@@ -188,14 +191,29 @@ QBR.parseSuppliesBuffers = function (buffers) {
         set.add("supplies");
       }
     } catch (e) { /* a non-supplies workbook simply contributes nothing */ }
-  });
-  const acc = QBR._supAcc || { items: [], transactions: [], sources: {} };
-  QBR._supAcc = null;
-  // de-dupe items by key (newest file wins); transactions accumulate
-  const seen = new Map();
-  acc.items.forEach(it => seen.set(it.key, it));
-  acc.items = [...seen.values()];
-  return acc;
+  };
+  const finish = () => {
+    const acc = QBR._supAcc || { items: [], transactions: [], sources: {} };
+    QBR._supAcc = null;
+    // de-dupe items by key (newest file wins); transactions accumulate
+    const seen = new Map();
+    acc.items.forEach(it => seen.set(it.key, it));
+    acc.items = [...seen.values()];
+    return acc;
+  };
+  if (typeof onFile === "function") {
+    return (async function () {
+      var list = buffers || [];
+      for (var bi = 0; bi < list.length; bi++) {
+        one(list[bi], bi);
+        onFile(bi);
+        await new Promise(function (r) { setTimeout(r, 0); });
+      }
+      return finish();
+    })();
+  }
+  (buffers || []).forEach(one);
+  return finish();
 };
 
 /* ---------- summary engine (recomputed; never trusts Excel caches) ------- */

@@ -5,7 +5,10 @@
  * A edit Registration date → only that cell changes (text, time-of-day kept); formulas + other cells untouched;
  *   the other domain of the same school is NOT edited; KPIs/expiration recomputed in the dashboard
  * B edit Validity → "VALIDPD: 02" (format kept); formula cell untouched; expiration recomputed in the dashboard
- * C a sheet starting at B2 (offset) still targets the right cell · D cancel (Escape) writes nothing */
+ * C a sheet starting at B2 (offset) still targets the right cell · D cancel (Escape) writes nothing
+ * F LINKED tracker (Direct save): loader registers kind "domainreg"; the edit reuses the link's handle — no
+ *   "pick the file" prompt, unrelated linked workbooks are never opened; loaded copy + link metadata updated
+ *   (in-memory bytes, new fingerprint/hash) so a session reload keeps the edit */
 "use strict";
 const { chromium } = require(process.env.PW + "/playwright");
 const fs = require("fs"), os = require("os"), path = require("path");
@@ -108,6 +111,100 @@ async function edit(page, domain, field, value) {
     ok(JSON.stringify(changed) === '["Q3!D5","Q3!E5"]' && after["Q3!D5"] === "|VALIDPD: 03" && after["Q3!E5"] === "|03", "typed values: VALIDPD and Validy in Year both updated, format kept (" + changed.join(", ") + ")");
     ok(page._dlg.some(m => /Expiration in the tracker is a typed value/.test(m)), "typed Expiration: tells you to update it in Excel");
     ok(!page._errs.length, "no page errors (E) " + page._errs.join(" | "));
+    await page.close();
+  }
+
+  /* F: stale-copy lineage — the browser remembers 99 rows for this tracker;
+   * this file has 4 → saving asks first; declining writes nothing. */
+  {
+    const file = tracker("A1");
+    let acceptLineage = false;
+    const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
+    page._errs = []; page.on("pageerror", e => page._errs.push(String(e.message).slice(0, 200)));
+    await page.goto(APP, { waitUntil: "domcontentloaded" }); await page.waitForTimeout(400);
+    await page.evaluate(() => localStorage.setItem("qbr-remember", "0"));
+    await page.setInputFiles("#file-input", [path.join(__dirname, "fixture.xlsx"), file]); await page.waitForTimeout(1500);
+    await page.evaluate((b64) => {
+      const s2 = atob(b64), u = new Uint8Array(s2.length); for (let i = 0; i < s2.length; i++) u[i] = s2.charCodeAt(i);
+      const h = window.__h = { name: "DOMAIN_REGISTRATION_TRACKER.xlsx", bytes: u, writes: 0,
+        getFile: async () => new File([h.bytes], h.name), queryPermission: async () => "granted", requestPermission: async () => "granted",
+        createWritable: async () => { let buf; return { write: async b => { buf = new Uint8Array(b.buffer ? b.buffer.slice(b.byteOffset || 0, (b.byteOffset || 0) + b.byteLength) : b); }, close: async () => { h.bytes = buf; h.writes++; }, abort: async () => {} }; } };
+      window.showOpenFilePicker = async () => [h];
+      localStorage.setItem("qbr-domainreg-lineage", JSON.stringify({ rows: 99, hash: "stale-test-bogus", savedAt: "2026-10-23T00:00:00.000Z" }));
+    }, fs.readFileSync(file).toString("base64"));
+    page._dlg = [];
+    page.on("dialog", async d => { const m = d.message(); page._dlg.push(m);
+      if (/looks older than the last one saved/.test(m) && !acceptLineage) await d.dismiss(); else await d.accept(); });
+    await page.click('[data-tab="dash-domainreg"]'); await page.waitForTimeout(300);
+    await edit(page, "alpha.edu.example", "reg", "2026-04-05");
+    ok(page._dlg.some(m => /looks older than the last one saved from this browser \(99 rows/.test(m)), "F: lineage warning shown for the older copy (99 remembered rows vs this file's 4)");
+    ok(page._dlg.some(m => /Could not save: Not saved \u2014 the picked file looks like an older copy/.test(m)), "F: declining the warning refuses the save with the reason");
+    ok(await page.evaluate(() => window.__h.writes) === 0, "F: nothing written into the older copy");
+    acceptLineage = true;
+    await edit(page, "alpha.edu.example", "reg", "2026-04-05");
+    ok(await page.evaluate(() => window.__h.writes) === 1, "F: confirming the warning saves the edit into the file");
+    const lin = await page.evaluate(() => { const r = JSON.parse(localStorage.getItem("qbr-domainreg-lineage") || "null"); return r && { rows: r.rows, match: r.hash === QBR.fsHashOf(window.__h.bytes) }; });
+    ok(!!lin && lin.rows === 4 && lin.match, "F: lineage refreshed to this file (4 rows, hash of the written bytes)");
+    page._dlg.length = 0; acceptLineage = false;
+    await edit(page, "beta.edu.example", "reg", "2026-05-06");
+    ok(await page.evaluate(() => window.__h.writes) === 2 && !page._dlg.some(m => /looks older/.test(m)), "F: once the lineage matches, later saves prompt no more");
+    ok(!page._errs.length, "F: no page errors " + page._errs.join(" | "));
+    await page.close();
+  }
+  /* G: linked tracker */
+  {
+    const file = tracker("A1"), before = cells(fs.readFileSync(file));
+    const page = await fresh(browser, file);
+    const k = await page.evaluate(() => {
+      const it = APP.files.find(f => /DOMAIN_REGISTRATION/i.test(f.name)), fp = QBR.fpOf(it.name, it.blob);
+      return { fp, kinds: Array.from((QBR._kindByFp || {})[fp] || []) };
+    });
+    ok(k.kinds.includes("domainreg"), "loader registers kind \"domainreg\" for the tracker's fingerprint (linked tracker = editable)");
+    await page.evaluate(fp => {
+      window.__picks = 0; window.showOpenFilePicker = async () => { window.__picks++; throw new Error("picker must not open"); };
+      const decoy = { name: "Inventory.xlsx", reads: 0, getFile: async () => { decoy.reads++; return new File([new Uint8Array(4)], "Inventory.xlsx"); }, queryPermission: async () => "granted" };
+      window.__decoy = decoy;
+      const it = APP.files.find(f => /DOMAIN_REGISTRATION/i.test(f.name));
+      QBR._fsLinks = [{ fp: "x|1|1", kinds: ["assets"], name: "Inventory.xlsx", size: 4, lastModified: 1, handle: decoy },
+                      { fp, kinds: ["domainreg"], name: it.name, size: it.blob.size, lastModified: it.blob.lastModified, hash: "old", handle: window.__h }];
+    }, k.fp);
+    page._dlg.length = 0;
+    await edit(page, "gamma.edu.example", "reg", "2026-03-04");
+    const r = await page.evaluate(async () => {
+      const it = APP.files.find(f => /DOMAIN_REGISTRATION/i.test(f.name)), L = QBR._fsLinks[1];
+      const memBytes = new Uint8Array(await it.blob.arrayBuffer()), disk = window.__h.bytes;
+      const same = memBytes.length === disk.length && memBytes.every((b, i) => b === disk[i]);
+      const newFp = QBR.fpOf(it.name, it.blob);
+      return { picks: window.__picks, writes: window.__h.writes, decoyReads: window.__decoy.reads, same, linkFp: L.fp === newFp, hash: L.hash !== "old" && !!L.hash,
+               kind: Array.from((QBR._kindByFp || {})[newFp] || []).includes("domainreg"), curFp: (QBR._currentFps || []).includes(newFp),
+               status: APP.model.domainreg.find(x => x.domain === "gamma.edu.example").regRaw };
+    });
+    ok(r.picks === 0 && !page._dlg.some(m => /pick the DOMAIN_REGISTRATION/.test(m)) && r.writes === 1, "edit saved through the linked handle: no pick prompt, one write  " + JSON.stringify({ picks: r.picks, writes: r.writes, dlg: page._dlg.length }));
+    ok(r.decoyReads === 0, "unrelated linked workbook (Inventory.xlsx) is never opened");
+    const after = cells(Buffer.from(await outBytes(page)));
+    ok(after["Q3!C5"] === "|2026-03-04-10-00-00" && Object.keys(after).filter(c => after[c] !== before[c]).length === 1, "linked file: exactly the edited cell changed");
+    ok(r.same, "loaded copy (APP.files) now holds the written bytes, in memory");
+    ok(r.linkFp && r.hash && r.kind && r.curFp, "link fingerprint + content hash, kind map and current fingerprints follow the new file  " + JSON.stringify(r));
+    await page.evaluate(async () => { const it = APP.files.find(f => /DOMAIN_REGISTRATION/i.test(f.name)); await loadItems(APP.files.slice(), {}); });
+    await page.waitForTimeout(800);
+    const re = await page.evaluate(() => APP.model.domainreg.find(x => x.domain === "gamma.edu.example").regRaw);
+    ok(/^2026-03-04/.test(re || ""), "re-parsing the session copy keeps the edit (was: reverted on reload)  [" + re + "]");
+    ok(!page._errs.length, "no page errors (F) " + page._errs.join(" | "));
+    await page.close();
+  }
+  /* H: tracker NOT linked, other workbooks linked → picker fallback, the other links are not opened */
+  {
+    const file = tracker("A1");
+    const page = await fresh(browser, file);
+    await page.evaluate(() => {
+      window.__reads = 0;
+      const mk = n => ({ name: n, getFile: async () => { window.__reads++; return new File([new Uint8Array(4)], n); }, queryPermission: async () => "granted" });
+      QBR._fsLinks = [1, 2, 3, 4, 5].map(i => ({ fp: "f" + i, kinds: ["assets"], name: "Workbook" + i + ".xlsx", size: 4, lastModified: 1, handle: mk("Workbook" + i + ".xlsx") }));
+    });
+    page._dlg.length = 0;
+    await edit(page, "gamma.edu.example", "reg", "2026-03-04");
+    const g = await page.evaluate(() => ({ reads: window.__reads, writes: window.__h.writes }));
+    ok(g.reads === 0 && g.writes === 1 && page._dlg.some(m => /pick the DOMAIN_REGISTRATION/.test(m)), "unlinked tracker: asks to pick the file (fallback) and never opens the 5 other linked workbooks  " + JSON.stringify(g));
     await page.close();
   }
   await browser.close();

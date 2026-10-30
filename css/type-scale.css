@@ -9,6 +9,8 @@
 :root[data-qbr-fs] .btn,:root[data-qbr-fs] .form-control,:root[data-qbr-fs] .form-select{font-size:calc(1rem * var(--fs-t,1))}
 :root[data-qbr-fs] .btn-sm,:root[data-qbr-fs] .form-control-sm,:root[data-qbr-fs] .form-select-sm{font-size:calc(.875rem * var(--fs-t,1))}
 :root[data-qbr-fs] body{font-size:calc(14px * var(--fs-t,1))}
+:root[data-qbr-fs] .qbr-loadbar-label{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .qbr-loadbar-detail{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .app-title{font-size:calc(14px * var(--fs-h,1))}
 :root[data-qbr-fs] .app-sub{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .brand-badge{font-size:calc(11px * var(--fs-t,1))}
@@ -39,17 +41,35 @@
 :root[data-qbr-fs] .form-select-sm,:root[data-qbr-fs] .form-control-sm{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] .dash-h{font-size:calc(20px * var(--fs-h,1));line-height:calc(28px * var(--fs-h,1))}
 :root[data-qbr-fs] #dash-overview .dash-h{font-size:calc(24px * var(--fs-h,1));line-height:calc(32px * var(--fs-h,1))}
+:root[data-qbr-fs] .mos-certtile-sub{font-size:calc(12px * var(--fs-t,1));line-height:calc(16px * var(--fs-t,1))}
 :root[data-qbr-fs] .kpi-lbl{font-size:calc(12px * var(--fs-t,1));line-height:calc(16px * var(--fs-t,1))}
 :root[data-qbr-fs] .kpi-val{font-size:calc(28px * var(--fs-h,1));line-height:calc(36px * var(--fs-h,1))}
 :root[data-qbr-fs] .kpi-hero .kpi-val{font-size:calc(28px * var(--fs-h,1))}
 :root[data-qbr-fs] .kpi-delta{font-size:calc(12px * var(--fs-t,1));line-height:calc(16px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-eyebrow{font-size:calc(12px * var(--fs-t,1));line-height:calc(16px * var(--fs-t,1))}
 :root[data-qbr-fs] .ov-sub{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] .badge-period{font-size:calc(12px * var(--fs-t,1))}
-:root[data-qbr-fs] .ov-gauge-val{font-size:calc(32px * var(--fs-h,1))}
-:root[data-qbr-fs] .ov-gauge-lbl{font-size:calc(12px * var(--fs-t,1))}
-:root[data-qbr-fs] .ov-alert-num{font-size:calc(20px * var(--fs-h,1));line-height:calc(28px * var(--fs-t,1))}
-:root[data-qbr-fs] .ov-alert-lbl{font-size:calc(13px * var(--fs-t,1))}
-:root[data-qbr-fs] .ov-qbtn{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-card-meta{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-foot{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-subh{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-link{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-how{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-how-body{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #thi-score{font-size:calc(56px * var(--fs-h,1))}
+:root[data-qbr-fs] .ov-thi-max{font-size:calc(15px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-thi-sub{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-badge{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-legend-l{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-legend-n{font-size:calc(20px * var(--fs-h,1));line-height:calc(26px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-alert-num{font-size:calc(15px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-alert-lbl{font-size:calc(14px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-alert-sub{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-clear{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] .kpi-sub{font-size:calc(12px * var(--fs-t,1));line-height:calc(16px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-chip{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-tenants .table>thead>tr>th{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-rank-row{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] .ov-rank-empty{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] .card-box h6{font-size:calc(16px * var(--fs-h,1));line-height:calc(22px * var(--fs-h,1))}
 :root[data-qbr-fs] .table{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] .table>thead>tr>th{font-size:calc(12px * var(--fs-t,1));line-height:calc(16px * var(--fs-t,1))}
@@ -74,6 +94,10 @@
 :root[data-qbr-fs] .dq-tbl code{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] #upload-status{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] .loaded-toggle{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] .loaded-pop-head{font-size:calc(15px * var(--fs-t,1))}
+:root[data-qbr-fs] .loaded-pop-x{font-size:calc(22px * var(--fs-h,1))}
+:root[data-qbr-fs] .loaded-group>summary{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] .loaded-group-n{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .loaded-files-head{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .loaded-file{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] .loaded-file-r,:root[data-qbr-fs] .loaded-file-x{font-size:calc(15px * var(--fs-t,1))}
@@ -176,6 +200,12 @@
 :root[data-qbr-fs] #dash-soc .drop-text{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-soc .drop-sub{font-size:calc(11px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-soc .file-pill{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .val-note{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .val-report{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .dropall-title{font-size:calc(15px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-soc .dropall-sub{font-size:calc(12.5px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .dropall-btn{font-size:calc(13px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-soc .dropall-sum{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-soc .kpi-value{font-size:calc(26px * var(--fs-h,1))}
 :root[data-qbr-fs] #dash-soc .kpi-label{font-size:calc(11px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-soc .kpi-desc{font-size:calc(11px * var(--fs-t,1))}
@@ -277,6 +307,8 @@
 :root[data-qbr-fs] #dash-todo .todo-ctl .todo-prio{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-todo .todo-empty{font-size:calc(13px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-mos .mos-fl{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-mos .mos-mx-n{font-size:calc(11px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-mos .mos-mx-flag{font-size:calc(11px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-mos .mos-out{font-size:calc(12px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-mos .mos-retake{font-size:calc(10px * var(--fs-t,1))}
 :root[data-qbr-fs] #dash-mos .mos-sk{font-size:calc(11px * var(--fs-t,1))}
@@ -291,3 +323,5 @@
 :root[data-qbr-fs] #dash-trainers .tr-comment ul{font-size:calc(13px * var(--fs-t,1));line-height:calc(20px * var(--fs-t,1))}
 :root[data-qbr-fs] .tr-item-v{font-size:calc(22px * var(--fs-h,1));line-height:calc(28px * var(--fs-t,1))}
 :root[data-qbr-fs] .mos-prev-cands h6{font-size:calc(14px * var(--fs-h,1))}
+:root[data-qbr-fs] #dash-mos .mos-rec-chip{font-size:calc(12px * var(--fs-t,1))}
+:root[data-qbr-fs] #dash-mos #mos-rec-paste{font-size:calc(12px * var(--fs-t,1))}

@@ -33,6 +33,14 @@ QBR.applyChartTheme = function () {
   }
 };
 
+// Gap "bridge" datasets (see gapBridges) are drawing aids: never in the legend or
+// tooltip. Set as global defaults, not per-chart callbacks, so the JSON-cloned
+// export configs keep the behaviour too.
+if (typeof Chart !== "undefined") {
+  Chart.defaults.plugins.legend.labels.filter = (item, data) => !(data.datasets[item.datasetIndex] || {}).qbrBridge;
+  Chart.defaults.plugins.tooltip.filter = item => !(item.dataset && item.dataset.qbrBridge);
+}
+
 // Admin › Appearance "Chart & graph text size": on-screen multiplier from --fs-c (1 = default).
 // Exports (renderChartPng, print) always use the standard sizes.
 QBR.chartFontScale = function () {
@@ -215,7 +223,10 @@ function _qbrDonut(chart, meta, spec, ctx, th) {
     const ang = (p.startAngle + p.endAngle) / 2, size = p.endAngle - p.startAngle;
     const rMid = (p.innerRadius + p.outerRadius) / 2, cos = Math.cos(ang), sin = Math.sin(ang);
     const tw = ctx.measureText(L[i]).width;
-    if (size > 0.45 && size * rMid > tw + 10 && (p.outerRadius - p.innerRadius) > 18) {
+    // Inside only when the text box also fits ACROSS the ring at this angle — a thin
+    // doughnut ring is narrower than "5 · 71%" laid horizontally on its left/right side.
+    const across = tw / 2 * Math.abs(cos) + th.fpx / 2 * Math.abs(sin);
+    if (size > 0.45 && size * rMid > tw + 10 && (p.outerRadius - p.innerRadius) / 2 - 2 >= across) {
       _qbrText(ctx, L[i], p.x + cos * rMid, p.y + sin * rMid, "#fff", "center", "rgba(0,0,0,.55)", th.halo);
     } else {
       out[cos >= 0 ? "right" : "left"].push({ p, cos, sin, txt: L[i], y: p.y + sin * (p.outerRadius + 2) });
@@ -229,12 +240,20 @@ function _qbrDonut(chart, meta, spec, ctx, th) {
     // Initial Y = the slice's projected position just outside the ring.
     arr.forEach(o => { o.y = o.p.y + o.sin * (o.p.outerRadius + lead); });
     arr.sort((a, b) => a.y - b.y);
-    // Spread apart so none overlap, then clamp the whole stack inside the area.
+    // Spread apart so none overlap, then clamp the whole stack inside the canvas
+    // band the layout padding reserves above/below the ring (withLabels).
+    const pad = (chart.options.layout && chart.options.layout.padding) || {};
+    const minY = ca.top - (pad.top || 0) + th.fpx * 0.6, maxY = ca.bottom + (pad.bottom || 0) - th.fpx * 0.6;
     for (let k = 1; k < arr.length; k++) if (arr[k].y - arr[k - 1].y < gap) arr[k].y = arr[k - 1].y + gap;
-    const overBottom = arr[arr.length - 1].y - (ca.bottom - th.fpx);
+    const overBottom = arr[arr.length - 1].y - maxY;
     if (overBottom > 0) arr.forEach(o => { o.y -= overBottom; });
-    const overTop = (ca.top + th.fpx) - arr[0].y;
+    const overTop = minY - arr[0].y;
     if (overTop > 0) arr.forEach(o => { o.y += overTop; });
+    // Stack taller than the band: spread it evenly rather than pushing the last label off-canvas.
+    if (arr.length > 1 && arr[arr.length - 1].y > maxY) {
+      const step = (maxY - minY) / (arr.length - 1);
+      arr.forEach((o, k) => { o.y = minY + k * step; });
+    }
 
     if (th.isExport) {
       // Ring-hugging column: anchor labels just OUTSIDE the ring on their side
@@ -284,9 +303,14 @@ function _qbrHbar(chart, meta, spec, ctx, th) {
 // series. With `spec.colored`, each label takes its line's colour; multi-series
 // labels alternate above/below the point so overlapping lines don't collide.
 function _qbrLine(chart, meta, spec, ctx, th) {
-  const L = spec.labels;
+  const L = spec.labels, ca = chart.chartArea;
   const twoD = Array.isArray(L) && Array.isArray(L[0]);
-  const idxs = twoD ? chart.data.datasets.map((_, i) => i) : [0];
+  const idxs = twoD ? chart.data.datasets.map((_, i) => i).filter(i => !chart.data.datasets[i].qbrBridge) : [0];
+  const off = th.isExport ? th.fpx : 12, lineH = (th.fpx || 12) + 3;
+  const top = ca.top + lineH / 2, bottom = ca.bottom - lineH / 2;
+  // Collect every label first, then de-collide per x position, so two series'
+  // labels never sit on each other and none leaves the plot area (legend / x axis).
+  const byX = {};
   idxs.forEach(di => {
     const dm = chart.getDatasetMeta(di);
     if (dm.hidden) return;
@@ -294,13 +318,22 @@ function _qbrLine(chart, meta, spec, ctx, th) {
     if (!labs) return;
     const ds = chart.data.datasets[di];
     const col = spec.colored ? (ds.borderColor || ds.backgroundColor || th.ink) : th.ink;
-    const dir = (twoD && di % 2 === 1) ? 1 : -1;         // series 0 above, series 1 below
-    const dy = dir * (th.isExport ? th.fpx : 12);
+    const dir = (twoD && di % 2 === 1) ? 1 : -1;         // series 0 above, series 1 below (when there's room)
     dm.data.forEach((pt, i) => {
       if (labs[i] == null) return;
       const p = pt.getProps(["x", "y"], true);
-      _qbrText(ctx, labs[i], p.x, p.y + dy, col, "center", th.surface, th.halo);
+      let y = p.y + dir * off;
+      if (y < top) y = p.y + off;                        // no room above → below the point
+      if (y > bottom) y = p.y - off;                     // no room below → above the point
+      (byX[i] = byX[i] || []).push({ txt: labs[i], x: p.x, y, col });
     });
+  });
+  Object.keys(byX).forEach(i => {
+    const arr = byX[i].sort((a, b) => a.y - b.y);
+    for (let k = 1; k < arr.length; k++) if (arr[k].y - arr[k - 1].y < lineH) arr[k].y = arr[k - 1].y + lineH;
+    const over = arr[arr.length - 1].y - bottom;
+    if (over > 0) arr.forEach(o => { o.y = Math.max(top, o.y - over); });
+    arr.forEach(o => _qbrText(ctx, o.txt, o.x, o.y, o.col, "center", th.surface, th.halo));
   });
 }
 function _qbrVbar(chart, meta, spec, ctx, th) {
@@ -472,25 +505,50 @@ function _qbrNum(n) { return Number(n).toLocaleString(undefined, { maximumFracti
 
 // Pull an optional `dataLabels` spec out of an opts object and fold it into
 // Chart.js plugin options (leaving the rest of opts intact).
+// A null inside a line series is "no data", drawn as a gap (never a fake zero). So the
+// gap reads as missing rather than broken, each interior gap gets a faint dashed bridge
+// between its neighbouring real points — a separate plain-data dataset, so it survives
+// the JSON clone used for exports. Leading/trailing nulls are left empty.
+function gapBridges(datasets) {
+  const out = [];
+  datasets.forEach(d => {
+    const v = d.data || [], idx = [];
+    v.forEach((x, i) => { if (x != null) idx.push(i); });
+    const data = v.map(() => null);
+    let any = false;
+    for (let k = 1; k < idx.length; k++) if (idx[k] - idx[k - 1] > 1) { data[idx[k - 1]] = v[idx[k - 1]]; data[idx[k]] = v[idx[k]]; any = true; }
+    if (!any) return;
+    out.push({ label: (d.label || "") + " (no data)", data, qbrBridge: true, spanGaps: true, order: 1,
+      borderColor: /^#[0-9a-f]{6}$/i.test(d.borderColor || "") ? d.borderColor + "99" : "#999999", borderDash: [5, 5], borderWidth: 1.5,
+      pointRadius: 0, pointHoverRadius: 0, fill: false, tension: 0 });
+  });
+  return out;
+}
+
 function withLabels(options, dl, isDonut) {
   if (!dl) return options;
   options.plugins = options.plugins || {};
   options.plugins.qbrLabels = dl;
-  if (isDonut) options.layout = Object.assign({ padding: { left: 52, right: 52, top: 6, bottom: 6 } }, options.layout);
+  // Top/bottom room is for outside labels on slices at the ring's top or bottom edge.
+  if (isDonut) options.layout = Object.assign({ padding: { left: 52, right: 52, top: 22, bottom: 22 } }, options.layout);
   return options;
 }
 
 QBR.chart = {
   line(canvasId, labels, datasets, opts) {
     const dl = opts && opts.dataLabels; if (opts) delete opts.dataLabels;
+    const main = datasets.map((d, i) => Object.assign({
+      borderColor: d.color || QBR.PALETTE[i % QBR.PALETTE.length],
+      backgroundColor: (d.color || QBR.PALETTE[i % QBR.PALETTE.length]) + "22",
+      tension: 0.3, fill: !!d.fill, pointRadius: 3, borderWidth: 2, order: 0,
+    }, d));
+    const options = withLabels(baseOpts(opts), dl);
+    // Point labels need headroom above the highest point, or they collide with the legend.
+    if (dl) { options.scales = options.scales || {}; options.scales.y = Object.assign({ grace: "15%", beginAtZero: true }, options.scales.y); }
     return QBR.draw(canvasId, {
       type: "line",
-      data: { labels, datasets: datasets.map((d, i) => Object.assign({
-        borderColor: d.color || QBR.PALETTE[i % QBR.PALETTE.length],
-        backgroundColor: (d.color || QBR.PALETTE[i % QBR.PALETTE.length]) + "22",
-        tension: 0.3, fill: !!d.fill, pointRadius: 3, borderWidth: 2,
-      }, d)) },
-      options: withLabels(baseOpts(opts), dl),
+      data: { labels, datasets: main.concat(gapBridges(main)) },
+      options,
     });
   },
   bar(canvasId, labels, datasets, opts) {
@@ -509,7 +567,11 @@ QBR.chart = {
     // dropped from the export clone by JSON round-trip — harmless, the hi-res PNG has room.
     options.scales.x.ticks = Object.assign({
       autoSkip: false, maxRotation: 90,
-      callback: function (v) { var s = String(this.getLabelForValue(v)); return s.length > 16 ? s.slice(0, 15) + "…" : s; },
+      // A label given as an array is multi-line (e.g. ["Not Enabled", "n = 1"]): trim each line, keep the lines.
+      callback: function (v) {
+        var l = this.getLabelForValue(v), trim = function (s) { s = String(s); return s.length > 16 ? s.slice(0, 15) + "…" : s; };
+        return Array.isArray(l) ? l.map(trim) : trim(l);
+      },
     }, options.scales.x.ticks);
     return QBR.draw(canvasId, {
       type: "bar",

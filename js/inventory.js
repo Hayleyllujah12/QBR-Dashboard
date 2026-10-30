@@ -36,10 +36,13 @@ QBR.INV_THRESH = { AGING_DAYS: 7, LEMON_TICKETS: 3, WARRANTY_WARN_DAYS: 90 };
 QBR.INV_STATUS = ["In Stock", "Deployed", "In Repair", "Retired"];
 
 /* ---------- serial key normalization ------------------------------------ */
+/* 2026-10-27: separators are not part of the serial — "PF-4XNZNY", "PF4XNZNY", "pf 4xnzny" and
+ * "PF‑4XNZNY" (other dash characters) are the SAME unit in look-up, intake, search, filters and
+ * ticket links. Only the join key drops them; the serial as typed/stored (a.sn) is unchanged. */
 QBR.invSerialKey = function (s) {
   return String(s == null ? "" : s)
     .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g, "")
-    .toUpperCase().trim().replace(/\s+/g, " ");
+    .toUpperCase().replace(/[\s\-\u2010-\u2015\u2212_.]+/g, "");
 };
 
 /* ---------- dates -------------------------------------------------------- */
@@ -330,12 +333,15 @@ QBR.invParseSheets = function (sheets, ctx) {
 
 /* Parse raw workbook buffers (ArrayBuffers) into the inventory model. Mirrors
  * the main loader: per-buffer, filename-independent, sheets by name. */
-QBR.parseInventoryBuffers = function (buffers) {
+/* 2026-10-25 load bar: optional onFile(i) reports per-file progress; 
+ * with onFile the loop runs async (yield after each file so the bar paints), 
+ * without it the original synchronous loop runs unchanged. */
+QBR.parseInventoryBuffers = function (buffers, onFile) {
   QBR._invAcc = null;
   const fps = QBR._currentFps || [];
-  (buffers || []).forEach((buf, bi) => {
+  const one = (buf, bi) => {
     try {
-      const wb = XLSX.read(buf, { type: "array", cellStyles: true }); // cellStyles: keep !cols/styles for patch-in-place save
+      const wb = (QBR.readWorkbook ? QBR.readWorkbook(buf, { type: "array", cellStyles: true }) : XLSX.read(buf, { type: "array", cellStyles: true })); // cellStyles: keep !cols/styles for patch-in-place save
       const fp = fps[bi];
       // Retain the original workbook for patch-in-place saves (js/patch.js):
       // cell writes go into THESE sheets, preserving formulas and layout.
@@ -350,16 +356,31 @@ QBR.parseInventoryBuffers = function (buffers) {
         set.add("assets");
       }
     } catch (e) { /* a non-inventory workbook simply contributes nothing */ }
-  });
-  const acc = QBR._invAcc || { assets: [], tickets: [], deployments: [], pipeline: [], pos: [], sources: {} };
-  QBR._invAcc = null;
-  // de-dupe assets by serial key (newest file wins); tickets/deployments accumulate
-  const seen = new Map();
-  acc.assets.forEach(a => seen.set(a.key, a));
-  acc.assets = [...seen.values()];
-  acc.tickets.forEach((t, i) => { t._n = i; });   // legacy index identity (tno is canonical)
-  invBackfillTicketNos(acc.tickets);              // oldest-first, deterministic for journal replay
-  return acc;
+  };
+  const finish = () => {
+    const acc = QBR._invAcc || { assets: [], tickets: [], deployments: [], pipeline: [], pos: [], sources: {} };
+    QBR._invAcc = null;
+    // de-dupe assets by serial key (newest file wins); tickets/deployments accumulate
+    const seen = new Map();
+    acc.assets.forEach(a => seen.set(a.key, a));
+    acc.assets = [...seen.values()];
+    acc.tickets.forEach((t, i) => { t._n = i; });   // legacy index identity (tno is canonical)
+    invBackfillTicketNos(acc.tickets);              // oldest-first, deterministic for journal replay
+    return acc;
+  };
+  if (typeof onFile === "function") {
+    return (async function () {
+      var list = buffers || [];
+      for (var bi = 0; bi < list.length; bi++) {
+        one(list[bi], bi);
+        onFile(bi);
+        await new Promise(function (r) { setTimeout(r, 0); });
+      }
+      return finish();
+    })();
+  }
+  (buffers || []).forEach(one);
+  return finish();
 };
 
 /* ---------- ticket status helpers ------------------------------------------ */
@@ -1172,7 +1193,8 @@ function invTicketsCard(inv, ui, flags, today) {
   const dir = ui.tixSort === "new" ? -1 : 1;
   const key = t => t.repEdtech ? t.repEdtech.getTime() : (dir > 0 ? Infinity : -Infinity);
   let tix = inv.tickets.slice().sort((a, b) => (key(a) - key(b)) * dir);
-  if (tixQ) tix = tix.filter(t => (t.sn || "").toUpperCase().includes(tixQ) || String(t.tno || "").toUpperCase().includes(tixQ));
+  const tixK = QBR.invSerialKey(tixQ); // serial match ignores dashes/spaces (2026-10-27)
+  if (tixQ) tix = tix.filter(t => (tixK && QBR.invSerialKey(t.sn).includes(tixK)) || String(t.tno || "").toUpperCase().includes(tixQ));
   if (ui.flag === "aging") { const s = new Set(flags.aging.map(t => t.sn + "|" + (t.repEdtech || ""))); tix = tix.filter(t => s.has(t.sn + "|" + (t.repEdtech || ""))); }
   if (ui.flag === "unmatched") { const s = new Set(flags.unmatched.map(u => u.key)); tix = tix.filter(t => s.has(t.key)); }
   if (ui.flag === "lemons") { const s = new Set(flags.lemons.map(l => l.key)); tix = tix.filter(t => s.has(t.key)); }

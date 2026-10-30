@@ -12,7 +12,7 @@ const APP = {
   filters: { quarters: [], month: "ALL", org: "ALL", school: "ALL", secDefault: "ALL", usageCat: "ALL", sy: "ALL", status: "ALL", authMethod: "ALL" },
   activeTab: "dash-overview",
   expand: {},   // per-table "show all" flags (Option A)
-  thiDrill: { open: false, band: "ALL" },   // Tenant Health Index per-tenant drill-down
+  thiDrill: { band: "ALL" },                // Tenant Health Index per-tenant table: band filter
   fd: { dataset: "risky", search: "", sort: null, page: 1, pageSize: 50, applyFilters: true }, // Full Data Explorer (Option B)
 };
 
@@ -20,8 +20,50 @@ const APP = {
 const $ = (id) => document.getElementById(id);
 const sum = (arr, f) => arr.reduce((a, x) => a + (f(x) || 0), 0);
 const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+
+/* ---------- honest monthly risky-user series ----------
+ * A month that has rows but no reported value is NULL (drawn as a gap), never a
+ * fake zero; `n` = tenants that reported that month, so uneven coverage shows. */
+function riskyMonthly(rows) {
+  return QBR.util.MONTHS.filter(mo => rows.some(r => r.month === mo)).map(mo => {
+    const got = rows.filter(r => r.month === mo && r.risky != null);
+    return { mo, v: got.length ? sum(got, r => r.risky) : null, n: new Set(got.map(r => r.key)).size };
+  });
+}
+// Caption when months aren't like-for-like (different tenant counts or no data).
+function riskyCoverageNote(monthly) {
+  const ns = monthly.map(x => x.n);
+  if (!ns.length || ns.every(n => n === ns[0])) return "";
+  return "Tenants reporting: " + monthly.map(x => x.mo.charAt(0) + x.mo.slice(1, 3).toLowerCase() + " " + x.n).join(" · ") +
+    ". Dashed = no data; months with fewer tenants aren't like-for-like.";
+}
+// Average risky users PER REPORTING TENANT per month for one posture group —
+// groups of different sizes compare fairly. NULL where no tenant in the group reported.
+function riskyPerTenantSeries(rows, inGroup) {
+  return QBR.util.MONTHS.map(mo => {
+    const got = rows.filter(r => r.month === mo && r.risky != null && inGroup(r.key));
+    const n = new Set(got.map(r => r.key)).size;
+    return n ? +(sum(got, r => r.risky) / n).toFixed(1) : null;
+  });
+}
+// [first, last] MONTHS index that has any risky row — trims the empty tail
+// (e.g. Jun–Dec before they happen) so a 12-slot axis doesn't look half-broken.
+function riskyMonthRange(rows) {
+  const has = QBR.util.MONTHS.map(mo => rows.some(r => r.month === mo));
+  const a = has.indexOf(true), b = has.lastIndexOf(true);
+  return a < 0 ? [0, QBR.util.MONTHS.length - 1] : [a, b];
+}
+// Period summary for one group: total, distinct tenants, and per-tenant-month average.
+function riskyGroupSummary(rows, inGroup) {
+  const got = rows.filter(r => r.risky != null && inGroup(r.key));
+  const tm = new Set(got.map(r => r.key + "|" + r.month)).size;
+  return { total: sum(got, r => r.risky), tenants: new Set(got.map(r => r.key)).size, perTenantMonth: tm ? sum(got, r => r.risky) / tm : null };
+}
 const byDesc = (f) => (a, b) => (f(b) || 0) - (f(a) || 0);
-function esc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+// 2026-10-20: also escape quotes. esc() is used inside value="…"/title="…" attributes
+// (scan.js, inventory.js, app.js), where an unescaped " let workbook cells or scanned
+// barcode text break out of the attribute and add event handlers (XSS).
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function escAttr(s) { return esc(s).replace(/"/g, "&quot;"); }
 function fmt(n, d = 0) { return n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d }); }
 function tb(gb) { return gb == null ? "—" : (gb / 1024).toFixed(1) + " TB"; }
@@ -61,17 +103,35 @@ function secDefaultFor(key) {
 // Collapse multiple quarterly rows for the same school into one representative
 // row (the row with the max value of metricFn). Used when a specific quarter
 // is not selected, so rankings/KPIs don't double-count a school across quarters.
+// One row per school: its LATEST quarter in scope (the current state), and only
+// within that quarter the higher metric (a sheet can repeat a school in one
+// quarter). 2026-10-28: this used to keep the highest value across ALL quarters,
+// so "All quarters" totals summed each school's peak (sample tracker: storage
+// 667 TB vs 602 TB current, avg M365 usage 31.4% vs 23.7%).
+// NB: no single-quarter short-circuit — selecting one quarter does not guarantee
+// one row per school, so the collapse runs in every scope.
+const QUARTER_RANK = { Q1: 1, Q2: 2, Q3: 3, Q4: 4 };
 function dedupeBySchool(rows, metricFn) {
-  // NB: no single-quarter short-circuit. Selecting one quarter does not guarantee
-  // one row per school (a sheet can legitimately repeat a school, and unattributed
-  // rows reach here too), so the collapse must run in every scope. When rows really
-  // are unique per school this is a no-op.
   const best = new Map();
+  const qr = r => QUARTER_RANK[r.quarter] || 0, has = r => metricFn(r) != null;
   rows.forEach(r => {
     const cur = best.get(r.key);
-    if (!cur || (metricFn(r) || 0) > (metricFn(cur) || 0)) best.set(r.key, r);
+    // a row with a value always beats one without (latest quarter WITH data wins)
+    const better = !cur || (has(r) !== has(cur) ? has(r)
+      : qr(r) !== qr(cur) ? qr(r) > qr(cur) : (metricFn(r) || 0) > (metricFn(cur) || 0));
+    if (better) best.set(r.key, r);
   });
   return [...best.values()];
+}
+
+// Managed Microsoft 365 tenants = schools present in at least one M365 sheet.
+// The master list also holds Canva-only schools (Canva customers without a managed
+// M365 tenant), which used to inflate "Managed tenants" (sample tracker: 123 vs 110).
+const M365_SHEETS = ["security", "risky", "storage", "usage", "postmaster", "usermgmt"];
+function m365TenantCount(m) {
+  let n = 0;
+  m.master.forEach(x => { if (M365_SHEETS.some(s => x.inSheets && x.inSheets.has(s))) n++; });
+  return n;
 }
 
 /* ---------- aggregates for the executive report -------------------------- */
@@ -103,7 +163,7 @@ function computeAggregates() {
   const canvaVals = dedupeBySchool(canva.filter(c => c.users != null), c => c.users);
 
   return {
-    totalSchools: m.master.size,
+    totalSchools: m365TenantCount(m),
     health, secDefault, riskySchools,
     topRisk: riskySchools[0] || null,
     mfaEnabled: sec.filter(s => s.mfa === "YES").length,
@@ -223,7 +283,7 @@ function kpiNum(v) {
   const m = String(v == null ? "" : v).replace(/<[^>]*>/g, "").replace(/,/g, "").match(/-?\d+(\.\d+)?/);
   return m ? +m[0] : NaN;
 }
-// Delta chip shared by kpi() and kpiHero(). goodDir: "up" | "down" | "neutral".
+// Delta chip shared by kpi() and the Overview's kpiDelta(). goodDir: "up" | "down" | "neutral".
 function deltaChip(cur, prev, goodDir, prevQ, o) {
   o = o || {};
   if (prevQ == null || !isFinite(cur) || !isFinite(prev)) return "";
@@ -282,12 +342,11 @@ function aggForQuarter(q) {
 
 // Hero KPI card with an optional QoQ delta chip. goodDir = which direction is
 // favourable ("up" or "down"); colours the arrow green/red accordingly.
-function kpiHero(label, value, tone, delta) {
-  let chip = "";
+// Overview KPI delta chip — only when a prior quarter exists and the value moved.
+function kpiDelta(delta) {
   if (delta && delta.prevQ != null && isFinite(delta.cur) && isFinite(delta.prev) && Math.abs(delta.cur - delta.prev) > 1e-9)
-    chip = deltaChip(delta.cur, delta.prev, delta.goodDir, delta.prevQ, delta);
-  return `<div class="col"><div class="kpi kpi-hero kpi-${tone || "blue"}">
-    <div class="kpi-val">${value}</div><div class="kpi-lbl">${label}</div>${chip}</div></div>`;
+    return deltaChip(delta.cur, delta.prev, delta.goodDir, delta.prevQ, delta);
+  return "";
 }
 
 function goToTab(tabId) {
@@ -453,31 +512,26 @@ function refreshThiPane(focus) {
 
 function setThiBand(label) {
   APP.thiDrill.band = (APP.thiDrill.band === label) ? "ALL" : label;
-  APP.thiDrill.open = true;                            // reveal detail when a chip/segment drives it
   if (APP.model) renderOverview();
 }
+// Overview hero: band → tone (badge glyph/colour) and a CSS-safe key for the band bar.
+const THI_BAND_TONE = { "Excellent": "ok", "Healthy": "ok", "Attention Needed": "warn", "Critical": "bad" };
+const thiBandKey = label => String(label).toLowerCase().replace(/[^a-z]+/g, "-");
 function renderThiDrill(thi) {
-  const host = $("thi-drill"), body = $("thi-drill-body"), bf = $("thi-band-filter"), tog = $("thi-drill-toggle");
-  if (!host || !body) return;
-  const open = !!APP.thiDrill.open;
-  host.hidden = !open;
-  if (tog) { tog.textContent = open ? "Hide detail ▲" : "Show detail ▾"; tog.setAttribute("aria-expanded", open ? "true" : "false"); }
+  const body = $("thi-drill-body"), bf = $("thi-band-filter");
+  if (!body) return;
 
-  // Band-filter chips (always shown so the mix is visible even when collapsed).
+  // Band-filter chips; a band with no tenants stays visible but disabled so the mix reads at a glance.
   if (bf) {
     const chip = (band, label, count) => {
-      const active = APP.thiDrill.band === band;
+      const on = APP.thiDrill.band === band;
       const dis = band !== "ALL" && !count ? " disabled" : "";
-      const col = band === "ALL" ? QBR.COLORS.blue : thiBandColor(band);
-      const cls = active ? "btn btn-sm thi-band-btn" : "btn btn-sm btn-outline-secondary thi-band-btn";
-      const style = active ? `background:${col};border-color:${col};color:#fff` : "";
-      return `<button type="button" class="${cls}" data-band="${escAttr(band)}" style="${style}"${dis}>${esc(label)} <span class="opacity-75">${count}</span></button>`;
+      return `<button type="button" class="ov-chip thi-band-btn${on ? " is-on" : ""}" data-band="${escAttr(band)}" aria-pressed="${on}"${dis}>${esc(label)} <b>${count}</b></button>`;
     };
     let html = chip("ALL", "All", thi.scored);
     QBR.THI_BANDS.forEach(b => { html += chip(b.label, b.label, thi.dist[b.label] || 0); });
     bf.innerHTML = html;
   }
-  if (!open) return;                                   // don't build the table while collapsed
 
   if (thi.index == null) {
     body.innerHTML = '<tr><td colspan="10" class="text-muted">Not enough data to score tenant health for the current filter.</td></tr>';
@@ -502,6 +556,44 @@ function renderThiDrill(thi) {
   }).join("");
 }
 
+/* ---------- Overview building blocks (2026-10 revamp) ---------- */
+// Plain KPI card: label, value, optional inline extra (sparkline/meter) and a context line.
+function ovKpi(label, value, o) {
+  o = o || {};
+  const sub = o.sub ? `<div class="kpi-sub${o.tone ? " kpi-sub-" + o.tone : ""}">${o.sub}</div>` : "";
+  return `<div class="kpi kpi-plain"><div class="kpi-lbl">${label}</div>` +
+    `<div class="kpi-val-row"><div class="kpi-val">${value}</div>${o.extra || ""}</div>${o.meter || ""}${sub}${kpiDelta(o.delta)}</div>`;
+}
+// null = no data (≠ zero): real runs are solid, and a faint dashed bridge spans each
+// gap — the same convention as the line charts (gapBridges in chart-generator.js).
+function ovSparkline(vals, label) {
+  if (!vals || vals.filter(v => v != null).length < 2) return "";
+  const w = 96, h = 32, max = Math.max(1, ...vals.filter(v => v != null));
+  const pts = vals.map((v, i) => v == null ? null : [2 + i * (w - 4) / (vals.length - 1), h - 3 - (v / max) * (h - 6)]);
+  const runs = [[]];
+  pts.forEach(p => { if (p) runs[runs.length - 1].push(p); else if (runs[runs.length - 1].length) runs.push([]); });
+  const xy = p => p[0].toFixed(1) + "," + p[1].toFixed(1);
+  const real = runs.filter(r => r.length);
+  const bridges = real.slice(1).map((r, k) => { const a = real[k][real[k].length - 1], b = r[0];
+    return `<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="currentColor" stroke-opacity=".45" stroke-width="1.5" stroke-dasharray="3 3"/>`; }).join("");
+  const lines = bridges + real.map(r => r.length > 1
+    ? `<polyline points="${r.map(xy).join(" ")}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`
+    : `<circle cx="${r[0][0].toFixed(1)}" cy="${r[0][1].toFixed(1)}" r="1.5" fill="currentColor"/>`).join("");
+  const last = pts.filter(Boolean).slice(-1)[0];
+  return `<svg class="ov-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${escAttr(label)}">` + lines +
+    `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.5" fill="currentColor"/></svg>`;
+}
+// Ranked list: name · bar (relative to the first row) · value. rows: [{ name, value, label, tone? }]
+function renderRankList(hostId, rows) {
+  const host = $(hostId); if (!host) return;
+  const max = Math.max(0, ...rows.map(r => r.value || 0));
+  host.innerHTML = rows.length ? rows.map(r =>
+    `<li class="ov-rank-row${r.tone ? " is-" + r.tone : ""}"><span class="ov-rank-name" title="${escAttr(r.name)}">${esc(r.name)}</span>` +
+    `<span class="ov-rank-bar" aria-hidden="true"><span style="width:${max && r.value ? Math.max(2, r.value / max * 100).toFixed(1) : 0}%"></span></span>` +
+    `<span class="ov-rank-val">${r.label}</span></li>`).join("")
+    : '<li class="ov-rank-empty">No data for the current filter.</li>';
+}
+
 function renderOverview() {
   const m = APP.model, f = APP.filters;
   const agg = computeAggregates();
@@ -516,61 +608,141 @@ function renderOverview() {
   const prevQ = (curQ && qs.includes(curQ)) ? qs[qs.indexOf(curQ) - 1] : undefined;
   const prevAgg = prevQ ? aggForQuarter(prevQ) : null;
   const totalRisky = agg.riskySchools.reduce((a, r) => a + (r.risky || 0), 0);
+  const crit = QBR.THRESH && QBR.THRESH.CRITICAL != null ? QBR.THRESH.CRITICAL : 100;
 
   const D = (cur, prev, goodDir, opts) => prevQ == null ? null
     : Object.assign({ cur, prev, prevQ, goodDir }, opts || {});
 
-  // ---- Hero strip -------------------------------------------------------
-  const healthy = agg.health["Healthy"] || 0;
+  // ---- Risky monthly series (KPI sparkline + trend card; same series as the Risky tab)
+  const monthly = riskyMonthly(applyFilters(m.risky, { hasMonth: false }));
+  const reported = monthly.filter(x => x.v != null);
+
+  // ---- Storage / Canva top 5 (KPI context + ranked cards) ----------------
+  const stor = dedupeBySchool(applyFilters(m.storage).filter(s => s.usedGB != null), s => s.usedGB)
+    .sort(byDesc(s => s.usedGB)).slice(0, 5);
+  const canva = dedupeBySchool(applyFilters(m.canva).filter(c => c.users != null), c => c.users)
+    .sort(byDesc(c => c.users)).slice(0, 5);
+  const tb = gb => (gb / 1024).toFixed(1) + " TB";
+
+  // ---- KPI strip --------------------------------------------------------
+  const notManaged = agg.health["Not Managed"] || 0;
   const stTB = agg.storageTotalGB == null ? null : agg.storageTotalGB / 1024;
   const prevStTB = prevAgg && prevAgg.storageTotalGB != null ? prevAgg.storageTotalGB / 1024 : null;
+  let riskySub = "", riskyTone = "";
+  if (reported.length >= 2) {
+    // Compare the last two months WITH data; only call it up/down when the same number of tenants reported.
+    const a = reported[reported.length - 2], b = reported[reported.length - 1];
+    const cap = s => s.charAt(0) + s.slice(1, 3).toLowerCase();
+    if (a.n === b.n) {
+      riskySub = `${cap(b.mo)} ${fmt(b.v)} · ${b.v > a.v ? "up" : b.v < a.v ? "down" : "flat"} from ${fmt(a.v)} in ${cap(a.mo)}`;
+      riskyTone = b.v > a.v ? "bad" : b.v < a.v ? "ok" : "";
+    } else {
+      riskySub = `${cap(b.mo)} ${fmt(b.v)} · ${b.n} of ${Math.max(...monthly.map(x => x.n))} tenants reported`;
+    }
+  }
+  const usage = agg.usageAvg;
   $("kpi-overview").innerHTML =
-    kpiHero("Managed Tenants", fmt(agg.totalSchools), "blue") +
-    kpiHero("Healthy Domains", fmt(healthy), "green") +
-    kpiHero("Total Risky Users", fmt(totalRisky), "red",
-      D(totalRisky, prevAgg ? prevAgg.riskySchools.reduce((a, r) => a + (r.risky || 0), 0) : NaN, "down", { pct: true })) +
-    kpiHero("Avg O365 Usage", agg.usageAvg == null ? "—" : agg.usageAvg.toFixed(1) + "%", "teal",
-      D(agg.usageAvg, prevAgg ? prevAgg.usageAvg : NaN, "up", { d: 1 })) +
-    kpiHero("Canva Users", fmt(agg.canvaUsers), "purple",
-      D(agg.canvaUsers, prevAgg ? prevAgg.canvaUsers : NaN, "up", { pct: true })) +
-    kpiHero("Total Storage", stTB == null ? "—" : stTB.toFixed(1) + " TB", "orange",
-      D(stTB, prevStTB == null ? NaN : prevStTB, "up", { d: 1 }));
+    ovKpi("Managed tenants", fmt(agg.totalSchools),
+      { sub: notManaged ? `${fmt(notManaged)} not managed` : "All managed", tone: notManaged ? "warn" : "ok" }) +
+    ovKpi("Risky users", fmt(totalRisky), {
+      extra: `<span class="ov-spark-wrap is-${riskyTone || "neutral"}">${ovSparkline(monthly.map(x => x.v), "Risky users by month: " + monthly.map(x => x.mo.slice(0, 3) + " " + (x.v == null ? "no data" : x.v)).join(", "))}</span>`,
+      sub: riskySub, tone: riskyTone,
+      delta: D(totalRisky, prevAgg ? prevAgg.riskySchools.reduce((a, r) => a + (r.risky || 0), 0) : NaN, "down", { pct: true }) }) +
+    ovKpi("Avg Microsoft 365 usage", usage == null ? "—" : usage.toFixed(1) + "%", {
+      meter: usage == null ? "" : `<div class="ov-meter" role="img" aria-label="${usage.toFixed(1)} percent"><span style="width:${Math.min(100, usage).toFixed(1)}%"></span></div>`,
+      delta: D(usage, prevAgg ? prevAgg.usageAvg : NaN, "up", { d: 1 }) }) +
+    ovKpi("Canva users", fmt(agg.canvaUsers), {
+      sub: canva.length ? `Top: ${esc(canva[0].schoolRaw)} · ${fmt(canva[0].users)}` : "",
+      delta: D(agg.canvaUsers, prevAgg ? prevAgg.canvaUsers : NaN, "up", { pct: true }) }) +
+    ovKpi("Total storage", stTB == null ? "—" : stTB.toFixed(1) + " TB", {
+      sub: stor.length ? `Largest: ${esc(stor[0].schoolRaw)} · ${tb(stor[0].usedGB)}` : "",
+      delta: D(stTB, prevStTB == null ? NaN : prevStTB, "up", { d: 1 }) });
 
   // ---- Tenant Health Index (composite) ----------------------------------
   const thi = computeHealthIndex();
   const band = thi.index == null ? null : thiBand(thi.index);
-  if ($("thi-score")) { $("thi-score").textContent = thi.index == null ? "—" : thi.index; $("thi-score").style.color = band ? band.color : ""; }
-  if ($("thi-band")) $("thi-band").innerHTML = band ? `<span class="badge" style="background:${band.color};color:#fff">${band.label}</span>` : "";
+  if ($("thi-score")) $("thi-score").textContent = thi.index == null ? "—" : thi.index;
+  if ($("thi-band")) $("thi-band").innerHTML = band
+    ? `<span class="ov-badge ov-badge-${THI_BAND_TONE[band.label] || "neutral"}">${esc(band.label)}</span>` : "";
+  const nCrit = thi.dist["Critical"] || 0;
+  if ($("thi-sub")) $("thi-sub").textContent = thi.index == null ? "Not enough data to score tenant health for the current filter."
+    : `Portfolio average across ${thi.scored} of ${thi.inScope} tenants` + (nCrit ? ` · ${nCrit} critical` : "");
+  if ($("thi-bar")) $("thi-bar").innerHTML = QBR.THI_BANDS.filter(b => thi.dist[b.label]).map(b => {
+    const n = thi.dist[b.label], on = APP.thiDrill.band === b.label;
+    return `<button type="button" class="ov-seg thi-band-btn ov-seg-${thiBandKey(b.label)}${on ? " is-on" : ""}" style="flex:${n}" data-band="${escAttr(b.label)}" aria-pressed="${on}" title="${n} ${escAttr(b.label)} — filter the table">` +
+      `<span class="vh">${n} ${esc(b.label)}</span></button>`;
+  }).join("");
+  if ($("thi-legend")) $("thi-legend").innerHTML = QBR.THI_BANDS.map(b => {
+    const n = thi.dist[b.label] || 0;
+    return `<div class="ov-legend-i${n ? "" : " is-zero"}"><span class="ov-legend-l"><span class="ov-sw ov-seg-${thiBandKey(b.label)}"></span>${esc(b.label)}</span><span class="ov-legend-n">${n}</span></div>`;
+  }).join("");
   QBR.chart.stacked100("ch-ov-thi", QBR.THI_BANDS.map(b => ({ label: b.label, value: thi.dist[b.label] || 0, color: thiBandColor(b.label) })));
   if ($("thi-note")) $("thi-note").innerHTML = thi.index == null
     ? "Not enough data to score tenant health for the current filter."
     : `Composite of Security, Risky Sign-ins, O365 Adoption, Domain Health, Email Reputation &amp; Storage — scored for <b>${thi.scored}</b> of ${thi.inScope} tenants in scope. Missing dimensions are excluded, not zeroed. Bands: ≥95 Excellent · 80–94 Healthy · 60–79 Attention · &lt;60 Critical.`;
   renderThiDrill(thi);
 
-  // ---- Period label -----------------------------------------------------
-  const nice = v => (v == null || v === "ALL") ? "All" : v;
+  // ---- Period + scope (school-year readiness is a status line, not a card) --
   $("ov-period").textContent = "Quarter: " + quarterLabel() +
     (f.org !== "ALL" ? " · " + f.org : "") + (f.school !== "ALL" ? " · " + f.school : "");
-  $("ov-scope").textContent = `Portfolio summary across ${agg.totalSchools} managed tenants` +
-    (prevQ ? ` · deltas vs ${prevQ}.` : ".");
+  const upd = agg.umUpdated || 0, umTot = agg.umTotal || 0, pend = Math.max(0, umTot - upd);
+  const pct = umTot ? (upd / umTot * 100) : null;
+  $("ov-scope").textContent = `${fmt(agg.totalSchools)} managed tenants` +
+    ` · School-year readiness: ${pct == null ? "no User Management data loaded" : `${pct.toFixed(0)}% updated (${fmt(upd)} of ${fmt(umTot)})`}` +
+    (prevQ ? ` · deltas vs ${prevQ}` : "");
+  QBR.chart.doughnut("ch-ov-readiness", ["Updated", "Pending"], [upd, pend],
+    [QBR.COLORS.green, "rgba(150,150,150,.25)"],
+    { rotation: -90, circumference: 180, cutout: "72%",
+      plugins: { legend: { display: false },
+        qbrCenter: { value: pct == null ? "—" : pct.toFixed(0) + "%", label: "Updated" } } });
 
-  // ---- Risky monthly trend (same series as the Risky tab) ---------------
-  const rowsAllMonths = applyFilters(m.risky, { hasMonth: false });
-  const monthly = QBR.util.MONTHS.map(mo => ({ mo, v: sum(rowsAllMonths.filter(r => r.month === mo && r.risky != null), r => r.risky) }))
-    .filter(x => rowsAllMonths.some(r => r.month === x.mo));
+  // ---- Needs attention: open items worst-first, clear ones folded into one line --
+  const sd = agg.secDefault;
+  const disabled = sd["DISABLED"] || 0;
+  const badRep = (agg.pmBadSchools || []).length;   // BAD + "Issues detected" (the tracker's live problem state)
+  const dregRows = (m.domainreg || [])
+    .filter(d => f.org === "ALL" || orgOf(d.key) === f.org)
+    .filter(d => f.school === "ALL" || d.schoolRaw === f.school);
+  const expiring = dregRows.filter(d => d.group === "critical").length;
+  const hot = agg.riskySchools.filter(r => r.risky > crit);
+  const cap = storageCapacityList(), capCrit = cap.some(x => x.band.tone === "bad");
+  const items = [
+    { tone: "bad", n: hot.length, tab: "dash-risky",
+      label: hot.length === 1 ? `${esc(hot[0].schoolRaw)} is above ${crit} risky users` : `Schools above ${crit} risky users`,
+      detail: hot.length ? (hot.length === 1 ? `${fmt(hot[0].risky)} risky users · ${sharePct(hot[0].risky, totalRisky)} of all` : `Highest: ${esc(hot[0].schoolRaw)} · ${fmt(hot[0].risky)}`) + " · Risky sign-ins" : "",
+      clear: `no school above ${crit} risky users` },
+    { tone: "bad", n: expiring, tab: "dash-domainreg", label: "Domains needing action", detail: "Domain registration", clear: "no domains needing action" },
+    { tone: "bad", n: notManaged, tab: "dash-health", label: notManaged === 1 ? "Tenant not managed" : "Tenants not managed", detail: "Tenant status", clear: "every tenant managed" },
+    { tone: "warn", n: disabled, tab: "dash-sec", label: disabled === 1 ? "Tenant without Security Defaults" : "Tenants without Security Defaults", detail: "Security defaults", clear: "Security Defaults on everywhere" },
+    { tone: "warn", n: badRep, tab: "dash-postmaster", label: "Domains with email reputation issues", detail: "Google Postmaster", clear: "no email reputation issues" },
+    { tone: capCrit ? "bad" : "warn", n: cap.length, tab: "dash-storage", label: `Tenants at ≥${storWarn()}% storage capacity`, detail: "Storage", clear: `no tenant above ${storWarn()}% storage capacity` },
+  ];
+  const open = items.filter(x => x.n > 0).sort((a, b) => (a.tone === b.tone ? 0 : a.tone === "bad" ? -1 : 1) || b.n - a.n);
+  const clear = items.filter(x => !x.n).map(x => x.clear);
+  $("ov-attn-count").textContent = open.length ? `${open.length} open · worst first` : "";
+  $("ov-alerts").innerHTML = open.map(x =>
+    `<button type="button" class="ov-alert ov-alert-${x.tone === "bad" ? "red" : "orange"}" data-goto="${x.tab}">` +
+    `<span class="ov-alert-num"><span class="ov-alert-ico" aria-hidden="true"></span>${fmt(x.n)}</span>` +
+    `<span class="ov-alert-txt"><span class="ov-alert-lbl">${x.label}</span><span class="ov-alert-sub">${x.detail}</span></span>` +
+    `<span class="ov-alert-go" aria-hidden="true"></span></button>`).join("") +
+    (clear.length ? `<div class="ov-clear"><span class="ov-alert-ico" aria-hidden="true"></span><span>${open.length ? "Also" : "All clear"}: ${clear.join(", ")}.</span></div>` : "");
+
+  // ---- Risky trend + where they are -------------------------------------
   QBR.chart.line("ch-ov-risky-trend", monthly.map(x => x.mo.slice(0, 3)),
     [{ label: "Risky Users", data: monthly.map(x => x.v), color: QBR.COLORS.red, fill: true }],
-    { dataLabels: { mode: "line", labels: monthly.map(x => x.v ? fmt(x.v) : null) } });
+    { dataLabels: { mode: "line", labels: monthly.map(x => x.v != null ? fmt(x.v) : null) } });
+  setNote("ov-risky-cov", riskyCoverageNote(monthly));
+  $("ov-risky-meta").textContent = f.school !== "ALL" ? f.school : f.org !== "ALL" ? f.org : "All tenants";
+  const top = agg.riskySchools.slice(0, 5);
+  renderRankList("ov-risky-list", top.map(x => ({ name: x.schoolRaw, value: x.risky || 0,
+    label: `${fmt(x.risky)} <span>${sharePct(x.risky, totalRisky) || ""}</span>`, tone: x.risky > crit ? "bad" : "muted" })));
+  setNote("ov-risky-note", top.length && totalRisky ? `These ${top.length} schools account for <b>${sharePct(top.reduce((a, x) => a + (x.risky || 0), 0), totalRisky)}</b> of all ${fmt(totalRisky)} risky users.` : "");
 
   // ---- Security posture + Domain health: ranked status lists --------------
-  // v1.9.0 Phase 3: the 100% bars became ranked, labelled lists (no legend to
-  // decode, cards align row for row, each row drills into its page). The same
-  // stacked100 charts are still drawn on hidden canvases so Export Images keeps
-  // offering them as slides.
-  const sd = agg.secDefault;
+  // The stacked100 charts are still drawn on hidden canvases so Export Images keeps offering them as slides.
   const sdOrder = ["ENABLED", "DISABLED", "CONDITIONAL ACCESS", "NOT MANAGED"];
   const sdVals = sdOrder.map(k => sd[k] || 0);
-  const sdSegLbl = ["Enabled", "Not Enabled", "Cond. Access", "Not Managed"];
+  const sdSegLbl = ["Enabled", "Not Enabled", "Cond. Access", "No access"];
   const sdSegCol = [QBR.COLORS.green, QBR.COLORS.red, QBR.COLORS.teal, QBR.COLORS.orange];
   QBR.chart.stacked100("ch-ov-secposture", sdSegLbl.map((l, i) => ({ label: l, value: sdVals[i], color: sdSegCol[i] })));
   renderStatusList("ov-secposture", sdOrder.map((k, i) => ({ label: SD_LABEL[k] || sdSegLbl[i], value: sdVals[i], color: sdSegCol[i],
@@ -581,68 +753,13 @@ function renderOverview() {
     tone: STATUS_TONE_HEALTH[h], go: { tab: "dash-health", select: "health-status", value: h } })), "tenants");
   APP._agg = agg;                                       // reused by updateNavBadges()
 
-  // ---- Readiness gauge (half doughnut) ---------------------------------
-  const upd = agg.umUpdated || 0, umTot = agg.umTotal || 0, pend = Math.max(0, umTot - upd);
-  const pct = umTot ? (upd / umTot * 100) : null;
-  QBR.chart.doughnut("ch-ov-readiness", ["Updated", "Pending"], [upd, pend],
-    [QBR.COLORS.green, "rgba(150,150,150,.25)"],
-    { rotation: -90, circumference: 180, cutout: "72%",
-      plugins: { legend: { display: false },
-        qbrCenter: { value: pct == null ? "—" : pct.toFixed(0) + "%", label: "Updated" } } });
-
-  // ---- Top 5 storage + Top 5 canva -------------------------------------
-  const stor = dedupeBySchool(applyFilters(m.storage).filter(s => s.usedGB != null), s => s.usedGB)
-    .sort(byDesc(s => s.usedGB)).slice(0, 5);
-  QBR.chart.hbar("ch-ov-storage", stor.map(s => s.schoolRaw), stor.map(s => +(s.usedGB / 1024).toFixed(2)), QBR.COLORS.orange,
-    { dataLabels: { mode: "hbar", labels: stor.map(s => (s.usedGB / 1024).toFixed(1) + " TB") } });
-  const canva = dedupeBySchool(applyFilters(m.canva).filter(c => c.users != null), c => c.users)
-    .sort(byDesc(c => c.users)).slice(0, 5);
-  QBR.chart.hbar("ch-ov-canva", canva.map(c => c.schoolRaw), canva.map(c => c.users), QBR.COLORS.purple,
+  // ---- Top 5 storage + Top 5 canva: ranked lists (charts kept for export) --
+  renderRankList("ov-storage-list", stor.map(s => ({ name: s.schoolRaw, value: s.usedGB, label: tb(s.usedGB) })));
+  QBR.chart.hbar("ch-ov-storage", stor.map(s => s.schoolRaw), stor.map(s => +(s.usedGB / 1024).toFixed(2)), QBR.COLORS.blue,
+    { dataLabels: { mode: "hbar", labels: stor.map(s => tb(s.usedGB)) } });
+  renderRankList("ov-canva-list", canva.map(c => ({ name: c.schoolRaw, value: c.users, label: fmt(c.users) })));
+  QBR.chart.hbar("ch-ov-canva", canva.map(c => c.schoolRaw), canva.map(c => c.users), QBR.COLORS.blue,
     { dataLabels: { mode: "hbar", labels: canva.map(c => fmt(c.users)) } });
-
-  // ---- Top 5 risky table ------------------------------------------------
-  const top = agg.riskySchools.slice(0, 5);
-  $("tbl-ov-risky").innerHTML = top.map(x =>
-    `<tr><td>${esc(x.schoolRaw)}</td><td class="text-end">${fmt(x.risky)}</td><td class="text-end">${sharePct(x.risky, totalRisky) || "—"}</td><td>${QBR.riskBadge(x.risky)}</td></tr>`
-  ).join("") || '<tr><td colspan="4" class="text-muted">No data</td></tr>';
-  setNote("ov-risky-note", top.length && totalRisky ? `These 5 schools account for <b>${sharePct(top.reduce((a, x) => a + (x.risky || 0), 0), totalRisky)}</b> of all ${fmt(totalRisky)} risky users.` : "");
-
-  // ---- Priority flags ---------------------------------------------------
-  const noAccess = agg.health["Not Managed"] || 0;
-  const disabled = sd["DISABLED"] || 0;
-  const badRep = (agg.pmBadSchools || []).length;   // BAD + "Issues detected" (the tracker's live problem state)
-  const dregRows = (m.domainreg || [])
-    .filter(d => f.org === "ALL" || orgOf(d.key) === f.org)
-    .filter(d => f.school === "ALL" || d.schoolRaw === f.school);
-  const expiring = dregRows.filter(d => d.group === "critical").length;
-  const alert = (icon, tone, count, label, tab) =>
-    `<button class="ov-alert ov-alert-${tone}" data-goto="${tab}">
-       <span class="ov-alert-ico" aria-hidden="true">${icon}</span>
-       <span class="ov-alert-num">${fmt(count)}</span>
-       <span class="ov-alert-lbl">${label}</span></button>`;
-  $("ov-alerts").innerHTML =
-    alert("", "red", noAccess, "Not-Managed Tenants", "dash-health") +
-    alert("", "orange", disabled, "Security Defaults Not Enabled", "dash-sec") +
-    alert("", "red", expiring, "Domains Needing Action", "dash-domainreg") +
-    alert("", "orange", badRep, "Email Reputation Issues", "dash-postmaster") +
-    (() => { const cap = storageCapacityList(); const crit = cap.some(x => x.band.tone === "bad");
-      return alert("", crit ? "red" : "orange", cap.length, `Tenants ≥${storWarn()}% Storage Capacity`, "dash-storage"); })();
-
-  // ---- Quick actions ----------------------------------------------------
-  const qa = [
-    ["", "Security defaults", "dash-sec"],
-    ["", "Risky sign-ins", "dash-risky"],
-    ["", "Microsoft 365 usage", "dash-usage"],
-    ["", "Executive report", "dash-report"],
-  ].map(([i, l, t]) => `<button class="ov-qbtn" data-goto="${t}">${l}</button>`).join("");
-  $("ov-quick").innerHTML = qa +
-    `<button class="ov-qbtn ov-qbtn-primary" id="ov-export-deck">Export Deck</button>`;
-
-  // wire jump + export buttons (re-created each render, so bind here)
-  $("dash-overview").querySelectorAll("[data-goto]").forEach(b =>
-    b.addEventListener("click", () => goToTab(b.getAttribute("data-goto"))));
-  const ed = $("ov-export-deck");
-  if (ed) ed.addEventListener("click", () => { const d = $("btn-deck"); if (d) d.click(); });
 }
 
 /* ---------- ranked status list (Overview posture / health cards) ----------
@@ -815,49 +932,48 @@ function renderRisky() {
   // which only scopes KPIs/tables). Still respects Quarter / Org / School.
   const rowsAllMonths = applyFilters(m.risky, { hasMonth: false });
 
-  // ---- Security Defaults DISABLED vs ENABLED — monthly total risky users ----
-  // Every risky tenant is folded into exactly TWO buckets so the two lines add
-  // up to the Monthly Trend total:
+  // ---- Security Defaults DISABLED vs ENABLED — monthly risky users PER TENANT ----
+  // Every risky tenant is folded into exactly TWO buckets:
   //   ENABLED (protected)   = Security Defaults ENABLED  OR  Conditional Access
   //   DISABLED (unprotected)= everything else (Disabled, Not Managed, Unknown,
   //                           or no matching SECURITY_DATA record)
+  // Plotted per reporting tenant, not as totals: the buckets differ in size, so
+  // totals would make the bigger bucket look riskier just for being bigger.
   const secByKey = {}; m.security.forEach(s => { secByKey[s.key] = s.securityDefault; });
   const isProtected = key => { const sd = secByKey[key]; return sd === "ENABLED" || sd === "CONDITIONAL ACCESS"; };
-  const disSeries = [], enSeries = [];
-  QBR.util.MONTHS.forEach(mo => {
-    const monthRows = rowsAllMonths.filter(r => r.month === mo && r.risky != null);
-    enSeries.push(sum(monthRows.filter(r => isProtected(r.key)), r => r.risky));
-    disSeries.push(sum(monthRows.filter(r => !isProtected(r.key)), r => r.risky));
-  });
+  const isUnprotected = key => !isProtected(key);
+  const enSeries = riskyPerTenantSeries(rowsAllMonths, isProtected);
+  const disSeries = riskyPerTenantSeries(rowsAllMonths, isUnprotected);
   const monthLabels = QBR.util.MONTHS.map(mo => mo[0] + mo.slice(1).toLowerCase());
-  const disLbl = disSeries.map(v => v ? fmt(v) : null), enLbl = enSeries.map(v => v ? fmt(v) : null);
+  const lbl1 = v => v != null ? v.toFixed(1) : null;
+  const disLbl = disSeries.map(lbl1), enLbl = enSeries.map(lbl1);
   // Card-local posture filter: Both / Protected only / Unprotected only.
   // Colours: DISABLED/unprotected = red, ENABLED/protected = green.
   const secView = ($("risky-secdef-view") && $("risky-secdef-view").value) || "BOTH";
   const secSeries = [];
-  if (secView !== "ENABLED") secSeries.push({ label: "Not Enabled + Not Managed", data: disSeries, color: QBR.COLORS.red, lbl: disLbl });
+  if (secView !== "ENABLED") secSeries.push({ label: "Not Enabled + No access", data: disSeries, color: QBR.COLORS.red, lbl: disLbl });
   if (secView !== "DISABLED") secSeries.push({ label: "Enabled + Conditional Access", data: enSeries, color: QBR.COLORS.green, lbl: enLbl });
-  QBR.chart.line("ch-risky-secdef", monthLabels,
-    secSeries.map(s => ({ label: s.label, data: s.data, color: s.color })),
-    { dataLabels: { mode: "line", labels: secSeries.map(s => s.lbl), colored: true } });
-  const disTot = sum(disSeries.map(v => ({ v })), x => x.v), enTot = sum(enSeries.map(v => ({ v })), x => x.v);
-  if (m.security.length && (disTot || enTot)) {
-    const pk = disSeries.indexOf(Math.max(...disSeries));
+  const [ma, mb] = riskyMonthRange(rowsAllMonths), cut = arr => arr.slice(ma, mb + 1);
+  QBR.chart.line("ch-risky-secdef", cut(monthLabels),
+    secSeries.map(s => ({ label: s.label, data: cut(s.data), color: s.color })),
+    { dataLabels: { mode: "line", labels: secSeries.map(s => cut(s.lbl)), colored: true } });
+  const dis = riskyGroupSummary(rowsAllMonths, isUnprotected), en = riskyGroupSummary(rowsAllMonths, isProtected);
+  if (m.security.length && (dis.total || en.total)) {
+    const t = n => `${n} tenant${n === 1 ? "" : "s"}`, pt = v => v == null ? "—" : v.toFixed(1);
+    const ratio = dis.perTenantMonth != null && en.perTenantMonth ? dis.perTenantMonth / en.perTenantMonth : null;
     $("risky-secdef-note").innerHTML =
-      `Tenants with Security Defaults <b>Not Enabled</b> (or Not Managed) generated <b>${fmt(disTot)}</b> risky-user detections over the period vs <b>${fmt(enTot)}</b> for tenants with them <b>Enabled</b> (or Conditional Access)` +
-      (disTot > enTot && enTot >= 0 ? ` — a <b>${enTot ? Math.round((disTot - enTot) / enTot * 100) + "% higher" : "far higher"}</b> concentration of identity risk` : "") +
-      (disSeries[pk] ? `, peaking in <b>${monthLabels[pk]}</b> (${fmt(disSeries[pk])})` : "") +
-      `. The two lines now reconcile to the Monthly Trend total.`;
+      `Per tenant per month: <b>${pt(dis.perTenantMonth)}</b> risky users for <b>Not Enabled</b> (or No access, ${t(dis.tenants)}) vs <b>${pt(en.perTenantMonth)}</b> for <b>Enabled</b> (or Conditional Access, ${t(en.tenants)})` +
+      (ratio && ratio >= 1.1 ? ` — about <b>${ratio.toFixed(1)}×</b> as many` : ratio && ratio <= 0.9 ? ` — about <b>${(1 / ratio).toFixed(1)}×</b> fewer` : "") +
+      `. Totals: ${fmt(dis.total)} vs ${fmt(en.total)}.` +
+      (Math.min(dis.tenants, en.tenants) < 3 ? ` <b>Small group</b> — one tenant can swing this comparison.` : "");
   } else {
     $("risky-secdef-note").textContent = "Needs both SECURITY_DATA (Security Defaults) and RISKY_USERS_AND_DOMAIN loaded to compare postures.";
   }
-  const monthly = QBR.util.MONTHS.map(mo => {
-    const v = sum(rowsAllMonths.filter(r => r.month === mo && r.risky != null), r => r.risky);
-    return { mo, v };
-  }).filter(x => rowsAllMonths.some(r => r.month === x.mo));
+  const monthly = riskyMonthly(rowsAllMonths);
   QBR.chart.line("ch-risky-monthly", monthly.map(x => x.mo.slice(0, 3)),
     [{ label: "Risky Users", data: monthly.map(x => x.v), color: QBR.COLORS.red, fill: true }],
-    DL("line", monthly.map(x => x.v ? fmt(x.v) : null)));
+    DL("line", monthly.map(x => x.v != null ? fmt(x.v) : null)));
+  setNote("risky-monthly-note", riskyCoverageNote(monthly));
 
   // quarterly comparison
   const quarters = ["Q1", "Q2", "Q3", "Q4"];
@@ -1003,7 +1119,7 @@ function renderHealthTable(q) {
 // uppercase values (ENABLED/DISABLED/…) for matching & filtering; these are only
 // what the user sees. Neutral wording: "Not Enabled" rather than "Disabled".
 const SD_LABEL = { "ENABLED": "Enabled", "DISABLED": "Not Enabled",
-  "CONDITIONAL ACCESS": "Conditional Access", "NOT MANAGED": "Not Managed", "UNKNOWN": "Unknown" };
+  "CONDITIONAL ACCESS": "Conditional Access", "NOT MANAGED": "No access", "UNKNOWN": "Unknown" };   // NOT MANAGED = tracker "NO ACCESS" (no admin access), not domain health's "Not Managed"
 // Does a school's canonical method set satisfy the Auth-method filter? Handles
 // specific methods ("includes X") and the posture presets. Empty method sets
 // (no method data / "NO ACCESS") only satisfy "ALL".
@@ -1036,33 +1152,36 @@ function renderSecurity() {
     kpi("Enabled", fmt(dist["ENABLED"] || 0), "green") +
     kpi("Not Enabled", fmt(dist["DISABLED"] || 0), "red") +
     kpi("Conditional Access", fmt(dist["CONDITIONAL ACCESS"] || 0), "blue") +
-    kpi("Not Managed", fmt(dist["NOT MANAGED"] || 0), "orange");
+    kpi("No access", fmt(dist["NOT MANAGED"] || 0), "orange");
 
   // Monthly ENABLED vs DISABLED risky users: join each monthly risky row to its
-  // school's security-default status (snapshot) and sum per month by posture.
+  // school's security-default status (snapshot); plotted PER REPORTING TENANT so
+  // the two groups compare fairly whatever their size (null month = gap).
   const secByKey = {}; m.security.forEach(s => { secByKey[s.key] = s.securityDefault; });
   const riskyAllMonths = applyFilters(m.risky, { hasMonth: false });
-  const enSeries = [], disSeries = [];
-  QBR.util.MONTHS.forEach(mo => {
-    const monthRows = riskyAllMonths.filter(r => r.month === mo && r.risky != null);
-    enSeries.push(sum(monthRows.filter(r => secByKey[r.key] === "ENABLED"), r => r.risky));
-    disSeries.push(sum(monthRows.filter(r => secByKey[r.key] === "DISABLED"), r => r.risky));
-  });
-  QBR.chart.line("ch-sec-endis", QBR.util.MONTHS.map(x => x.slice(0, 3)), [
-    { label: "Enabled", data: enSeries, color: QBR.COLORS.green },
-    { label: "Not Enabled", data: disSeries, color: QBR.COLORS.red },
+  const enSeries = riskyPerTenantSeries(riskyAllMonths, k => secByKey[k] === "ENABLED");
+  const disSeries = riskyPerTenantSeries(riskyAllMonths, k => secByKey[k] === "DISABLED");
+  const nEn = riskyGroupSummary(riskyAllMonths, k => secByKey[k] === "ENABLED").tenants;
+  const nDis = riskyGroupSummary(riskyAllMonths, k => secByKey[k] === "DISABLED").tenants;
+  const tn = n => `${n} tenant${n === 1 ? "" : "s"}`;
+  const [ma, mb] = riskyMonthRange(riskyAllMonths), cut = arr => arr.slice(ma, mb + 1);
+  QBR.chart.line("ch-sec-endis", cut(QBR.util.MONTHS.map(x => x.slice(0, 3))), [
+    { label: `Enabled (${tn(nEn)})`, data: cut(enSeries), color: QBR.COLORS.green },
+    { label: `Not Enabled (${tn(nDis)})`, data: cut(disSeries), color: QBR.COLORS.red },
   ]);
 
-  // Average risky users by security posture (bar).
-  const cmpData = [
-    avg(joined.filter(j => j.securityDefault === "ENABLED").map(j => j.riskyTotal)) || 0,
-    avg(joined.filter(j => j.securityDefault === "DISABLED").map(j => j.riskyTotal)) || 0,
-    avg(joined.filter(j => j.securityDefault === "CONDITIONAL ACCESS").map(j => j.riskyTotal)) || 0,
-    avg(joined.filter(j => j.securityDefault === "NOT MANAGED").map(j => j.riskyTotal)) || 0,
-  ];
-  QBR.chart.bar("ch-sec-compare", ["Enabled", "Not Enabled", "Conditional Access", "Not Managed"],
+  // Average risky users by security posture (bar). Each label carries its tenant
+  // count: an average over 1 tenant is that tenant, not a trend.
+  const cmpKeys = ["ENABLED", "DISABLED", "CONDITIONAL ACCESS", "NOT MANAGED"];
+  const cmpGroups = cmpKeys.map(k => joined.filter(j => j.securityDefault === k).map(j => j.riskyTotal));
+  const cmpData = cmpGroups.map(g => avg(g) || 0);
+  const cmpLabels = ["Enabled", "Not Enabled", "Conditional Access", "No access"].map((l, i) => [l, `n = ${cmpGroups[i].length}`]);
+  QBR.chart.bar("ch-sec-compare", cmpLabels,
     [{ label: "Avg Risky Users", data: cmpData, backgroundColor: [QBR.COLORS.green, QBR.COLORS.red, QBR.COLORS.blue, QBR.COLORS.orange] }],
     DL("vbar", cmpData.map(v => v ? v.toFixed(1) : null), { plugins: { legend: { display: false } } }));
+  const small = cmpGroups.map((g, i) => [cmpLabels[i][0], g.length]).filter(([, n]) => n > 0 && n < 3);
+  setNote("sec-compare-note", "Average risky users per tenant in each posture; n = tenants in the group." +
+    (small.length ? ` <b>Small group${small.length > 1 ? "s" : ""}</b> (${small.map(([l, n]) => `${l}: ${n}`).join(", ")}) — one tenant decides that bar.` : ""));
 
   QBR.chart.pie("ch-sec-dist", Object.keys(dist).map(k => SD_LABEL[k] || k), Object.values(dist),
     [QBR.COLORS.green, QBR.COLORS.red, QBR.COLORS.blue, QBR.COLORS.orange, QBR.COLORS.gray],
@@ -1078,9 +1197,14 @@ function renderSecurity() {
   const disRank = joined.filter(j => j.securityDefault === "DISABLED").sort(byDesc(j => j.riskyTotal)).slice(0, 10);
   QBR.chart.hbar("ch-sec-disabled", disRank.map(j => j.schoolRaw), disRank.map(j => j.riskyTotal), QBR.COLORS.red, DL("hbar", disRank.map(j => fmt(j.riskyTotal))));
 
-  // correlation note
+  // correlation note — states group sizes, and only claims a difference when both groups have ≥3 tenants
+  const nEnT = cmpGroups[0].length, nDisT = cmpGroups[1].length;
+  const ratio = enabledRisk ? disabledRisk / enabledRisk : null;
   $("sec-corr").innerHTML = (enabledRisk != null && disabledRisk != null)
-    ? `Schools with Security Defaults <b>Not Enabled</b> average <b>${disabledRisk.toFixed(1)}</b> risky users vs <b>${enabledRisk.toFixed(1)}</b> for tenants with them <b>Enabled</b> — a ${disabledRisk > enabledRisk ? ((disabledRisk - enabledRisk) / (enabledRisk || 1) * 100).toFixed(0) + "% higher" : "lower"} identity-risk exposure.`
+    ? `Schools with Security Defaults <b>Not Enabled</b> (${tn(nDisT)}) average <b>${disabledRisk.toFixed(1)}</b> risky users vs <b>${enabledRisk.toFixed(1)}</b> for tenants with them <b>Enabled</b> (${tn(nEnT)})` +
+      (Math.min(nEnT, nDisT) < 3
+        ? ` — too few tenants in one group to call this a pattern; check the individual schools below.`
+        : ratio && ratio >= 1.1 ? ` — about <b>${ratio.toFixed(1)}×</b> the identity-risk exposure.` : ratio && ratio <= 0.9 ? ` — lower identity-risk exposure.` : ` — about the same.`)
     : "Insufficient overlap between security snapshot and risky-user data for the current filter.";
 
   // table (expandable) — the Auth-method filter narrows THIS table only (KPIs and
@@ -1694,18 +1818,41 @@ function renderPostmaster() {
     (f.month !== "ALL" ? `Reputation: ${f.month[0] + f.month.slice(1).toLowerCase()}.` :
       (!isAllQ() ? `Reputation: latest scored month in ${quarterLabel()}.` : "Reputation: each domain's most recent scored month."));
   APP._pmList = list;
-  renderPmTable("");
+  pmFillFilters();
+  renderPmTable(($("pm-search") || {}).value || "");
 }
 
-function renderPmTable(q) {
-  const rf = ($("pm-rep") && $("pm-rep").value) || "ALL";
-  const vBy = APP.model.pmVerifyByKey || {};
-  const list = (APP._pmList || []).filter(e => {
-    if (q && !e.schoolRaw.toLowerCase().includes(q.toLowerCase())) return false;
-    if (rf === "ALL") return true;
-    if (VERIFY_ORDER.includes(rf)) return (vBy[e.key] ? vBy[e.key].pmTool : "Unknown") === rf;
-    return e.reputation === rf;                       // reputation value
+/* 2026-10-27: All Domains table filters = one dropdown per field. Options come from the rows actually
+ * loaded (so Google's live states like "Issues detected" / "Verify to see health" are listed), each with
+ * its count; the current choice survives re-renders, and a choice no longer present falls back to All. */
+function pmFieldVals(e) {
+  const v = (APP.model.pmVerifyByKey || {})[e.key];
+  return { verify: v ? v.pmTool : "Unknown", dns: v ? v.dns : "Unknown", rep: e.reputation || "No entry", org: e.org || orgOf(e.key) || "—" };
+}
+function pmFillFilters() {
+  const list = APP._pmList || [];
+  [["pm-f-verify", "verify", "All verification"], ["pm-f-dns", "dns", "All DNS"], ["pm-f-rep", "rep", "All reputations"], ["pm-f-org", "org", "All organizations"]].forEach(([id, f, all]) => {
+    const sel = $(id); if (!sel) return;
+    const cur = sel.value || "ALL", counts = {};
+    list.forEach(e => { const k = pmFieldVals(e)[f]; counts[k] = (counts[k] || 0) + 1; });
+    const keys = Object.keys(counts).sort((a, b) => f === "org" ? a.localeCompare(b) : (counts[b] - counts[a]) || a.localeCompare(b));
+    sel.innerHTML = `<option value="ALL">${esc(all)}</option>` + keys.map(k => `<option value="${esc(k)}">${esc(k)} (${counts[k]})</option>`).join("");
+    sel.value = keys.indexOf(cur) >= 0 ? cur : "ALL";
   });
+}
+function renderPmTable(q) {
+  const want = { verify: ($("pm-f-verify") || {}).value || "ALL", dns: ($("pm-f-dns") || {}).value || "ALL",
+                 rep: ($("pm-f-rep") || {}).value || "ALL", org: ($("pm-f-org") || {}).value || "ALL" };
+  const vBy = APP.model.pmVerifyByKey || {};
+  const ql = String(q || "").toLowerCase();
+  const all = APP._pmList || [];
+  const list = all.filter(e => {
+    if (ql && !(e.schoolRaw.toLowerCase().includes(ql) || String(e.domain || "").toLowerCase().includes(ql))) return false;
+    const fv = pmFieldVals(e);
+    return Object.keys(want).every(k => want[k] === "ALL" || fv[k] === want[k]);
+  });
+  const cnt = $("pm-count");
+  if (cnt) cnt.textContent = list.length === all.length ? `${all.length} domains` : `${list.length} of ${all.length} domains match the filters`;
   const badge = (r) => {
     if (!r || r === "No entry") return '<span class="text-muted">—</span>';
     if (r === "Issues detected" || r === "BAD") return `<span class="badge bg-danger">${esc(r)}</span>`;
@@ -1773,12 +1920,19 @@ function renderUserManagement() {
     { label: "Pending", value: pending, color: QBR.COLORS.orange },
   ]);
 
-  // updated schools by organization (stacked Updated/Pending)
-  const orgs = [...new Set(rows.map(u => orgOf(u.key)))].sort();
+  // updated schools by organization (stacked Updated/Pending).
+  // 2026-10-27: own full-width row, HORIZONTAL bars sorted by size, height grows with the number of
+  // organizations — 30 org names squeezed into a 1/3-width column were unreadable.
+  const orgCount = o => rows.filter(u => orgOf(u.key) === o).length;
+  const orgs = [...new Set(rows.map(u => orgOf(u.key)))].sort((a, b) => (orgCount(b) - orgCount(a)) || String(a).localeCompare(String(b)));
+  const orgWrap = $("um-org-wrap");
+  if (orgWrap) orgWrap.style.height = Math.max(260, orgs.length * 24 + 70) + "px";
+  const orgNote = $("um-org-note");
+  if (orgNote) orgNote.textContent = orgs.length ? orgs.length + " organizations · largest first" : "";
   QBR.chart.bar("ch-um-org", orgs, [
     { label: "Updated", backgroundColor: QBR.COLORS.green, data: orgs.map(o => rows.filter(u => orgOf(u.key) === o && u.status === "Updated").length) },
     { label: "Pending", backgroundColor: QBR.COLORS.orange, data: orgs.map(o => rows.filter(u => orgOf(u.key) === o && u.status === "Pending").length) },
-  ], { scales: { x: { stacked: true }, y: { stacked: true } } });
+  ], { indexAxis: "y", scales: { x: { stacked: true, ticks: { precision: 0 } }, y: { stacked: true, ticks: { autoSkip: false } } } });
 
   // readiness by school year (completion % of every SY, unfiltered by status)
   const syPct = syList.map(s => {
@@ -2422,14 +2576,35 @@ function updateSavedState(savedAt) {
 function fileKey(name) { return String(name || "workbook.xlsx").trim().toLowerCase(); }
 
 // Render the accumulated-workbook list (with per-file refresh ↻ and remove ×).
+/* 2026-10-27: the Loaded-files list is a pop-up window with the workbooks GROUPED by what they feed,
+ * a search box and collapsible groups (38 files in one vertical list were hard to scan). Rows,
+ * checkboxes and ↻/× buttons are unchanged, so linking/reload/remove work exactly as before. */
+const FILE_GROUPS = [
+  ["tracker",  "Tenant tracker",              n => /tenant|automated tracker/i.test(n)],
+  ["domain",   "Domain registration",         n => /domain/i.test(n)],
+  ["audit",    "Audit · risky sign-ins",      n => /risky|audit/i.test(n)],
+  ["storuse",  "Storage & usage reports",     n => /storage|usage/i.test(n)],
+  ["usermgmt", "User management",             n => /user\s*management/i.test(n)],
+  ["gdap",     "GDAP",                         n => /gdap|granular/i.test(n)],
+  ["inv",      "Inventory, tickets & printers", n => /lenovo|inventory|ticket|printer|suppl/i.test(n)],
+  ["mos",      "MOS / Certiport",             n => /certiport|\bmos\b|exam|roster/i.test(n)],
+  ["trainers", "Trainers & evaluations",      n => /train|feedback|evaluation|\beval\b/i.test(n)],
+  ["canva",    "Canva & onboarding",          n => /canva|onboarding/i.test(n)],
+  ["todo",     "My To-Do profiles",           n => /-todo\.xlsx$/i.test(n)],
+];
+function fileGroupOf(name) {
+  const n = String(name || "");
+  const g = FILE_GROUPS.find(x => x[2](n));
+  return g ? { id: g[0], label: g[1] } : { id: "other", label: "Other" };
+}
+QBR.fileGroupOf = fileGroupOf;
+APP._fileGroupsClosed = APP._fileGroupsClosed || {};
 function renderFileList() {
   const host = $("loaded-files"); if (!host) return;
   const files = APP.files || [];
   if (!files.length) { host.innerHTML = ""; return; }
   const foBar = (typeof QBR !== "undefined" && typeof QBR.fsFolderToolbarHtml === "function") ? QBR.fsFolderToolbarHtml() : "";
-  host.innerHTML =
-    `<div class="loaded-files-head">Workbooks (${files.length})</div>` + foBar +
-    files.map(it => {
+  const rowHtml = it => {
       const k = escAttr(fileKey(it.name));
       const linked = (typeof QBR !== "undefined" && typeof QBR.fsIsLinkedByName === "function") ? QBR.fsIsLinkedByName(it.name) : false;
       const lk = linked ? (QBR._fsLinks || []).filter(l => fileKey(l.name) === fileKey(it.name))[0] : null;
@@ -2442,7 +2617,44 @@ function renderFileList() {
       return `<div class="loaded-file">${editBox}<span class="loaded-file-name" title="${escAttr(it.name)}">${esc(it.name)}</span>` +
         `<button type="button" class="loaded-file-r" data-fk="${k}" title="${linked ? "Reload this workbook from the file (picks up edits made in Excel)" : "Refresh this workbook — re-pick the file to load its latest data"}">↻</button>` +
         `<button type="button" class="loaded-file-x" data-fk="${k}" title="Remove this workbook">×</button></div>`;
-    }).join("");
+  };
+  const order = FILE_GROUPS.map(g => g[0]).concat("other"), by = {};
+  files.forEach(it => { const g = fileGroupOf(it.name); (by[g.id] = by[g.id] || { label: g.label, items: [] }).items.push(it); });
+  const q = APP._fileSearch || "";
+  host.innerHTML =
+    `<div class="loaded-files-head">Workbooks (${files.length})</div>` + foBar +
+    `<input type="search" id="loaded-search" class="form-control form-control-sm loaded-search" placeholder="Search loaded files…" aria-label="Search loaded files" value="${escAttr(q)}">` +
+    order.filter(id => by[id]).map(id => {
+      const g = by[id], closed = !!APP._fileGroupsClosed[id];
+      return `<details class="loaded-group" data-group="${id}"${closed ? "" : " open"}><summary><span class="loaded-group-name">${esc(g.label)}</span>` +
+        `<span class="loaded-group-n">${g.items.length}</span></summary>` + g.items.map(rowHtml).join("") + `</details>`;
+    }).join("") +
+    `<div class="small text-muted loaded-nomatch d-none">No loaded file matches.</div>`;
+  applyFileSearch();
+}
+function applyFileSearch() {
+  const q = String(APP._fileSearch || "").trim().toLowerCase();
+  const host = $("loaded-files"); if (!host) return;
+  let shown = 0;
+  host.querySelectorAll(".loaded-group").forEach(g => {
+    let n = 0;
+    g.querySelectorAll(".loaded-file").forEach(r => {
+      const hit = !q || (r.querySelector(".loaded-file-name").textContent || "").toLowerCase().indexOf(q) >= 0;
+      r.classList.toggle("d-none", !hit); if (hit) n++;
+    });
+    g.classList.toggle("d-none", !n); shown += n;
+    if (q && n) g.open = true;
+  });
+  const nm = host.querySelector(".loaded-nomatch"); if (nm) nm.classList.toggle("d-none", shown > 0);
+}
+function setLoadedOpen(open) {
+  const box = $("loaded-chips"), lt = $("loaded-toggle"), scrim = $("loaded-scrim");
+  if (!box || !lt) return;
+  box.classList.toggle("d-none", !open);
+  if (scrim) scrim.classList.toggle("d-none", !open);
+  lt.setAttribute("aria-expanded", String(open));
+  const c = lt.querySelector(".loaded-caret"); if (c) c.textContent = open ? "▴" : "▾";
+  if (open) { const s = $("loaded-search"); if (s) s.focus(); } else lt.focus();
 }
 
 // Refresh ONE workbook: re-open the picker, then swap the chosen file's bytes
@@ -2511,23 +2723,29 @@ QBR.refreshGdapChip = function () {
 // THE single processing path — identical for upload and restore.
 // Renders from APP.model (parsed) and APP.files (accumulated list), so both
 // must be set to their intended values BEFORE this is called.
-function processBuffers(buffers, meta) {
+async function processBuffers(buffers, meta, prog) {
   meta = meta || {};
-  try { APP.model = QBR.loadWorkbooks(buffers); }
+  // prog (optional, from loadItems): { onPhase, onParse, onRender } drives the shared
+  // load bar. Parse semantics unchanged: same 6 passes over the same buffers, same
+  // per-pass failure handling (a failing pass yields null for that slice, never aborts).
+  const tick = function (pass, fi) { if (prog) prog.onParse(pass, fi); };
+  const cb = function (pass) { return prog ? function (fi) { tick(pass, fi); } : undefined; };
+  if (prog) prog.onPhase();
+  try { APP.model = await QBR.loadWorkbooks(buffers, cb(0)); }
   catch (e) { $("upload-status").textContent = "Error: " + e.message; return false; }
-  try { APP.model.inventory = (typeof QBR.parseInventoryBuffers === "function") ? QBR.parseInventoryBuffers(buffers) : null; }
+  try { APP.model.inventory = (typeof QBR.parseInventoryBuffers === "function") ? await QBR.parseInventoryBuffers(buffers, cb(1)) : null; }
   catch (e) { console.warn("[QBR] inventory parse failed:", e && e.message); APP.model.inventory = null; }
-  try { APP.model.supplies = (typeof QBR.parseSuppliesBuffers === "function") ? QBR.parseSuppliesBuffers(buffers) : null; }
+  try { APP.model.supplies = (typeof QBR.parseSuppliesBuffers === "function") ? await QBR.parseSuppliesBuffers(buffers, cb(2)) : null; }
   catch (e) { console.warn("[QBR] supplies parse failed:", e && e.message); APP.model.supplies = null; }
-  try { APP.model.audit = (typeof QBR.parseAuditBuffers === "function") ? QBR.parseAuditBuffers(buffers) : null; }
+  try { APP.model.audit = (typeof QBR.parseAuditBuffers === "function") ? await QBR.parseAuditBuffers(buffers, cb(3)) : null; }
   catch (e) { console.warn("[QBR] audit parse failed:", e && e.message); APP.model.audit = null; }
   // NB: APP.model.storage / .usage belong to the TRACKER (arrays). The wizard's
   // workbook models live under auditStorage / auditUsage to avoid clobbering them
   // (v1.27.0 bug: overwriting .storage/.usage with null broke renderStorage for
   // every upload, since the wizard parsers return null when their file is absent).
-  try { APP.model.auditStorage = (typeof QBR.parseStorageBuffers === "function") ? QBR.parseStorageBuffers(buffers) : null; }
+  try { APP.model.auditStorage = (typeof QBR.parseStorageBuffers === "function") ? await QBR.parseStorageBuffers(buffers, cb(4)) : null; }
   catch (e) { console.warn("[QBR] storage parse failed:", e && e.message); APP.model.auditStorage = null; }
-  try { APP.model.auditUsage = (typeof QBR.parseUsageBuffers === "function") ? QBR.parseUsageBuffers(buffers) : null; }
+  try { APP.model.auditUsage = (typeof QBR.parseUsageBuffers === "function") ? await QBR.parseUsageBuffers(buffers, cb(5)) : null; }
   catch (e) { console.warn("[QBR] usage parse failed:", e && e.message); APP.model.auditUsage = null; }
   const s = APP.model.sources;
   const n = Object.values(s).filter(Boolean).length;
@@ -2538,18 +2756,19 @@ function processBuffers(buffers, meta) {
     return `<span class="badge bg-${v ? "success" : "secondary"}" title="${escAttr(tip)}">${k}</span>`;
   }).join("") + gdapChip();
   $("upload-status").innerHTML =
-    `<button id="loaded-toggle" class="loaded-toggle" aria-expanded="false">Loaded: <b>${n}</b> source${n === 1 ? "" : "s"}` +
+    `<button id="loaded-toggle" class="loaded-toggle" aria-expanded="false" aria-haspopup="dialog" aria-controls="loaded-chips">Loaded: <b>${n}</b> source${n === 1 ? "" : "s"}` +
       `${fc ? ` · <b>${fc}</b> file${fc === 1 ? "" : "s"}` : ""} <span class="loaded-caret">▾</span></button>` +
-    `<span id="loaded-chips" class="loaded-chips d-none">${chips}<span id="loaded-files" class="loaded-files"></span></span>` +
+    `<span id="loaded-scrim" class="loaded-scrim d-none"></span>` +
+    `<span id="loaded-chips" class="loaded-chips d-none" role="dialog" aria-modal="true" aria-label="Loaded sources and files">` +
+      `<span class="loaded-pop-head"><b>Loaded sources &amp; files</b><button type="button" class="loaded-pop-x" id="loaded-close" aria-label="Close">×</button></span>` +
+      `<span class="loaded-src">${chips}</span><span id="loaded-files" class="loaded-files"></span></span>` +
     `<span id="saved-state" class="saved-state"></span>`;
   const lt = $("loaded-toggle");
-  if (lt) lt.addEventListener("click", () => {
-    const box = $("loaded-chips"), open = !box.classList.contains("d-none");
-    box.classList.toggle("d-none", open);
-    lt.setAttribute("aria-expanded", String(!open));
-    lt.querySelector(".loaded-caret").textContent = open ? "▾" : "▴";
-  });
+  if (lt) lt.addEventListener("click", () => setLoadedOpen($("loaded-chips").classList.contains("d-none")));
+  const lc = $("loaded-close"); if (lc) lc.addEventListener("click", e => { e.stopPropagation(); setLoadedOpen(false); });
+  const ls = $("loaded-scrim"); if (ls) ls.addEventListener("click", () => setLoadedOpen(false));
   wireGdapChip();
+  if (prog) await prog.onRender();
   renderFileList();
   updateSavedState(meta.savedAt || null);
   $("app-body").classList.remove("d-none");
@@ -2600,30 +2819,59 @@ function loadItems(items, meta) {
   APP.files = items;
   // v1.30.0: wait for the journal's IndexedDB backup to merge before replaying (bounded wait).
   const jReady = (typeof QBR !== "undefined" && QBR.journalReady) || Promise.resolve();
-  return Promise.all([Promise.all(items.map(it => readU8(it.blob, it.name))), jReady]).then(([buffers]) => {
-    // Fingerprints let persist.js key journal entries to exact file bytes and
-    // map each file to the inventory kinds it contributed.
+  // 2026-10-25 load bar: this session owns the bar when outermost; a nested load
+  // (a per-file reload inside Reload-all) stays silent so the outer session keeps
+  // driving the display. The bar hides in `finally`, including every error path.
+  const LP = (typeof QBR !== "undefined" && QBR.loadProgress) || null;
+  const own = LP ? LP.begin() : false;
+  const prog = own ? {
+    onPhase: function () { LP.phase("Parsing"); },
+    onParse: function (pass, fi) {
+      LP.parse(pass * items.length + fi + 1, 6 * items.length, fi + 1, items.length, items[fi].name);
+    },
+    onRender: async function () { LP.render(); await LP.yield(); }
+  } : null;
+  return (async function () {
     try {
-      if (typeof QBR !== "undefined" && QBR.fpOf) {
-        QBR._currentFps = items.map(it => QBR.fpOf(it.name, it.blob));
-        QBR._kindByFp = {};
+      // Sequential reads (was Promise.all): same buffers, same order, but each
+      // file now reports Reading i/N and yields so the bar paints. The journal
+      // wait still runs concurrently — it is awaited below, before any parsing.
+      const buffers = [];
+      for (let i = 0; i < items.length; i++) {
+        if (own) LP.read(i + 1, items.length, items[i].name);
+        buffers.push(await readU8(items[i].blob, items[i].name));
+        if (own) await LP.yield();
       }
-    } catch (e) {}
-    // 2026-10-06: remember the parsed bytes as the merge base for linked files
-    try { if (typeof QBR !== "undefined" && QBR.fsRememberBase) QBR.fsRememberBase(items, buffers); } catch (e) {}
-    const ok = processBuffers(buffers, meta || {});
-    if (!ok) { APP.files = prev; return ok; }
-    try { detectGdap(items, buffers); } catch (e) {}
-    // Replay any journaled entries recorded against these exact files
-    // (covers both fresh uploads and session restores after Ctrl+R).
-    try {
-      if (typeof QBR !== "undefined" && QBR.journalReplayFor) {
-        const n = QBR.journalReplayFor(APP.files);
-        if (n > 0 && typeof renderAll === "function") renderAll();
-      }
-    } catch (e) { console.warn("[QBR] journal replay failed:", e && e.message); }
-    return ok;
-  }).catch(err => { APP.files = prev; throw err; });
+      await jReady;
+      // Fingerprints let persist.js key journal entries to exact file bytes and
+      // map each file to the inventory kinds it contributed.
+      try {
+        if (typeof QBR !== "undefined" && QBR.fpOf) {
+          QBR._currentFps = items.map(it => QBR.fpOf(it.name, it.blob));
+          QBR._kindByFp = {};
+        }
+      } catch (e) {}
+      // 2026-10-06: remember the parsed bytes as the merge base for linked files
+      try { if (typeof QBR !== "undefined" && QBR.fsRememberBase) QBR.fsRememberBase(items, buffers); } catch (e) {}
+      // 2026-10-28: parsed-workbook cache session (unchanged files are not re-read).
+      let ok = false;
+      if (typeof QBR !== "undefined" && QBR.wbCacheBegin) QBR.wbCacheBegin();
+      try { ok = await processBuffers(buffers, meta || {}, prog); }
+      finally { if (typeof QBR !== "undefined" && QBR.wbCacheEnd) QBR.wbCacheEnd(ok); }
+      if (!ok) { APP.files = prev; return ok; }
+      try { detectGdap(items, buffers); } catch (e) {}
+      // Replay any journaled entries recorded against these exact files
+      // (covers both fresh uploads and session restores after Ctrl+R).
+      try {
+        if (typeof QBR !== "undefined" && QBR.journalReplayFor) {
+          const n = QBR.journalReplayFor(APP.files);
+          if (n > 0 && typeof renderAll === "function") renderAll();
+        }
+      } catch (e) { console.warn("[QBR] journal replay failed:", e && e.message); }
+      return ok;
+    } catch (err) { APP.files = prev; throw err; }
+    finally { if (LP) LP.end(); }
+  })();
 }
 
 function cacheSession() {
@@ -2837,7 +3085,7 @@ function exportMeta() {
     ["Month", f.month === "ALL" ? "All" : title(f.month)],
     ["Organization", nice(f.org)],
     ["School", nice(f.school)],
-    ["Schools in scope", String(m ? m.master.size : 0)],
+    ["Managed tenants", String(m ? m365TenantCount(m) : 0)],
     ...(stampShown() ? [["Generated", new Date().toLocaleString()]] : []),
   ];
   if (m && m.usermgmt.length) rows.splice(4, 0, ["School Year", nice(f.sy)]);
@@ -3117,6 +3365,10 @@ function initShell() {
       return;
     }
   });
+  // Loaded-files pop-up: search box + remembered collapsed groups + Escape to close.
+  if (us) us.addEventListener("input", e => { if (e.target.id === "loaded-search") { APP._fileSearch = e.target.value; applyFileSearch(); } });
+  if (us) us.addEventListener("toggle", e => { const g = e.target.closest && e.target.closest(".loaded-group"); if (g && !APP._fileSearch) APP._fileGroupsClosed[g.dataset.group] = !g.open; }, true);
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && $("loaded-chips") && !$("loaded-chips").classList.contains("d-none")) setLoadedOpen(false); });
   // 'change' fires for checkboxes (click delegation above handles the intent).
   if (us) us.addEventListener("change", e => {
     const t = e.target.closest(".loaded-file-edit");
@@ -3199,27 +3451,13 @@ function initShell() {
     if (APP.model) renderAll();
   });
 
-  // Tenant Health Index drill-down: toggle panel + band-filter chips.
+  // Overview: band chips / band-bar segments filter the per-tenant table; [data-goto] opens a page.
   document.addEventListener("click", e => {
-    const tog = e.target.closest(".thi-drill-btn");
-    if (tog) { APP.thiDrill.open = !APP.thiDrill.open; if (APP.model) renderOverview(); return; }
     const chip = e.target.closest(".thi-band-btn");
-    if (chip && !chip.disabled) { setThiBand(chip.dataset.band); }
+    if (chip && !chip.disabled) { setThiBand(chip.dataset.band); return; }
+    const go = e.target.closest("#dash-overview [data-goto]");
+    if (go) goToTab(go.getAttribute("data-goto"));
   });
-
-  // Click a segment of the health-distribution bar to filter the drill-down.
-  const thiCv = $("ch-ov-thi");
-  if (thiCv && !thiCv._thiWired) {
-    thiCv._thiWired = true; thiCv.style.cursor = "pointer";
-    thiCv.addEventListener("click", evt => {
-      const ch = QBR._charts && QBR._charts["ch-ov-thi"];
-      if (!ch || !ch.getElementsAtEventForMode) return;
-      const pts = ch.getElementsAtEventForMode(evt, "nearest", { intersect: true }, false);
-      if (!pts || !pts.length) return;
-      const ds = ch.data.datasets[pts[0].datasetIndex];
-      if (ds && ds.label) setThiBand(ds.label);
-    });
-  }
 
   // Full Data Explorer controls (Option B)
   const fdReset = () => { APP.fd.page = 1; if (APP.model) renderFullData(); };
@@ -3256,8 +3494,13 @@ function initShell() {
   if (hst) hst.addEventListener("change", () => renderHealthTable(($("health-search") || {}).value || ""));
   const pm = $("pm-search");
   if (pm) pm.addEventListener("input", e => renderPmTable(e.target.value));
-  const pmr = $("pm-rep");
-  if (pmr) pmr.addEventListener("change", () => renderPmTable(($("pm-search") || {}).value || ""));
+  document.querySelectorAll(".pm-f").forEach(sel => sel.addEventListener("change", () => renderPmTable(($("pm-search") || {}).value || "")));
+  const pmReset = $("pm-f-reset");
+  if (pmReset) pmReset.addEventListener("click", () => {
+    document.querySelectorAll(".pm-f").forEach(sel => { sel.value = "ALL"; });
+    if ($("pm-search")) $("pm-search").value = "";
+    renderPmTable("");
+  });
   const rsv = $("risky-secdef-view");
   if (rsv) rsv.addEventListener("change", () => renderRisky());
   const ut = $("usage-tenant");

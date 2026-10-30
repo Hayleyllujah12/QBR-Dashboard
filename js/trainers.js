@@ -50,6 +50,7 @@
     mapFor: null,          // queue item whose column mapper is open
     newFor: null,          // queue item being added as a new session
     maps: {},
+    trackerStale: null, trackerAllowed: false,   // stale-tracker lineage guard (see trCheckLineage)
     charts: {}, chartDefs: {}
   };
 
@@ -108,6 +109,31 @@
   function excelRow(s) { return s.rowIdx + 1 + ((S.tracker && S.tracker.origin) ? S.tracker.origin.r : 0); }
 
   /* ---------------- tracker ---------------- */
+  /* Stale-tracker lineage: the browser remembers the last tracker seen per
+   * file name (session count + content hash — no student data). Opening a
+   * copy with FEWER sessions than remembered (an older version) pauses
+   * writing until the user confirms it is the file they mean. */
+  var TR_LINEAGE_KEY = "qbr-trainers-lineage";
+  function trLineageMap() { try { return JSON.parse(localStorage.getItem(TR_LINEAGE_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function trHash(bytes) { try { return (typeof QBR.fsHashOf === "function" && bytes) ? QBR.fsHashOf(bytes) : 0; } catch (e) { return 0; } }
+  function trSaveLineage(t) {
+    if (!t) return;
+    try {
+      var m = trLineageMap();
+      m[t.name] = { sessions: t.sessions.length, hash: t.hash || trHash(t.bytes), savedAt: new Date().toISOString() };
+      localStorage.setItem(TR_LINEAGE_KEY, JSON.stringify(m));
+    } catch (e) {}
+  }
+  function trCheckLineage(t) {
+    S.trackerStale = null; S.trackerAllowed = false;
+    var rec = null;
+    try { rec = trLineageMap()[t.name] || null; } catch (e) {}
+    if (rec && rec.hash !== (t.hash || 0) && t.sessions.length < rec.sessions) {
+      S.trackerStale = { recSessions: rec.sessions, sessions: t.sessions.length };
+      return;                      // older copy: do NOT refresh the remembered lineage
+    }
+    trSaveLineage(t);
+  }
   function openTracker(file, handle) {
     return readWorkbook(file).then(function (wb) {
       var names = wb.SheetNames || [];
@@ -125,7 +151,7 @@
       var rows = sheetRows(wb, pick);
       S.tracker = {
         name: file.name, bytes: wb.__bytes, wb: wb, sheetName: pick, origin: sheetOrigin(wb, pick),
-        handle: handle || null, mtime: file.lastModified || 0, size: file.size || 0,
+        handle: handle || null, mtime: file.lastModified || 0, size: file.size || 0, hash: trHash(wb.__bytes),
         headerRow: rows[0] || [], lastRow: lastDataRow(rows),
         sessions: sessions, roster: P().buildRoster(sessions),
         addedRows: [], headerAdds: [],
@@ -138,6 +164,7 @@
       S.queue.forEach(function (q) { q.solo = null; matchItem(q); });
       dedupeTargets();
       S.pickFor = S.mapFor = S.newFor = null;
+      trCheckLineage(S.tracker);
       render();
     });
   }
@@ -410,7 +437,17 @@
     if (!t.handle) return "no-handle";
     try {
       var cur = await t.handle.getFile();
-      if (cur && ((t.mtime && cur.lastModified !== t.mtime) || (t.size && cur.size !== t.size))) return "changed";
+      if (cur && ((t.mtime && cur.lastModified !== t.mtime) || (t.size && cur.size !== t.size))) {
+        // Metadata moved — OneDrive touches lastModified on sync without changing
+        // a byte. Only a real content change should refuse: when the size still
+        // matches, compare content hashes before calling it "changed".
+        var sameContent = false;
+        if (t.hash && cur.size === t.size) {
+          try { sameContent = trHash(new Uint8Array(await cur.arrayBuffer())) === t.hash; } catch (e) {}
+        }
+        if (!sameContent) return "changed";
+        t.mtime = cur.lastModified; t.size = cur.size;   // metadata-only touch: adopt and write
+      }
     } catch (e) { return "unreadable"; }
     var w = null;
     try {
@@ -418,6 +455,7 @@
       await w.write(t.bytes);
       await w.close();
       try { var f = await t.handle.getFile(); t.mtime = f.lastModified; t.size = f.size; } catch (e) {}
+      t.hash = trHash(t.bytes); trSaveLineage(t);
       return "ok";
     } catch (e) {
       try { if (w && w.abort) await w.abort(); } catch (x) {}
@@ -430,6 +468,7 @@
   function writeback() {
     var t = S.tracker;
     if (!t) return Promise.resolve();
+    if (S.trackerStale && !S.trackerAllowed) { note("This tracker looks older than the last one used here — confirm \u2018Use this tracker anyway\u2019 in the warning above before writing into it."); return Promise.resolve(); }
     var plan = P().planWriteback(t.headerRow, t.sessions);
     if (!plan.edits.length && !t.addedRows.length) return Promise.resolve();
     var SG = QBR.xlsxSurgical, bytes = t.bytes, base = null, work = null;
@@ -784,6 +823,10 @@
       '<span class="tr-file' + (ev || S.queue.length ? " on" : "") + '" data-trfile="eval"><b>Evals</b> ' + (S.queue.length ? plural(S.queue.length, "file") + (ev ? " + " + esc(ev.name) : "") : ev ? esc(ev.name) + ' <span class="text-muted">· ' + plural(ev.rows.length - 1, "response") + '</span>' : '<span class="text-muted">none</span>') + '</span>' +
       '</span></div>' +
       '<div class="tr-drop small text-muted" id="tr-drop">or drop eval exports here — many at once is fine</div>';
+    if (S.trackerStale && t) {
+      h += '<div class="tr-pending tr-stale"><span>\u26a0 <b>This tracker looks older than the last one used here</b> — last seen ' + S.trackerStale.recSessions + " sessions. This file has " + S.trackerStale.sessions + " sessions. Writing is paused so nothing is written into the older copy.</span>" +
+        '<button type="button" class="btn btn-warning btn-sm" data-traction="tracker-anyway">Use this tracker anyway</button></div>';
+    }
     if (pend || added || fills) {
       h += '<div class="tr-pending"><span><b>Not written yet:</b> ' +
         [added ? plural(added, "new session") : "", pend ? plural(pend, "scored session") : "", fills ? plural(fills, "response count") : ""].filter(Boolean).join(" · ") + '</span>' +
@@ -797,7 +840,12 @@
     return '<button type="button" class="btn btn-outline-secondary btn-sm" data-traction="folder" title="' +
       (d.length ? "Find the training tracker and eval exports in " + esc(d.map(function (x) { return x.name; }).join(", ")) + " (and its subfolders)"
         : "Pick the folder that holds the training tracker and eval exports — they load together") + '">📁 ' +
-      (d.length ? "Load from folder" : "Open folder…") + '</button>';
+      (d.length ? "Load from folder" : "Open folder…") + '</button>' +
+      /* 2026-10-25: "Load from folder" only re-scans the folders already linked —
+       * there is no unlink/remove API in the shared folder store, so this control
+       * is link-ADDITIVE: it links one more folder (the old one keeps being
+       * scanned too; already-loaded files are skipped, so nothing duplicates). */
+      (d.length ? ' <button type="button" class="btn btn-outline-secondary btn-sm" data-traction="add-folder" title="Link another folder — Load from folder will then scan all linked folders. This adds a folder, it does not replace the old one.">📁 Add folder…</button>' : "");
   }
   function viewBarHTML() {
     var b = function (k, l) { return '<button type="button" class="btn btn-outline-secondary' + (S.view === k ? " active" : "") + '" data-trview="' + k + '" aria-pressed="' + (S.view === k) + '">' + l + '</button>'; };
@@ -974,7 +1022,8 @@
     h += '<div class="tr-evalline small">Eval: <b>' + esc(ev.name) + '</b> · ' + plural(ev.rows.length - 1, "response") +
          (hint ? ' <span class="tr-hint">· filename: ' + esc(hint.dateISO) + ' · ' + esc(hint.session) + ' · ' + esc(hint.school) + '</span>' : "") +
          (mismatch ? ' <span class="risk-badge risk-high">Filename suggests a different session — double-check</span>' : "") + '</div>';
-    if (!c) h += '<button type="button" class="btn btn-primary btn-sm mt-2" data-traction="generate">Generate results</button>';
+    if (!c) h += '<label class="trf-pretitle small">Report title <input type="text" data-trf="pretitle" value="' + esc(s.title || s.code) + '"></label> ' +
+        '<button type="button" class="btn btn-primary btn-sm mt-2" data-traction="generate">Generate results</button>';
     else h += reportHTML(s, c);
     return h + '</div>';
   }
@@ -984,90 +1033,251 @@
       '<div class="small text-muted">' + esc(ev.name) + ' · ' + plural(ev.rows.length - 1, "response") +
       (ev.responseDate ? ' · answered on ' + esc(ev.responseDate) : "") + ' · no tracker loaded (nothing is written)</div></div></div>';
     if (ev.needsMap) return h + mapperHTML() + '</div>';
-    if (!ev.solo) return h + '<button type="button" class="btn btn-primary btn-sm mt-2" data-traction="generate">Generate report</button></div>';
+    if (!ev.solo) return h + '<label class="trf-pretitle small">Report title <input type="text" data-trf="pretitle" value="Session feedback"></label> ' +
+      '<button type="button" class="btn btn-primary btn-sm mt-2" data-traction="generate">Generate report</button></div>';
     return h + reportHTML(null, ev.solo) + '</div>';
   }
   function chip(t, tone) { return '<span class="risk-badge risk-' + tone + ' tr-chip">' + esc(t) + '</span>'; }
+  /* ---------------- wired feedback layout (standalone generator, tab data) ----
+   * reportHTML renders the standalone training-feedback-report layout from the
+   * tab's already-loaded session eval data (c = computed/solo, s = session).
+   * No CDN, no iframe: everything below is local code + the app's print path.
+   * The fixed-choice facilitator dropdown is deliberately gone: the trainer is a
+   * plain type-in, prefilled from the session. */
+  var TRF_GROUP_ORDER = ["Session Content", "Facilitator", "Learning Experience", "Overall Satisfaction", "Other"];
+  function trfGroupOf(g) {
+    var m = { "Session content": "Session Content", "Facilitator": "Facilitator",
+      "Learning experience": "Learning Experience", "Overall satisfaction": "Overall Satisfaction", "Other": "Other" };
+    return m[g] || "Other";
+  }
+  function trfNpsInterp(score) {
+    if (score == null || !isFinite(score)) return "";
+    if (score >= 70) return "Excellent — world-class engagement.";
+    if (score >= 50) return "Strong — participants would readily recommend this training.";
+    if (score >= 30) return "Good — favorable reception with room to grow.";
+    if (score >= 0) return "Average — mixed reception, address detractor concerns.";
+    return "Needs improvement — more detractors than promoters.";
+  }
+  /* Export filename rule (the requester): {TRAINER}-{DATE} - {SCHOOL}, e.g.
+   * DELA CRUZ JUAN-OCTOBER 25, 2026 - CSQC. Date is parsed as a local calendar
+   * date (never UTC) so the day can't shift with timezone. Empty parts drop out. */
+  function trfExportName(trainer, dateISO, school) {
+    var t = String(trainer || "").trim(), sc = String(school || "").trim(), dt = "";
+    var mm = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateISO || "").trim());
+    if (mm) {
+      var d = new Date(+mm[1], +mm[2] - 1, +mm[3]);
+      if (!isNaN(d.getTime())) dt = d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    }
+    var head = [t, dt].filter(function (x) { return x; }).join("-");
+    var out = head + (sc ? (head ? " - " : "") + sc : "");
+    return (out || "Trainer report").toUpperCase();
+  }
+  /* Keep the print path honest: the cloned print copy only carries input VALUES
+   * if they are also attributes, so sync them (and the export filename + the
+   * print header) on every field edit. Called on render and on input. */
+  function trfSyncExport(root) {
+    if (!root) return;
+    var t = root.querySelector("[data-trf=trainer]"), d = root.querySelector("[data-trf=date]"),
+        o = root.querySelector("[data-trf=org]"), ti = root.querySelector("[data-trf=title]");
+    if (t) t.setAttribute("value", t.value);
+    if (d) d.setAttribute("value", d.value);
+    if (o) o.setAttribute("value", o.value);
+    root.setAttribute("data-title", trfExportName(t && t.value, d && d.value, o && o.value));
+    var ph = root.querySelector("[data-trf-ph]");
+    if (ph) {
+      var bits = [];
+      if (ti) bits.push(ti.textContent.trim());
+      if (o && o.value) bits.push(o.value);
+      if (d && d.value) bits.push(d.value);
+      if (t && t.value) bits.push("Trainer: " + t.value);
+      bits.push(plural(+(root.getAttribute("data-trf-responses") || 0), "response"));
+      ph.textContent = bits.join(" · ");
+    }
+  }
+  function trfQuote(texts, word) {
+    var list = (texts || []).filter(function (x) { return x && !P().isTrivial(x) && x.length >= 12 && x.length <= 220; });
+    if (!word) return list[0] || null;
+    var re;
+    try { re = new RegExp("\\b" + String(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i"); } catch (e) { return list[0] || null; }
+    for (var i = 0; i < list.length; i++) if (re.test(list[i])) return list[i];
+    return list[0] || null;
+  }
+  function trfSubstantive(texts) { return (texts || []).filter(function (x) { return x && !P().isTrivial(x); }); }
+  function trfNpsMean(c) {
+    var ev = S.eval;
+    if (!ev || !(ev.id === c.evalId || ev.name === c.evalName) || !ev.roles || ev.roles.nps == null || ev.roles.nps < 0) return null;
+    var sum = 0, n = 0;
+    (ev.rows || []).slice(1).forEach(function (r) {
+      var v = r && r[ev.roles.nps]; if (v == null || String(v).trim() === "") return;
+      var x = Number(v); if (isFinite(x) && x >= 0 && x <= 10) { sum += x; n++; }
+    });
+    return n ? sum / n : null;
+  }
   function reportHTML(s, c) {
     var R = c.report, lowN = c.n < LOW_N;
-    var title = s ? (s.title || s.code) : "Session feedback";
-    var h = '<div class="tr-report" id="tr-report-session" data-title="' + esc("Session feedback - " + (s ? (s.client + " - " + (s.dateISO || "")) : c.evalName)) + '">' +
+    var title = c.title || (s ? (s.title || s.code) : "Session feedback");
+    var trainer0 = s ? (s.trainer || "") : "";
+    var dateRaw = s ? (s.dateISO || "") : ((S.eval && S.eval.hint && S.eval.hint.dateISO) || (S.eval && S.eval.responseDate) || "");
+    var date0 = /^\d{4}-\d{2}-\d{2}/.test(dateRaw) ? dateRaw.slice(0, 10) : "";
+    var org0 = s ? (s.client || "") : ((S.eval && S.eval.hint && S.eval.hint.school) || "");
+    var brandImg = null;
+    try { var bi = document.getElementById("brand-logo"); if (bi && bi.getAttribute("src")) brandImg = bi.getAttribute("src"); } catch (e) {}
+    var h = '<div class="tr-report trf-report" id="tr-report-session" data-title="' + esc(trfExportName(trainer0, date0, org0)) + '" data-trf-responses="' + R.responses + '">' +
       '<div class="tr-print-only tr-print-head"><div class="tr-ph-title">Participant feedback summary</div>' +
-      '<div class="tr-ph-sub">' + esc(title) + (s ? ' · ' + esc(s.client) + ' · ' + esc(s.dateISO || "") + ' · Trainer: ' + esc(s.trainer) : "") +
+      '<div class="tr-ph-sub" data-trf-ph>' + esc(title) + (s ? ' · ' + esc(s.client) + ' · ' + esc(s.dateISO || "") + ' · Trainer: ' + esc(trainer0) : "") +
       ' · ' + plural(R.responses, "response") + '</div></div>' +
-      '<div class="tr-rep-actions tr-noprint"><button type="button" class="btn btn-primary btn-sm" data-traction="print-session" title="Opens the print dialog — choose “Save as PDF”">Session report (PDF)</button>' +
+      '<div class="tr-rep-actions tr-noprint">' +
+      '<label class="trf-toggle"><input type="checkbox" data-trf-toggle="brand" checked> RAKSO Ed branding</label>' +
+      '<label class="trf-toggle"><input type="checkbox" data-trf-toggle="appendix"> Full-responses appendix</label>' +
+      '<button type="button" class="btn btn-primary btn-sm" data-traction="print-session" title="Opens the print dialog — choose “Save as PDF”">Session report (PDF)</button>' +
       (s && !s.computed && s.written ? ' <span class="small text-muted">Written to the tracker.</span>' +
-        (S.eval && S.eval.attachedTo === S.selected ? ' <button type="button" class="btn btn-outline-secondary btn-sm" data-traction="generate">Generate again</button>' : "") : "") + '</div>' +
-      '<div class="row row-cols-2 row-cols-md-3 row-cols-xl-5 g-3 kpi-row">' +
-      kpi("Session NPS", num(c.nps, 1), npsTone(c.nps), deltaChip(c.nps, c.prevNps, 1) || (c.n ? c.promoters + " promoters · " + c.detractors + " detractors" : "no valid answers")) +
-      kpi("Trainer score", num(c.trainerScore, 2), scoreTone(c.trainerScore), deltaChip(c.trainerScore, c.prevScore, 2) || "out of 5 · facilitator items") +
-      kpi("Responses", R.responses, lowN ? "orange" : "blue", lowN ? "low response count (under " + LOW_N + ") — read with care" : plural(c.n, "NPS answer")) +
-      kpi("Overall rating", num(R.overall, 2), scoreTone(R.overall), R.ratings.length ? "average of " + plural(R.ratings.length, "rated item") : "no rating items found") +
-      kpi("Satisfaction", R.satisfaction == null ? "—" : num(R.satisfaction, 0) + "%", R.satisfaction == null ? "blue" : R.satisfaction >= 85 ? "green" : R.satisfaction >= 65 ? "orange" : "red", "top-2 answers on the satisfaction item") +
-      '</div>';
-    if (c.prevLabel) h += '<div class="small text-muted mt-1">Previous session with this trainer and course: ' + esc(c.prevLabel) + '</div>';
-    // charts
-    h += '<div class="row g-3 mt-0">' +
-      '<div class="col-lg-5"><div class="card-box tr-inner"><h6>Recommendation (NPS)</h6><div class="chart-wrap tr-chart-sm"><canvas id="tr-ch-nps" aria-label="Promoters, passives and detractors"></canvas></div>' +
-      '<div class="small text-muted mt-1">Promoters 9–10 · passives 7–8 · detractors 0–6. NPS = % promoters − % detractors.</div></div></div>' +
-      '<div class="col-lg-7"><div class="card-box tr-inner"><h6>Rating by item</h6>' +
-      (R.ratings.length ? '<div class="chart-wrap" style="height:' + Math.max(200, 34 * R.ratings.length + 60) + 'px"><canvas id="tr-ch-items" aria-label="Average rating per item"></canvas></div>' : '<div class="small text-muted">No Likert rating items found in this form.</div>') +
-      '</div></div></div>';
-    // executive summary + recommendations
+        (S.eval && S.eval.attachedTo === S.selected ? ' <button type="button" class="btn btn-outline-secondary btn-sm" data-traction="generate">Generate again</button>' : "") : "") + '</div>';
+    /* cover */
+    h += '<div class="trf-cover">' +
+      '<div class="trf-brand">' + (brandImg ? '<img src="' + esc(brandImg) + '" alt="RAKSO Ed">' : 'RAKSO Ed') + '</div>' +
+      '<p class="trf-label">Training feedback report</p>' +
+      '<h1 class="trf-title" contenteditable="true" spellcheck="false" data-trf="title">' + esc(title) + '</h1>' +
+      '<div class="trf-cover-meta">' +
+      '<div><p class="trf-meta-lbl">Facilitator</p><input type="text" class="trf-field trf-trainer" data-trf="trainer" value="' + esc(trainer0) + '" placeholder="Type the trainer name"></div>' +
+      '<div><p class="trf-meta-lbl">Session date</p><input type="date" class="trf-field" data-trf="date" value="' + esc(date0) + '"></div>' +
+      '<div><p class="trf-meta-lbl">Organization</p><input type="text" class="trf-field" data-trf="org" value="' + esc(org0) + '" placeholder="School / organization"></div>' +
+      '<div><p class="trf-meta-lbl">Total responses</p><p class="trf-meta-val">' + R.responses + '</p></div>' +
+      (s ? '<div><p class="trf-meta-lbl">Session</p><p class="trf-meta-val">' + esc(s.code) + (s.id ? ' · ' + esc(s.id) : "") + '</p></div>' : "") +
+      '</div></div>';
+    /* KPI grid (tile classes kept so the old KPI assertions still read them) */
+    var kpiTile = function (label, val, sub) {
+      return '<div class="trf-kpi kpi"><p class="trf-kpi-value kpi-val">' + val + '</p><p class="trf-kpi-label kpi-lbl">' + esc(label) + '</p>' +
+        (sub ? '<p class="trf-kpi-sub">' + sub + '</p>' : "") + '</div>';
+    };
+    h += '<div class="trf-section"><h2 class="trf-h"><span class="trf-num">1</span>Key Performance Indicators</h2><div class="trf-kpi-grid">' +
+      kpiTile("Session NPS", num(c.nps, 1), c.n ? c.promoters + " promoters · " + c.detractors + " detractors" : "no valid answers") +
+      kpiTile("Trainer score", num(c.trainerScore, 2), "out of 5 · facilitator items") +
+      kpiTile("Responses", R.responses, lowN ? "low response count (under " + LOW_N + ") — read with care" : plural(c.n, "NPS answer")) +
+      kpiTile("Overall rating", num(R.overall, 2), R.ratings.length ? "average of " + plural(R.ratings.length, "rated item") : "no rating items found") +
+      kpiTile("Satisfaction", R.satisfaction == null ? "—" : num(R.satisfaction, 0) + "%", "top-2 answers on the satisfaction item") +
+      '</div></div>';
+    /* summary card */
     var sm = R.summary, opening = "Feedback from " + plural(R.responses, "participant") +
       (R.schools.length ? " from " + R.schools.slice(0, 3).map(function (o) { return o.name; }).join(", ") + (R.schools.length > 3 ? " and " + plural(R.schools.length - 3, "other school") : "") : "");
     opening = opening.replace(/\.+$/, "") + ".";
     if (sm.verdict) opening += " Overall sentiment was " + sm.verdict + " (" + num(R.overall, 2) + " / 5" + (R.satisfaction != null ? ", " + num(R.satisfaction, 0) + "% satisfied" : "") + ").";
     if (c.nps != null) opening += " NPS " + num(c.nps, 1) + ": " + c.promoters + " of " + c.n + " respondents are promoters.";
-    h += '<div class="row g-3 mt-0"><div class="col-lg-5"><div class="card-box tr-inner"><h6>Executive summary</h6><p class="mb-2 small">' + esc(opening) + '</p>' +
-      '<div class="tr-chips">' + sm.wins.map(function (w) { return chip("✓ " + w, "none"); }).join("") + sm.watches.map(function (w) { return chip("⚠ " + w, "high"); }).join("") + '</div></div></div>' +
-      '<div class="col-lg-7"><div class="card-box tr-inner"><h6>Recommendations</h6>' + (R.recommendations.length ? '<ol class="tr-recs">' + R.recommendations.map(function (r) {
-        var tone = r.priority === "high" ? "critical" : r.priority === "medium" ? "high" : "low";
-        return '<li><div class="tr-rec-h">' + chip(r.priority, tone) + ' <b>' + esc(r.title) + '</b> <span class="small text-muted">· ' + esc(r.effort) + ' · ' + esc(r.owner) + '</span></div>' +
-          '<div class="small">' + esc(r.evidence) + '</div>' + (r.quote ? '<blockquote class="tr-quote">“' + esc(r.quote) + '”</blockquote>' : "") +
-          '<div class="small"><b>Action:</b> ' + esc(r.action) + '</div><div class="small text-muted"><b>Measure:</b> ' + esc(r.metric) + '</div></li>';
-      }).join("") + '</ol>' : '<div class="small text-muted">No issues stood out in this session.</div>') + '</div></div></div>';
-    // schools + themes
-    h += '<div class="row g-3 mt-0">';
-    if (R.schools.length) h += '<div class="col-lg-6"><div class="card-box tr-inner"><h6>Participants by school</h6><table class="table table-sm mb-0" data-resizable="static"><thead><tr><th>School</th><th class="num">Responses</th><th class="num">Share</th></tr></thead><tbody>' +
-      R.schools.slice(0, 12).map(function (o) { return '<tr><td>' + esc(o.name) + '</td><td class="num">' + o.count + '</td><td class="num">' + num(o.pct, 0) + '%</td></tr>'; }).join("") + '</tbody></table></div></div>';
-    var kw = function (list) { return list.length ? list.map(function (k) { return '<span class="badge bg-secondary tr-kw">' + esc(k.word) + ' · ' + k.count + '</span>'; }).join(" ") : '<span class="small text-muted">—</span>'; };
-    h += '<div class="col-lg-6"><div class="card-box tr-inner"><h6>Themes in open answers</h6><div class="small fw-semibold mb-1">Liked best</div><div class="mb-2">' + kw(R.keywords.best) + '</div>' +
-      '<div class="small fw-semibold mb-1">Suggestions</div><div>' + kw(R.keywords.suggest) + '</div></div></div></div>';
-    // comments
-    var groups = [["best", "Liked best"], ["insight", "Key insight"], ["suggest", "Suggestions"], ["why", "Why this rating"]];
-    var anyC = groups.some(function (g) { return R.comments[g[0]].length; });
-    if (anyC) {
-      h += '<div class="card-box tr-inner mt-3"><h6>Comments <span class="small text-muted fw-normal">(blank and “n/a” answers left out)</span></h6><div class="tr-comments">';
-      groups.forEach(function (g) {
-        var items = R.comments[g[0]];
-        if (!items.length) return;
-        h += '<div class="tr-comment"><div class="small fw-semibold mb-1">' + g[1] + ' (' + items.length + ')</div><ul>' +
-             items.slice(0, 50).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join("") +
-             (items.length > 50 ? '<li><i>…and ' + (items.length - 50) + ' more</i></li>' : "") + '</ul></div>';
+    h += '<div class="trf-section"><h2 class="trf-h"><span class="trf-num">2</span>Summary</h2><div class="trf-summary"><p>' + esc(opening) + '</p>' +
+      '<div class="trf-pills">' +
+      sm.wins.map(function (w) { return '<span class="trf-pill">' + esc(w) + '</span>'; }).join("") +
+      sm.watches.map(function (w) { return '<span class="trf-pill warn">' + esc(w) + '</span>'; }).join("") +
+      '</div></div></div>';
+    /* rating groups with distribution bars (counts are real: R.ratings[].dist) */
+    var byGroup = {};
+    R.ratings.forEach(function (r) { var g = trfGroupOf(r.group); (byGroup[g] = byGroup[g] || []).push(r); });
+    var DIST_COLOR = { 5: "#10b981", 4: "#14b8a6", 3: "#3b82f6", 2: "#f59e0b", 1: "#ef4444" };
+    h += '<div class="trf-section"><h2 class="trf-h"><span class="trf-num">3</span>Ratings by Dimension</h2>';
+    TRF_GROUP_ORDER.forEach(function (g) {
+      var items = byGroup[g]; if (!items || !items.length) return;
+      var gAvg = items.reduce(function (a, r) { return a + r.avg; }, 0) / items.length;
+      h += '<div class="trf-group"><div class="trf-group-head"><span class="trf-group-letter">' + esc(g.charAt(0)) + '</span>' +
+        '<span class="trf-group-title">' + esc(g) + '</span><span class="trf-group-meta">' + items.length + " item" + (items.length === 1 ? "" : "s") + '</span>' +
+        '<span class="trf-group-avg">' + num(gAvg, 2) + '</span></div><div class="trf-ratings-list">';
+      items.forEach(function (r) {
+        var segs = "", legend = "";
+        [5, 4, 3, 2, 1].forEach(function (sc) {
+          var cnt = (r.dist && r.dist[sc]) || 0; if (!cnt) return;
+          var pct = r.n ? Math.round(cnt / r.n * 1000) / 10 : 0;
+          var lb = (r.labels && r.labels[sc]) || String(sc);
+          segs += '<div style="width:' + pct + '%;background:' + DIST_COLOR[sc] + '">' + (pct >= 10 ? esc(lb) : "") + '</div>';
+          legend += '<span><i style="background:' + DIST_COLOR[sc] + '"></i>' + esc(lb) + ' · <strong>' + cnt + '</strong></span>';
+        });
+        h += '<div class="trf-rating-row"><div class="trf-rating-head"><span class="trf-rating-title">' + esc(r.header) + '</span>' +
+          '<span class="trf-avg-pill">' + num(r.avg, 2) + '</span></div>' +
+          '<div class="trf-dist-bar">' + segs + '</div><div class="trf-dist-legend">' + legend + '</div></div>';
       });
       h += '</div></div>';
-    }
-    // write-back
+    });
+    h += '</div>';
+    /* NPS card */
+    var npsMean = trfNpsMean(c);
+    var detPct = c.n ? c.detractors / c.n * 100 : 0, pasPct = c.n ? c.passives / c.n * 100 : 0, proPct = c.n ? c.promoters / c.n * 100 : 0;
+    h += '<div class="trf-section"><h2 class="trf-h"><span class="trf-num">4</span>Net Promoter Score (NPS)</h2><div class="trf-nps-card">' +
+      '<div class="trf-nps-score"><p class="trf-nps-big">' + num(c.nps, 1) + '</p><p class="trf-nps-label">NPS Score</p>' +
+      (npsMean != null ? '<p class="trf-nps-avg">Avg ' + num(npsMean, 1) + ' / 10</p>' : "") + '</div><div>' +
+      '<div class="trf-nps-bar">' +
+      '<div class="trf-nps-det" style="width:' + detPct + '%">' + (detPct >= 8 ? detPct.toFixed(0) + "%" : "") + '</div>' +
+      '<div class="trf-nps-pas" style="width:' + pasPct + '%">' + (pasPct >= 8 ? pasPct.toFixed(0) + "%" : "") + '</div>' +
+      '<div class="trf-nps-pro" style="width:' + proPct + '%">' + (proPct >= 8 ? proPct.toFixed(0) + "%" : "") + '</div></div>' +
+      '<div class="trf-nps-legend">' +
+      '<div><span class="trf-swatch" style="background:#10b981"></span><strong>Promoters (9–10):</strong>&nbsp;' + c.promoters + '</div>' +
+      '<div><span class="trf-swatch" style="background:#f59e0b"></span><strong>Passives (7–8):</strong>&nbsp;' + c.passives + '</div>' +
+      '<div><span class="trf-swatch" style="background:#ef4444"></span><strong>Detractors (0–6):</strong>&nbsp;' + c.detractors + '</div></div>' +
+      '<p class="trf-nps-interp"><strong>Interpretation:</strong> ' + esc(trfNpsInterp(c.nps)) + '</p></div></div></div>';
+    /* themes */
+    var themeCard = function (title, texts, kws) {
+      var valid = trfSubstantive(texts);
+      var kw = kws || [];
+      var quotes = [];
+      kw.slice(0, 3).forEach(function (k) { var q = trfQuote(texts, k.word); if (q && quotes.indexOf(q) < 0) quotes.push(q); });
+      if (!quotes.length && valid.length) quotes = [valid[0]];
+      return '<div class="trf-theme-card"><h3>' + esc(title) + '</h3>' +
+        (kw.length ? '<div class="trf-kw-cloud">' + kw.map(function (k) { return '<span class="trf-kw">' + esc(k.word) + '<span class="trf-kw-c">' + k.count + '</span></span>'; }).join("") + '</div>' : "") +
+        '<div class="trf-quotes">' + (quotes.length ? quotes.map(function (q) { return '<div class="trf-quote">' + esc(q) + '</div>'; }).join("") :
+          '<p class="trf-small-muted" style="margin:0">No substantive responses for this question.</p>') + '</div>' +
+        '<p class="trf-small-muted">' + valid.length + ' of ' + (texts || []).length + ' substantive responses.</p></div>';
+    };
+    h += '<div class="trf-section"><h2 class="trf-h"><span class="trf-num">5</span>Qualitative Themes &amp; Participant Voice</h2><div class="trf-themes-grid">' +
+      themeCard("What participants liked best", R.comments.best, R.keywords.best) +
+      themeCard("Key insights & skills gained", R.comments.insight, P().topKeywords(R.comments.insight, 6)) +
+      themeCard("Suggestions for improvement", R.comments.suggest, R.keywords.suggest) +
+      '</div></div>';
+    /* recommendations */
+    h += '<div class="trf-section"><h2 class="trf-h"><span class="trf-num">6</span>Recommendations</h2>';
+    if (R.recommendations.length) {
+      h += '<ol class="trf-rec-list">' + R.recommendations.map(function (r) {
+        var pri = r.priority === "high" ? "High Priority" : r.priority === "medium" ? "Medium Priority" : "Low Priority";
+        return '<li class="' + esc(r.priority) + '"><div class="trf-rec-tags"><span class="trf-rec-tag ' + esc(r.priority) + '">' + pri + '</span>' +
+          (r.effort ? '<span class="trf-rec-tag effort">' + esc(r.effort) + '</span>' : "") + '</div>' +
+          '<div class="trf-rec-title">' + esc(r.title) + '</div>' +
+          (r.evidence ? '<div class="trf-rec-evidence">' + esc(r.evidence) + '</div>' : "") +
+          (r.quote ? '<div class="trf-rec-quote">' + esc(r.quote.length > 200 ? r.quote.substring(0, 197) + "…" : r.quote) + '</div>' : "") +
+          (r.action ? '<div class="trf-rec-action"><strong>Action:</strong> ' + esc(r.action) + '</div>' : "") +
+          ((r.owner || r.metric) ? '<div class="trf-rec-meta">' +
+            (r.owner ? '<span><strong>Owner:</strong> ' + esc(r.owner) + '</span>' : "") +
+            (r.metric ? '<span><strong>Success metric:</strong> ' + esc(r.metric) + '</span>' : "") + '</div>' : "") + '</li>';
+      }).join("") + '</ol>';
+    } else h += '<div class="small text-muted">No issues stood out in this session.</div>';
+    h += '</div>';
+    /* appendix: full responses, behind the toggle. Question cards come from the
+     * analyzed comments (already substantive-filtered); the NPS-reason card gets
+     * score badges only when the matching eval rows are still loaded — otherwise
+     * it lists the same reasons without scores rather than inventing them. */
+    var evRows = null, evRoles = null;
+    if (S.eval && (S.eval.id === c.evalId || S.eval.name === c.evalName) && S.eval.rows) { evRows = S.eval.rows; evRoles = S.eval.roles; }
+    var appCard = function (title, items) {
+      return '<div class="trf-appendix-card"><h3>' + esc(title) + ' (' + items.length + ' substantive response' + (items.length === 1 ? "" : "s") + ')</h3>' +
+        (items.length ? '<ol class="trf-appendix-list">' + items.map(function (it) {
+          return typeof it === "string" ? '<li>' + esc(it) + '</li>' :
+            '<li><span class="trf-app-score ' + it.cls + '">' + it.score + '/10</span>' + esc(it.text) + '</li>';
+        }).join("") + '</ol>' : '<p class="trf-appendix-empty">No substantive responses for this question.</p>') + '</div>';
+    };
+    var npsItems = [];
+    if (evRows && evRoles && evRoles.nps >= 0 && evRoles.cnps >= 0) {
+      evRows.slice(1).forEach(function (r) {
+        var sc = Number(r[evRoles.nps]), reason = r[evRoles.cnps];
+        if (!isFinite(sc) || !reason || P().isTrivial(reason)) return;
+        npsItems.push({ score: sc, text: String(reason).trim(), cls: sc <= 6 ? "det" : sc <= 8 ? "pas" : "pro" });
+      });
+      npsItems.sort(function (a, b) { return a.score - b.score; });
+    } else npsItems = (R.detractorReasons || []).slice();
+    h += '<div class="trf-section trf-appendix"><h2 class="trf-h"><span class="trf-num">7</span>Complete Response Summary</h2>' +
+      appCard("What participants liked best", trfSubstantive(R.comments.best)) +
+      appCard("Key insights & skills gained", trfSubstantive(R.comments.insight)) +
+      appCard("Suggestions for improvement", trfSubstantive(R.comments.suggest)) +
+      appCard("NPS recommendation feedback", npsItems) + '</div>';
+    /* write-back kept, exactly as before, for ready sessions */
     if (s && s.status === "ready") {
       h += '<div class="tr-writeback tr-noprint"><div class="small">Write back: NPS <b>' + num(c.nps, 1) + '</b> → “Net Promoter Score”, trainer score <b>' + num(c.trainerScore, 2) +
            '</b> → “Trainer Score” on row ' + excelRow(s) + ' of ' + esc(S.tracker.name) + '.</div>' +
            '<button type="button" class="btn btn-primary btn-sm" data-traction="writeback">Preview &amp; write to tracker…</button></div>';
     }
     h += '</div>';
-    // chart definitions
-    S.chartDefs["tr-ch-nps"] = function (T) {
-      return { type: "doughnut", data: { labels: ["Promoters", "Passives", "Detractors"],
-        datasets: [{ data: [c.promoters || 0, c.passives || 0, c.detractors || 0], backgroundColor: [T.ok, T.muted, T.bad], borderWidth: 1 }] },
-        options: { cutout: "62%", plugins: { legend: { position: "right" } } } };
-    };
-    if (R.ratings.length) S.chartDefs["tr-ch-items"] = function (T) {
-      return { type: "bar", data: { labels: R.ratings.map(function (r) { return r.header.length > 46 ? r.header.slice(0, 44) + "…" : r.header; }),
-        datasets: [{ label: "Average (1–5)", data: R.ratings.map(function (r) { return r.avg; }),
-          backgroundColor: R.ratings.map(function (r) { return r.avg >= 4.5 ? T.ok : r.avg >= 3.5 ? T.brand : T.warn; }) }] },
-        options: { indexAxis: "y", scales: { x: { min: 1, max: 5, ticks: { stepSize: 1 } } }, plugins: { legend: { display: false },
-          tooltip: { callbacks: { afterLabel: function (ctx) { var r = R.ratings[ctx.dataIndex]; return r.top2 + "% top-2 · n " + r.n + " · " + r.group; } } } } } };
-    };
     return h;
   }
 
@@ -1386,6 +1596,20 @@
     host.querySelectorAll("[data-traction]").forEach(function (b) {
       b.addEventListener("click", function () { action(b.getAttribute("data-traction"), b); });
     });
+    /* wired report fields: edits sync the export filename (and the print header)
+     * live; toggles flip container classes so the print clone honors them. No
+     * re-render here — inputs must keep focus. */
+    host.querySelectorAll("#tr-report-session [data-trf=trainer], #tr-report-session [data-trf=date], #tr-report-session [data-trf=org]").forEach(function (el) {
+      el.addEventListener("input", function () { trfSyncExport(document.getElementById("tr-report-session")); });
+    });
+    host.querySelectorAll("[data-trf-toggle]").forEach(function (cb) {
+      cb.addEventListener("change", function () {
+        var rep = document.getElementById("tr-report-session"); if (!rep) return;
+        if (cb.getAttribute("data-trf-toggle") === "brand") rep.classList.toggle("trf-nobrand", !cb.checked);
+        if (cb.getAttribute("data-trf-toggle") === "appendix") rep.classList.toggle("trf-show-appendix", cb.checked);
+      });
+    });
+    trfSyncExport(document.getElementById("tr-report-session"));
     var mapEv = (S.mapFor && queueItem(S.mapFor)) || (S.eval && S.eval.needsMap ? S.eval : null);
     if (mapEv) {
       host.querySelectorAll("[data-trmap]").forEach(function (sel) {
@@ -1568,7 +1792,7 @@
     var n = 0;
     el.querySelectorAll("table").forEach(function (t) { n = Math.max(n, t.querySelectorAll("tbody tr").length); });
     // a recommendation is ~4 lines on paper
-    return n + el.querySelectorAll(".tr-comment li").length + 4 * el.querySelectorAll(".tr-recs > li").length;
+    return n + el.querySelectorAll(".tr-comment li, .trf-appendix-list li").length + 4 * el.querySelectorAll(".tr-recs > li, .trf-rec-list > li").length;
   }
   function layoutForPrint(doc) {
     doc.querySelectorAll(".row").forEach(function (row) {
@@ -1581,6 +1805,11 @@
       c.classList.add(tableRows(c) > (alone ? 6 : PRINT_KEEP_ROWS) ? "tr-p-flow" : "tr-p-keep");
     });
     // Tiles: as many per row as fit on paper (5), fewer only when there are fewer tiles.
+    /* Wired layout: each section is one print block — long ones (appendix lists,
+     * many recommendations) flow across pages, short ones stay together. */
+    doc.querySelectorAll(".trf-section").forEach(function (sec) {
+      sec.classList.add(tableRows(sec) > PRINT_KEEP_ROWS ? "tr-p-flow" : "tr-p-keep");
+    });
     doc.querySelectorAll(".kpi-row").forEach(function (r) {
       var n = r.children.length;
       r.style.setProperty("--tr-tiles", String(n <= 4 ? n : n % 5 === 0 || n > 6 ? 5 : n === 6 ? 3 : 4));
@@ -1680,6 +1909,15 @@
     if (name === "print-session") return printReport("tr-report-session");
     if (name === "upload-eval") { pickFile("session-eval"); return; }
     if (name === "folder") { readFolder({ ask: true }).catch(function (e) { alert("Could not read the folder: " + (e && e.message || e)); }); return; }
+    if (name === "add-folder") {
+      if (typeof QBR.fsFolderPickOnly !== "function") return;
+      QBR.fsFolderPickOnly().then(function (nid) {
+        if (!nid) return;
+        render();
+        readFolder({ ask: true }).catch(function (e) { alert("Could not read the folder: " + (e && e.message || e)); });
+      });
+      return;
+    }
     var qid = el ? el.getAttribute("data-q") : null, qi = qid ? queueItem(qid) : null;
     if (name === "q-generate") { generateQueue(); return; }
     if (name === "q-clear") {
@@ -1710,8 +1948,12 @@
     if (name === "save-new-session") { saveNewSession(); return; }
     if (name === "remove-new") { removeNewSession(S.selected); return; }
     if (name === "generate") {
+      var preT = document.querySelector("[data-trf=pretitle]");
+      var covT = document.querySelector("#tr-report-session [data-trf=title]");
+      var wantTitle = preT ? preT.value : (covT ? covT.textContent : "");
       var r = generateFor(S.selected);
       if (r && r.error) alert(r.error);
+      else if (r && wantTitle) r.title = wantTitle;
       render();
       return;
     }
@@ -1729,6 +1971,7 @@
       saveMaps(); render();
       return;
     }
+    if (name === "tracker-anyway") { S.trackerAllowed = true; S.trackerStale = null; if (S.tracker) trSaveLineage(S.tracker); render(); return; }
     if (name === "writeback") return confirmWriteback();
   }
 
@@ -1738,5 +1981,5 @@
     loadMaps();
   }
 
-  QBR.trainers = { render: render, init: init, _state: S, _print: printReport };
+  QBR.trainers = { render: render, init: init, _state: S, _print: printReport, _exportName: trfExportName };
 })();

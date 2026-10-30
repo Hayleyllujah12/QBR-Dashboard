@@ -4,9 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > ## ⚠️ CURRENT STATE (2026-09) — read `claude/OPERATING_NOTES.md` first
 > The prose below was written for **1.8** and is partly stale. Corrections that override it:
-> - **THIS FOLDER IS `QBR-Dashboard_1.21.0` — the LIVE version** (released + promoted 2026-10-05; `QBR.VERSION`
->   = "1.21.0", aligned with the Inventory delivery number). **`QBR-Dashboard_1.9.0` is the rollback — do not edit it**
->   (`1.8.5` is an older archive). Patch here in place (dated
+> - **THIS FOLDER IS `QBR-Dashboard_1.22.0` — the LIVE version** (released 2026-10-30 from `main`; `QBR.VERSION`
+>   = "1.22.0", see `docs/CHANGELOG_v1.22.0.md`). **`QBR-Dashboard_1.21.0` is the rollback — do not edit it**
+>   (`1.9.0` / `1.8.5` are older archives).
+> - **Counting rules changed in 1.22.0 (PR #33):** with "All quarters", `dedupeBySchool` keeps each school's
+>   **latest quarter with data** (then the higher metric inside that quarter) — it no longer keeps the highest
+>   value across quarters. "Managed tenants" = schools in at least one M365 sheet (`m365TenantCount`; Canva-only
+>   schools excluded). Security Defaults `NOT MANAGED` displays as "No access". Tracker snapshot re-recorded:
+>   portfolio THI 67, bands 0/30/56/23. Patch here in place (dated
 >   entries, no number bump). Phase 2 (2026-09-30) consolidated `css/styles.css` into ONE tokenized layer
 >   (16 numbered sections; the old v1.8 "premium polish" layer, `.tab-nav`/`.tab-dd` rules and gradients are gone).
 >   **Phase 3 (2026-09-30, app.js additive):** page-KPI QoQ deltas via a silent previous-quarter *capture pass* in

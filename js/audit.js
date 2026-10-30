@@ -216,8 +216,22 @@
     const cSchool = colIdx.school, cOrg = colIdx.org, cRisky = colIdx.risky,
           cHealth = colIdx.health, cRef = colIdx.ref,
           cExempt = colIdx.exempt, cExemptReason = colIdx.exemptReason;
-    rows.slice(1).forEach((row, i) => {
-      const r = i + 2; // header is row 1, so first data row is row 2
+    // 2026-10-20 fix: `rows` comes from sheet_to_json(blankrows:false), so its index is NOT
+    // the Excel row once the sheet has a blank row (or doesn't start at A1). rec.r is used
+    // for saves, so a blank row shifted every later edit onto the wrong school's row.
+    // When the worksheet is available, re-read it with blank rows kept and take each
+    // row's true sheet number from its position in the used range.
+    let data = rows.slice(1).map((row, i) => ({ row: row, r: i + 2 })); // legacy: header in row 1
+    if (ws && ws["!ref"]) {
+      try {
+        const start = XLSX.utils.decode_range(ws["!ref"]).s.r;
+        const full = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
+        const filled = x => Array.isArray(x) && x.some(v => v != null && String(v).trim() !== "");
+        const h = full.findIndex(filled); // same header row the caller mapped (first non-blank row)
+        if (h >= 0) data = full.slice(h + 1).map((row, i) => ({ row: row || [], r: start + h + 1 + i + 1 }));
+      } catch (e) { /* keep legacy numbering */ }
+    }
+    data.forEach(({ row, r }) => {
       const school = cSchool != null ? row[cSchool] : null;
       if (school == null || String(school).trim() === "") return;
       const cell = (c) => (c != null && row[c] != null ? String(row[c]).trim() : "");
@@ -285,13 +299,16 @@
 
   /* Parse raw workbook buffers into the audit model. Mirrors the inventory
    * pattern: per-buffer, filename-independent, sheets by name. */
-  QBR.parseAuditBuffers = function (buffers) {
+  /* 2026-10-25 load bar: optional onFile(i) reports per-file progress;
+   * with onFile the loop runs async (yield after each file so the bar paints),
+   * without it the original synchronous loop runs unchanged. */
+  QBR.parseAuditBuffers = function (buffers, onFile) {
     const fps = QBR._currentFps || [];
     let model = null;
     let rawAll = {};
-    (buffers || []).forEach((buf, bi) => {
+    const one = (buf, bi) => {
       try {
-        const wb = XLSX.read(buf, { type: "array", cellStyles: true });
+        const wb = (QBR.readWorkbook ? QBR.readWorkbook(buf, { type: "array", cellStyles: true }) : XLSX.read(buf, { type: "array", cellStyles: true }));
         const fp = fps[bi];
         const sheets = {}, raw = {};
         wb.SheetNames.forEach(n => {
@@ -319,12 +336,27 @@
           }
         }
       } catch (e) { /* a non-audit workbook simply contributes nothing */ }
-    });
-    QBR._audit = model;
-    QBR._auditMeta = model ? buildMeta(model) : null;
-    // Rebuild base for stripped SharePoint links.
-    try { QBR._auditSpBase = detectSpBase(rawAll) || QBR._auditSpBase || ""; } catch (e) {}
-    return model;
+    };
+    const finish = () => {
+      QBR._audit = model;
+      QBR._auditMeta = model ? buildMeta(model) : null;
+      // Rebuild base for stripped SharePoint links.
+      try { QBR._auditSpBase = detectSpBase(rawAll) || QBR._auditSpBase || ""; } catch (e) {}
+      return model;
+    };
+    if (typeof onFile === "function") {
+      return (async function () {
+        var list = buffers || [];
+        for (var bi = 0; bi < list.length; bi++) {
+          one(list[bi], bi);
+          onFile(bi);
+          await new Promise(function (r) { setTimeout(r, 0); });
+        }
+        return finish();
+      })();
+    }
+    (buffers || []).forEach(one);
+    return finish();
   };
 
   function buildMeta(model) {
@@ -869,18 +901,10 @@
 
   QBR.auditSaveDone = function (r) {
     if (!r) return;
-    const note = (typeof QBR.persistNote === "function") ? QBR.persistNote : null;
-    if (r.mode === "file") {
-      const extra = r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "";
-      if (note) note("audit", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}${r.merged ? " · merged with Excel changes" : ""}`, 5000);
-    }
-    else if (r.mode === "no-changes") { if (note) note("audit", "No changes to save" + (r.kind ? " for " + r.kind : ""), 3000); }
-    else if (r.mode === "download" || r.mode === "download-fallback") { if (note) note("audit", `Downloaded ${r.filename || ""} — tick Direct save for the file to save into it`, 5000); }
-    else if (r.mode === "download-changed") { if (note) note("audit", `${r.name || "Linked file"} changed in Excel — downloaded a separate copy. Re-link to save directly.`, 12000); }
-    else if (r.mode === "denied") { if (note) note("audit", "Permission denied — file not saved", 5000); }
-    else if (r.mode === "no-data") alert("Load an audit workbook first.");
-    else if (typeof QBR.persistRefreshBadge === "function") QBR.persistRefreshBadge();
     if (typeof renderAll === "function") { try { renderAll(); } catch (e) {} }
+    // 2026-10-28: shared outcome messages (incl. "open in Excel"), set after the re-render.
+    if (typeof QBR.saveResultNote === "function") QBR.saveResultNote("audit", r, "Load an audit workbook first.");
+    else if (typeof QBR.persistRefreshBadge === "function") QBR.persistRefreshBadge();
   };
 
   // Exposed for renderAll() in app.js (this file is an IIFE; renderAudit would
@@ -1136,43 +1160,76 @@
     return { fp: (opts && opts.fp) || null, fileName: (opts && opts.fileName) || "", quarters: quarters };
   }
 
-  function parseQuarterBuffers(buffers, kind, a1match, schoolCol, parseFn) {
+  /* 2026-10-25 load bar: optional onFile(i) reports per-file progress;
+   * with onFile the loop runs async (yield after each file so the bar paints),
+   * without it the original synchronous loop runs unchanged.
+   * 2026-10-27 fix: with several matching workbooks loaded (e.g. an older copy of the storage report
+   * in another folder), the LAST one read used to win silently, so the wizard could search a stale copy
+   * and report "No row for <school> in Q4" although the current file has it. Now the NEWEST file
+   * (lastModified) is the primary model; the others are kept as `alternates` so the wizard can say
+   * where the row actually is. */
+  function parseQuarterBuffers(buffers, kind, a1match, schoolCol, parseFn, onFile) {
     const fps = QBR._currentFps || [];
-    let model = null;
-    (buffers || []).forEach((buf, bi) => {
+    const found = [];
+    const one = (buf, bi) => {
       try {
-        const wb = XLSX.read(buf, { type: "array", cellStyles: true });
+        const wb = (QBR.readWorkbook ? QBR.readWorkbook(buf, { type: "array", cellStyles: true }) : XLSX.read(buf, { type: "array", cellStyles: true }));
         const fp = fps[bi];
-        let fileName = "";
+        let fileName = "", lastModified = 0;
         try {
           const list = (typeof persistAppFiles === "function") ? persistAppFiles() : [];
           const f = list.filter(x => QBR.fpOf(x.name, x.blob) === fp)[0];
-          if (f) fileName = f.name;
+          if (f) { fileName = f.name; lastModified = (f.blob && f.blob.lastModified) || 0; }
         } catch (e) {}
         const m = parseFn(wb, { fp: fp || null, fileName: fileName });
         if (m) {
           if (fp) { (QBR._origWb || (QBR._origWb = {}))[fp] = wb; }
-          model = m; // last matching file wins
+          m.lastModified = lastModified;
+          found.push({ m: m, bi: bi });
           if (fp) {
             const set = QBR._kindByFp[fp] || (QBR._kindByFp[fp] = new Set());
             set.add(kind);
           }
         }
       } catch (e) { /* a non-matching workbook simply contributes nothing */ }
-    });
-    return model;
+    };
+    const finish = () => {
+      if (!found.length) return null;
+      // newest first; same timestamp -> the later file (old behaviour) wins
+      found.sort((x, y) => (y.m.lastModified - x.m.lastModified) || (y.bi - x.bi));
+      const model = found[0].m;
+      model.alternates = found.slice(1).map(f => f.m);
+      return model;
+    };
+    if (typeof onFile === "function") {
+      return (async function () {
+        var list = buffers || [];
+        for (var bi = 0; bi < list.length; bi++) {
+          one(list[bi], bi);
+          onFile(bi);
+          await new Promise(function (r) { setTimeout(r, 0); });
+        }
+        return finish();
+      })();
+    }
+    (buffers || []).forEach(one);
+    return finish();
   }
 
-  QBR.parseStorageBuffers = function (buffers) {
+  QBR.parseStorageBuffers = function (buffers, onFile) {
     const m = parseQuarterBuffers(buffers, "storage", "school (rakso managed)", 0,
-      (wb, opts) => parseQuarterWorkbook(wb, opts, "storage", "school (rakso managed)", 0));
+      (wb, opts) => parseQuarterWorkbook(wb, opts, "storage", "school (rakso managed)", 0), onFile);
+    // With onFile the parse is async (load bar): keep the MODEL, never the Promise, in QBR._storage.
+    if (m && typeof m.then === "function") return m.then(function (v) { QBR._storage = v; return v; });
     QBR._storage = m;
     return m;
   };
 
-  QBR.parseUsageBuffers = function (buffers) {
+  QBR.parseUsageBuffers = function (buffers, onFile) {
     const m = parseQuarterBuffers(buffers, "usage", "client", 0,
-      (wb, opts) => parseQuarterWorkbook(wb, opts, "usage", "client", 0));
+      (wb, opts) => parseQuarterWorkbook(wb, opts, "usage", "client", 0), onFile);
+    // With onFile the parse is async (load bar): keep the MODEL, never the Promise, in QBR._usage.
+    if (m && typeof m.then === "function") return m.then(function (v) { QBR._usage = v; return v; });
     QBR._usage = m;
     return m;
   };
@@ -1198,6 +1255,20 @@
     return hit ? { r: hit.r, school: hit.school, org: hit.org, sheet: q.sheet, quarter: quarter } : null;
   };
   QBR.schoolNorm = schoolNorm;
+
+  // Why a quarter row wasn't found, in words (shown by the wizard instead of a bare "No row").
+  QBR.quarterMissReason = function (model, quarter, school) {
+    if (!model) return "";
+    const file = model.fileName ? "<b>" + escHtml(model.fileName) + "</b>" : "the loaded workbook";
+    const q = model.quarters && model.quarters[quarter];
+    let msg = q
+      ? "Searched " + file + " › sheet <b>" + escHtml(q.sheet) + "</b> (" + q.rows.length + " schools)."
+      : "No <b>" + escHtml(quarter) + "</b> sheet in " + file + " (sheets found: " + escHtml(Object.keys(model.quarters || {}).join(", ") || "none") + ").";
+    const alt = (model.alternates || []).filter(m => QBR.quarterFindRow(m, quarter, school))[0];
+    if (alt) msg += " The row IS in another loaded copy: <b>" + escHtml(alt.fileName || "another workbook") + "</b> — remove the older copy from the Loaded files list (✕) or reload the right file.";
+    else if (q) msg += " Check the school name in column A, or reload the file (↻) if you added the row after loading it.";
+    return msg;
+  };
 
   // Journal ops (model updates are light; the wizard tracks its own saved state).
   QBR.storagePasteRow = function (fp, sheet, row, values) {
@@ -1380,14 +1451,28 @@
     return h;
   }
 
+  // Typed school -> exact (case/punctuation-insensitive) match, else the single school containing the text.
+  function wizResolveSchool(list, typed) {
+    const t = schoolNorm(typed);
+    if (!t) return { school: null, matches: [] };
+    const exact = list.filter(s => schoolNorm(s) === t);
+    if (exact.length) return { school: exact[0], matches: exact };
+    const part = list.filter(s => schoolNorm(s).indexOf(t) >= 0);
+    return { school: part.length === 1 ? part[0] : null, matches: part };
+  }
+  QBR._wizResolveSchool = wizResolveSchool;
+
   function wizStepSchool(w, a) {
-    const opts = (w.schools || []).map(s => `<option value="${escHtml(s)}"${s === w.school ? " selected" : ""}>${escHtml(s)}</option>`).join("");
+    // 2026-10-27: pick OR type the school (searchable list) instead of a plain dropdown.
+    const opts = (w.schools || []).map(s => `<option value="${escHtml(s)}"></option>`).join("");
     const pills = AUDIT_MONTHS.map(m => `<button type="button" class="btn btn-sm ${m === w.month ? "btn-primary" : "btn-outline-secondary"}" data-wiz-month="${m}">${m.slice(0, 3)}</button>`).join(" ");
     const st = QBR._storage ? "✓" : "○", us = QBR._usage ? "✓" : "○";
     return `<div class="wiz-step">
       <h5>Which school and month?</h5>
-      <div class="mb-3"><label class="form-label">School</label>
-        <select class="form-select" id="wiz-school" style="max-width:420px">${opts}</select></div>
+      <div class="mb-3"><label class="form-label" for="wiz-school">School <span class="text-muted small">(pick from the list or type part of the name)</span></label>
+        <input class="form-control" id="wiz-school" list="wiz-school-list" autocomplete="off" style="max-width:420px" value="${escHtml(w.school || "")}" placeholder="Type a school name…">
+        <datalist id="wiz-school-list">${opts}</datalist>
+        <div class="small mt-1" id="wiz-school-hint" aria-live="polite"></div></div>
       <div class="mb-3"><label class="form-label">Month</label><div class="d-flex flex-wrap gap-1">${pills}</div></div>
       <div class="small text-muted mb-3">Storage workbook ${st} · Usage workbook ${us} ${(!QBR._storage || !QBR._usage) ? "— upload the missing file(s) to enable those steps (you can skip them for now)." : ""}</div>
       ${wizNav(0, {})}
@@ -1434,7 +1519,7 @@
     if (!s) return `<div class="wiz-step"><h5>Storage report</h5><div class="alert alert-info">Upload <code>STORAGE_REPORT.xlsx</code> to enable this step.</div>${wizNav(3, {})}</div>`;
     const q = QBR.auditQuarterOfMonth(w.month);
     const row = QBR.quarterFindRow(s, q, w.school);
-    if (!row) return `<div class="wiz-step"><h5>Storage report</h5><div class="alert alert-warning">No row for ${escHtml(w.school)} in ${escHtml(q)}.</div>${wizNav(3, {})}</div>`;
+    if (!row) return `<div class="wiz-step"><h5>Storage report</h5><div class="alert alert-warning">No row for ${escHtml(w.school)} in ${escHtml(q)}.<div class="small mt-1">${QBR.quarterMissReason(s, q, w.school)}</div></div>${wizNav(3, {})}</div>`;
     const heads = QBR.storagePasteHeaders();
     let prev = "";
     if (w.p3.parsed && !w.p3.parsed.error) {
@@ -1462,7 +1547,7 @@
     if (!u) return `<div class="wiz-step"><h5>Usage report</h5><div class="alert alert-info">Upload <code>USAGE_REPORT.xlsx</code> to enable this step.</div>${wizNav(4, {})}</div>`;
     const q = QBR.auditQuarterOfMonth(w.month);
     const row = QBR.quarterFindRow(u, q, w.school);
-    if (!row) return `<div class="wiz-step"><h5>Usage report</h5><div class="alert alert-warning">No row for ${escHtml(w.school)} in ${escHtml(q)}.</div>${wizNav(4, {})}</div>`;
+    if (!row) return `<div class="wiz-step"><h5>Usage report</h5><div class="alert alert-warning">No row for ${escHtml(w.school)} in ${escHtml(q)}.<div class="small mt-1">${QBR.quarterMissReason(u, q, w.school)}</div></div>${wizNav(4, {})}</div>`;
     const heads = QBR.usagePasteHeaders();
     let prev = "";
     if (w.p4.parsed && !w.p4.parsed.error) {
@@ -1509,15 +1594,14 @@
       catch (e) { done.push({ kind: k, r: { mode: "error" } }); }
     }
     const names = { audit: "Risky", storage: "Storage", usage: "Usage" };
+    let warn = false;
     const parts = done.map(d => {
-      const n = names[d.kind] || d.kind, m = (d.r && d.r.mode) || "error";
-      if (m === "file") return `${n}: saved ✓`;
-      if (m === "download" || m === "download-fallback") return `${n}: downloaded`;
-      if (m === "no-changes") return `${n}: no changes`;
-      return `${n}: failed`;
+      const n = names[d.kind] || d.kind, t = (typeof QBR.saveResultText === "function") ? QBR.saveResultText(d.r) : null;
+      if (t && t.warn) warn = true;
+      return `${n}: ${t ? t.short : "failed"}`;
     });
-    if (note) note("audit", parts.join(" · "), 8000);
     QBR.renderAudit();
+    if (note) note("audit", (warn ? "Not saved (all) — " : "") + parts.join(" · ") + (warn ? ". Your unsaved edits are kept." : ""), warn ? 30000 : 8000, { warn: warn });
   };
 
   function wizStepDone(w, a) {
@@ -1571,7 +1655,20 @@
       renderAudit();
     }));
     const sch = document.getElementById("wiz-school");
-    if (sch) sch.addEventListener("change", () => { w.school = sch.value; w.saved = {}; w.p3.parsed = null; w.p4.parsed = null; renderAudit(); });
+    if (sch) {
+      const commit = () => {
+        const hit = wizResolveSchool(w.schools || [], sch.value);
+        const hint = document.getElementById("wiz-school-hint");
+        if (!hit.school) {
+          if (hint) hint.innerHTML = `<span class="text-danger">${hit.matches.length ? hit.matches.length + " schools match — type more of the name." : "No school matches “" + escHtml(sch.value) + "”."}</span>`;
+          return;
+        }
+        if (hit.school === w.school) { sch.value = hit.school; if (hint) hint.innerHTML = ""; return; }
+        w.school = hit.school; w.saved = {}; w.p3.parsed = null; w.p4.parsed = null; renderAudit();
+      };
+      sch.addEventListener("change", commit);
+      sch.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); commit(); } });
+    }
     host.querySelectorAll('[data-wiz="parse3"]').forEach(b => b.addEventListener("click", () => {
       w.p3.text = document.getElementById("wiz-paste3").value;
       w.p3.parsed = QBR.auditParseStoragePaste(w.p3.text);

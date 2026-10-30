@@ -65,7 +65,7 @@ const ok = (c, m, x) => { c ? pass++ : fail++; console.log((c ? "  âœ“ " : "  âœ
   await page.click('.sb-item[data-tab="dash-overview"]');
   const thi = (await page.textContent("#thi-score")).trim();
   ok(/^\d+$/.test(thi), "Tenant Health Index renders", thi);
-  await page.click("#thi-drill-toggle"); await page.waitForTimeout(100);
+  // per-tenant table is always visible (2026-10 Overview revamp)
   ok((await page.$$("#thi-drill tbody tr")).length > 0, "THI drill-down rows", (await page.$$("#thi-drill tbody tr")).length);
   await page.click('.sb-item[data-tab="dash-quality"]');
   ok((await page.evaluate(() => document.getElementById("dash-quality").innerText.length)) > 500, "Data Quality audit renders");

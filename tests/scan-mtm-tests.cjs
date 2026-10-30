@@ -76,5 +76,16 @@ const m4 = run(`scanMergeFindings(["199271075067"], scanParseOCRText(${JSON.stri
 t("UPC-only barcodes + OCR: serial and MTM both filled", eq(m4.serial, SN) && eq(m4.mtm, MTM));
 t("barcode MTM wins over OCR", eq(run(`scanMergeFindings(["31P21M4S5VD99"], scanParseOCRText(${JSON.stringify(OCR)}), "").mtm`), "21M4S5VD99"));
 
+// 2026-10-27 field report: MTM blank on some E14 Gen 6 photos (OCR variants)
+const ocrMtm = txt => run(`scanParseOCRText(${JSON.stringify(txt)}).mtm`);
+t("OCR: space inside the MTM value", eq(ocrMtm("(S)SN: PF62SDPW\n(31P)MTM: 21M4 S5VD00"), MTM));
+t("OCR: dash inside the MTM value", eq(ocrMtm("MTM: 21M4-S5VD00"), MTM));
+t("OCR: MTM glued to the next SN label", eq(ocrMtm("MTM:21M4S5VD00SN:PF62SDPW"), MTM));
+t("OCR: 'M/T/M' label variant", eq(ocrMtm("M/T/M 21M4S5VD00"), MTM));
+t("OCR: 'Machine Type Model' label", eq(ocrMtm("Machine Type Model: 21M4S5VD00"), MTM));
+t("OCR: lower-case value is upper-cased", eq(ocrMtm("mtm: 21m4s5vd00"), MTM));
+t("OCR: '(1S)MTM SN' caption is never taken as the MTM", eq(ocrMtm("(1S)MTM SN PF62SDPW12"), ""));
+t("OCR: MTM label followed by the serial only (8 chars) is not an MTM", eq(ocrMtm("MTM: PF62SDPW"), ""));
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

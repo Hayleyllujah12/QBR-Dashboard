@@ -5,6 +5,11 @@ name: Azure Static Web Apps CI/CD
 # from a dist/ folder. Without this, the "npm install @actions/core" step below left a
 # package.json in the repo root, Oryx tried to run "npm run build" and the deploy failed —
 # and app_location "/" would also have published tests/, docs/ and node_modules/.
+# 2026-10-21: every PR run failed with "maximum number of staging environments" because the
+# close job had no API token ("deployment_token was not provided"), so PR preview environments
+# were never deleted. Close job now passes the token; actions on Node 24; runner pinned.
+# 2026-10-21 (2): sync PRs from main (release back-merges) get no preview environment at all, and a
+# close that finds nothing to delete ("No matching static site found") no longer fails the run.
 
 on:
   push:
@@ -20,23 +25,27 @@ on:
     branches:
       - develop
 
+concurrency:
+  group: swa-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build_and_deploy_job:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
-    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.head_ref != 'main')
+    runs-on: ubuntu-24.04
     name: Build and Deploy Job
     permissions:
        id-token: write
        contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: true
           lfs: false
       - name: Install OIDC Client from Core Package
         run: npm install @actions/core@1.6.0 @actions/http-client
       - name: Get Id Token
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         id: idtoken
         with:
            script: |
@@ -74,12 +83,18 @@ jobs:
           ###### End of Repository/Build Configurations ######
 
   close_pull_request_job:
-    if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.head_ref != 'main'
+    runs-on: ubuntu-24.04
     name: Close Pull Request Job
     steps:
       - name: Close Pull Request
         id: closepullrequest
+        continue-on-error: true   # nothing left to delete is not a failure (see note below)
         uses: Azure/static-web-apps-deploy@v1
         with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AMBITIOUS_GRASS_0E4BE480F }}
           action: "close"
+          app_location: ""   # required input; nothing is uploaded on close
+      - name: Note when the preview environment was already gone
+        if: steps.closepullrequest.outcome == 'failure'
+        run: echo "::warning title=Preview environment not closed::Azure did not close a preview environment for PR #${{ github.event.pull_request.number }} (usually it was already removed). If PR builds start failing with 'maximum number of staging environments', delete stale environments in the Azure portal."

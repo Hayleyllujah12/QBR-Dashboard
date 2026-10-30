@@ -1,10 +1,131 @@
-RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
+RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.22.0
 ==================================================================
 
-** LIVE / production version: 1.21.0  (folder: QBR-Dashboard_1.21.0), promoted 2026-10-05.
-   QBR-Dashboard_1.9.0 is now the ROLLBACK — don't edit it. Fixes are applied IN PLACE
+** LIVE / production version: 1.22.0  (folder: QBR-Dashboard_1.22.0), released 2026-10-30.
+   QBR-Dashboard_1.21.0 is now the ROLLBACK — don't edit it. Fixes are applied IN PLACE
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
+
+RELEASE — 2026-10-30 — v1.22.0 (everything below down to the 1.21.0 promotion; details in docs/CHANGELOG_v1.22.0.md)
+  - Overview revamp; clearer charts; "All quarters" totals now use each school's latest quarter (numbers can be
+    lower than in 1.21.0 — they show the current state, not each school's peak); Managed tenants excludes Canva-only.
+  - Save to Excel: clear "not saved" messages, faster reloads, one shared save path (write contract phases 0–1).
+  - MOS: completion certificates (centre line, Adjust layout, accent colours), reconciliation, Analytics view.
+  - Risky Investigation: files checked on drop + "Drop all your files here" (auto-detect, one school per run).
+  - PowerShell scripts ask where to save; the Usage script writes only its report CSV.
+  - Revision-list fixes (audit, inventory serials, scan MTM, Postmaster filters, loaded-files pop-up, My To-Do).
+
+UPDATE — 2026-10-29 — Risky Investigation: "Drop all your files here" (no version bump)
+  - New bar above the Source cards: drop every file at once, Choose files, or Choose folder (e.g. a whole month folder).
+    Each file is recognised from its columns and name and goes to its own card — Risky sign-ins → 01, Interactive →
+    02, AuthMethodLogs → 03, Non-interactive → 04, Non-interactive AuthDetails → 05 — loaded in that order, so Source
+    04 is pre-filtered to the risky users automatically.
+  - Files for more than one school (a month folder) → it asks once which school this investigation is for.
+  - Two files for the same card → it keeps the one whose dates match the rest of the set (else the newest).
+  - A summary lists what went where and every file it skipped, with the reason (Risky users list, app / managed-
+    identity sign-ins, Interactive AuthDetails, an older duplicate, a saved SOC report, an empty file). All the
+    drop checks and amber notes still apply; dropping on a single card works as before.
+
+UPDATE — 2026-10-29 — PowerShell scripts: every script asks where to save, and Usage saves only its CSV (no version bump)
+  - Storage and Usage extraction scripts now open with the same "WHERE TO SAVE" question: it shows the default folder,
+    then Enter = use it, type another folder path, P = pick a folder in a window, :q = cancel. The folder is created if
+    missing and checked for write access BEFORE sign-in, and the chosen path is printed ("[OK] Saving to: …").
+  - Usage script (v3.1) writes ONLY the report file M365_UsageReport_<period>_<timestamp>.csv — no more run-log CSV,
+    .jsonl, _FAILED.csv or raw_<timestamp> folder. Run details and any failed endpoint are shown in the console instead.
+    Its default folder is now Documents\M365-Reports\UsageReport (was …\UsageReport\Logs).
+  - Future scripts: built-in scripts reuse the same question (a test fails if one doesn't ask or writes extra files).
+    For a custom script added in Admin › PowerShell scripts, put the line  # QBR_OUTPUT_FOLDER  in it; Copy swaps in the
+    same question, then call  $OutputFolder = Select-QbrOutputFolder -Default <folder> -Purpose '<what is saved>'.
+UPDATE — 2026-10-29 — Risky Investigation: files are checked the moment you drop them (no version bump)
+  - Each Source card now recognises the file you drop by its columns and its name. A wrong file is refused straight
+    away (from the CSV's header row, before the whole file is read) with the reason, and the file already in that card
+    stays. When it belongs in another card you get a "Move to Source 0X" button — e.g. a Non-interactive sign-ins
+    file dropped on Source 02 moves to Source 04 in one click. Refused outright: the Risky users list (Source 01 needs
+    Risky sign-ins), Interactive AuthDetails, Application / managed-identity sign-ins, empty (0-byte) files.
+  - After loading, amber notes flag files that don't belong together: another week or school code, a month label that
+    doesn't match the dates, a file at Entra's 100,000-row download limit (probably cut off), risky users missing from
+    the interactive log, Source 05 Request IDs that don't match Source 04, interactive/non-interactive mix-ups, and in
+    Source 03 users NotFound / missing or methods extracted long after the window.
+  - Warnings never block Run Investigation: the status bar counts them and the report header lists them.
+  - The school code and month boxes fill in from the file name (SCHOOL_MON_…) when empty. Excel files are still
+    accepted and are checked after they are read.
+
+UPDATE — 2026-10-29 — MOS › Completion certificates: "Adjust layout" hidden until you need it (no version bump)
+  - The layout editor (X / Y / Size / Centre / Reset for each object) no longer fills the page. It starts hidden every time
+    the page loads; click "Adjust layout" next to "Preview first certificate" to open it (the button then reads "Hide layout").
+  - Opening it also shows the preview. On wide screens the editor sits beside the preview, which is scaled to fit so every
+    nudge is visible without scrolling; on narrower screens they stack. Changing the filters keeps it open.
+  - While hidden, the button shows "edited" when your saved layout differs from the default, and a red note such as
+    "1 object outside the page" if anything is off the page. Hide layout also turns "Drag objects on the preview" off.
+  - Nothing else changes: the saved layout, Print, Save as PDF and Download PPTX produce the same output as before.
+
+UPDATE — 2026-10-28 — Save to Excel: one save path for every module (groundwork, no visible change)
+  - Behind the scenes, the Risky sign-ins editor, guided audit, Inventory and Supplies now plug into one shared "workbook kind"
+    registry. Their saves are byte-for-byte the same as before. MOS Certificate Log, Domain registration and Trainers move onto it next.
+  - Fix: when a direct save can't be written safely and the dashboard downloads a copy instead, the Risky sign-ins, Storage and
+    Usage editors now download a copy of THAT workbook with your edits ("<name> (dashboard copy).xlsx") — it used to download an
+    unrelated Inventory export. Your edits stay pending either way.
+
+UPDATE — 2026-10-28 — Save to Excel: clear "not saved" messages + faster reloads (no version bump)
+  - Saving while the workbook is open in desktop Excel now shows, in red next to Save: "Not saved — <file> is open in
+    Excel. Close it there, then click Save again. Your edits are kept." Before, the panel redrew right after the save and
+    the message vanished, so it looked as if Save did nothing. "Saved ✓" is no longer wiped either.
+  - Every outcome has its own message (open in Excel, could not write, file keeps changing during a sync, merge
+    cancelled, safety check → copy downloaded, permission denied) in the Risky sign-ins editor, guided audit
+    "Save all", Inventory and Supplies.
+  - Faster: after a save that merges Excel's changes (or any reload), only the workbook whose contents changed is read
+    again — the other loaded files are reused. Every load also reads each file twice instead of six times. In a
+    test with 39 workbooks a reload took about 1.7 s instead of 6.3 s.
+
+UPDATE — 2026-10-27 — MOS › Completion certificates: centred text + "Adjust layout"
+  - The title, "This is to certify that", the student name and the exam/given lines now share one centre line (the
+    middle of the page area right of the coloured bars). Before, each line had its own centre and visibly drifted.
+    Same in the print preview, Save as PDF and the PowerPoint export.
+  - New "Adjust layout" panel under the signatories: move any object (title, MOS badge, certify line, name, exam lines,
+    each signatory block, RAKSO + partner logos) in 0.01in steps (arrow keys; Shift + arrow = 0.1in) and change its
+    size (font size for text, picture size for the badge and logos). "Centre" puts an object on the centre line,
+    "Reset" / "Reset all" go back to the default. Tick "Drag objects on the preview" to drag them on the preview —
+    they snap to the centre line. Saved in this browser (like the signatories) and used by Print, Save as PDF and
+    Download PPTX. An object pushed past the page edge shows "Outside the page".
+
+UPDATE — 2026-10-27 — MOS › Completion certificates: accent colour follows the exam
+  - PowerPoint certificates use the PowerPoint badge colour (orange-red) and Word certificates the Word blue for the left
+    bar, stripe and wave art — in the print preview AND the PowerPoint export (Excel stays green). They were always green.
+
+UPDATE — 2026-10-27 — Revision list (no version bump)
+  - Guided audit: with more than one copy of the storage or usage report loaded, the NEWEST file is used (it used to be
+    whichever was read last, so an older copy could hide a school's Q4 row). "No row for … in Q4" now says which file and
+    sheet were searched, and points to the other loaded copy if the row is there.
+  - Guided audit, step 1: the School field lets you pick from the list OR type part of the name.
+  - Inventory: PF-4XNZNY and PF4XNZNY (with or without a dash or space) are the same serial in look-up, intake, search,
+    filters and ticket links — no duplicate units. The serial is still stored exactly as typed.
+  - Scan: the MTM is read from more label variants (space or dash inside, glued to "SN:", "M/T/M", "Machine Type Model");
+    if the label still can't be read, the MTM already on file in Inventory for that serial is used. An empty MTM cell now
+    says "not read" (it used to show the grey word "MTM", which looked like a value).
+  - User management: "Updated Schools by Organization" has its own full-width row, as horizontal bars, largest first.
+  - Google Postmaster: All Domains table has dropdown filters — Verification, DNS, Reputation (Google's live states
+    included) and Organization, each with counts — plus search by school or domain, a match count and Reset.
+  - My To-Do and General tickets: "Open saved file…" re-opens a file saved with "Export my file" (merges: same ID /
+    Ticket # are updated, new items added, nothing is deleted). General tickets' Forms import is now labelled "Import Forms file".
+  - Loaded sources & files: opens as a pop-up window — files grouped by type (tracker, domains, storage & usage, inventory,
+    MOS, trainers, Canva…) with counts, a search box and collapsible groups; close with ×, Esc or by clicking outside.
+
+UPDATE — 2026-10-21 — Fixes from the code review (no version bump)
+  - Save: if a save fails (file open in Excel, merge cancelled, safety check), new rows (intake, tickets, deployments,
+    supplies) stay pending and are written on the next Save. Before, they could be skipped as "already saved" and lost.
+  - Save: clicking Save twice runs one save. If the file changes in Excel during a save and can't be merged, nothing is
+    written to it — a separate copy downloads and your edits stay pending.
+  - Audit editor: a blank row in a month sheet no longer shifts edits onto the next school's row.
+  - Security: text from workbooks and scanned labels is fully escaped on screen (quotes included), and Postmaster school
+    names in the QBR report narrative are escaped.
+
+UPDATE — 2026-10-21 — Fix: Domain registration edits on a LINKED tracker (no version bump)
+  - With DOMAIN_REGISTRATION_TRACKER.xlsx linked (Direct save ticked or opened from a linked folder), clicking a Registration
+    date or Validity now saves straight into that file — no more "pick the DOMAIN_REGISTRATION_TRACKER.xlsx file" prompt.
+    The linked tracker counts as editable ("Direct save ON"). Only the domain tracker is opened for this, never the other
+    linked workbooks.
+  - After the edit the dashboard keeps the new values: reloading the page no longer shows the old date (the session copy
+    and the link are updated with the written file). Unlinked trackers still ask to pick the file once per session.
 
 UPDATE — 2026-10-21 — Domains & email › Domain registration: roomier layout
   - The "Domain Registration & Expiration Status" table now uses the full page width (was squeezed beside the chart), so

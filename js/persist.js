@@ -59,6 +59,32 @@ function fsHashBytes(u8) {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
 }
 
+// File lineage (live-edit safeguard): the browser remembers, per file name,
+// the fingerprint + content hash of the last version IT saved (qbr-lineage-v1).
+// Linking a different copy under the same name while journal edits are still
+// pending against the saved version earns an informational warning — the
+// journal replays by exact fingerprint, so edits can never land on the wrong
+// copy; this just stops the user wondering where their edits went. Records are
+// written ONLY on successful saves/rebases, never at link time, and every
+// access is guarded: a lineage failure must never break linking or saving.
+var LINEAGE_KEY = "qbr-lineage-v1";
+function lineageMap() { try { return JSON.parse(localStorage.getItem(LINEAGE_KEY) || "{}") || {}; } catch (e) { return {}; } }
+function lineageRecord(name, fp, hash) {
+  if (!name) return;
+  try {
+    var m = lineageMap();
+    m[name] = { fp: fp || "", hash: hash || "", savedAt: new Date().toISOString() };
+    localStorage.setItem(LINEAGE_KEY, JSON.stringify(m));
+  } catch (e) {}
+}
+async function lineageRecordFile(name, file) {
+  try {
+    var h = "";
+    try { h = fsHashBytes(new Uint8Array(await file.arrayBuffer())); } catch (e) {}
+    lineageRecord(name, QBR.fpOf(name, file), h);
+  } catch (e) {}
+}
+
 // APP is a top-level const in app.js: visible as a bare global, NOT as window.APP.
 function persistAppFiles() {
   try { return (typeof APP !== "undefined" && APP.files) || []; }
@@ -112,7 +138,8 @@ function fsLinksLoad() {
 }
 function fsLinksSave() {
   // Handles are structured-cloneable; plain metadata rides along.
-  const slim = QBR._fsLinks.map(l => ({
+  // Side links (QBR.fsAttachSide) are re-attached by their own tab each session — not stored here.
+  const slim = QBR._fsLinks.filter(l => !l.side).map(l => ({
     fp: l.fp, kinds: l.kinds, name: l.name,
     size: l.size, lastModified: l.lastModified, hash: l.hash, handle: l.handle,
     dirId: l.dirId || null, rel: l.rel || null,   // v1.33.0: opened through a linked folder (js/fsfolder.js)
@@ -197,6 +224,19 @@ QBR.fsLinkFile = async function (expectName) {
   }
   QBR.persistRefreshBadge();
   if (typeof renderFileList === "function") { try { renderFileList(); } catch (e2) {} }
+      // Lineage warning: this name was saved from this browser before, the
+      // linked copy's content differs, and edits recorded against the saved
+      // version are still pending — they will not apply to this copy.
+      try {
+        const rec = lineageMap()[file.name];
+        if (rec && rec.hash && fileHash && fileHash !== rec.hash) {
+          let pending = 0;
+          try { pending = QBR.journalOpsFor(rec.fp).length; } catch (e) {}
+          if (pending > 0) {
+            QBR.persistNote((((QBR._fsLinks || []).find(l => l.name === file.name) || {}).kinds || [])[0] || "", `⚠ ${file.name}: this copy differs from the version last saved in this browser (${new Date(rec.savedAt).toLocaleString()}). Edits recorded against that version won't apply to this copy.`, 15000);
+          }
+        }
+      } catch (e) {}
   return true;
 };
 
@@ -378,7 +418,7 @@ async function fsSaveMerged(kind, link, cur, attempt) {
   if (m.unresolved.length) { try { QBR.journalPark(link.name, m.unresolved); } catch (e) {} }
   const fresh = await link.handle.getFile();
   await QBR.fsAfterSave(kind, link, fresh);       // new base, journal cleared
-  await fsReloadModel();                          // positions + Excel's edits now in the dashboard
+  if (!link.side) await fsReloadModel();          // positions + Excel's edits now in the dashboard (side: its tab re-parsed in fsAfterSave)
   const merged = { applied: m.applied, conflicts: m.conflicts.length, unresolved: m.unresolved.length, remapped: m.remapped };
   console.info("[QBR] merged save:", merged, out.stats);
   return { mode: "file", name: link.name, applied: res.applied, skipped: res.skipped, notes: res.notes, engine: "format-safe", merged: merged, kind: kind };
@@ -393,6 +433,16 @@ QBR.fsReloadFromFile = async function (name, opts) {
   const link = (QBR._fsLinks || []).find(l => fileKey(l.name) === fileKey(name));
   if (!link) return false;
   if (!(await fsEnsurePermission(link.handle))) return false;
+  if (link.side) {   // write contract: a side file re-syncs its own tab, never the dashboard sources
+    const cur = await link.handle.getFile(), u8 = new Uint8Array(await cur.arrayBuffer());
+    const newFp = QBR.fpOf(link.name, cur);
+    try { QBR.journalMove(link.fp, newFp); } catch (e) {}
+    fsSideMove(link.fp, newFp);
+    link.fp = newFp; link.size = cur.size; link.lastModified = cur.lastModified; link.hash = fsHashBytes(u8);
+    fsSetBase(link.name, u8);
+    await fsSideNotify(link, u8, "reloaded");
+    return true;
+  }
   if (!opts.quiet) {
     let pending = 0;
     try { pending = QBR.journalOpsFor(link.fp).length; } catch (e) {}
@@ -475,10 +525,20 @@ async function fsSaveSurgical(kind, link, cur) {
     return Object.assign(r, { name: link.name, reason: why });
   }
   // Last-moment check: if OneDrive/Excel changed the file while we worked, merge instead.
+  // 2026-10-20 fix: never fall through to the write when the file changed and can't be merged,
+  // or when it can't be re-read — that overwrote Excel's edits (docs/FORMAT_SAFE_SAVE.md promise).
+  let changedNow = false, reReadFailed = false;
   try {
     const again = new Uint8Array(await (await link.handle.getFile()).arrayBuffer());
-    if (fsHashBytes(again) !== fsHashBytes(buf) && QBR.xlsxMerge && fsBaseOf(link.name)) return await fsSaveMerged(kind, link, await link.handle.getFile(), 1);
-  } catch (e) {}
+    changedNow = fsHashBytes(again) !== fsHashBytes(buf);
+  } catch (e) { reReadFailed = true; }
+  if (changedNow && QBR.xlsxMerge && fsBaseOf(link.name)) return await fsSaveMerged(kind, link, await link.handle.getFile(), 1);
+  if (changedNow || reReadFailed) {
+    const why = reReadFailed ? "could not re-check the file just before writing" : "the file changed in Excel while saving and can't be merged";
+    console.warn("[QBR] format-safe save blocked — " + why);
+    const r = QBR.fsDownloadKind(kind, "download-unsafe");
+    return Object.assign(r, { name: link.name, reason: why });
+  }
   const wr = await fsWriteBytes(kind, link, out.bytes);
   if (wr) return wr;
   (QBR._origWb || (QBR._origWb = {}))[link.fp] = work; // retained copy now matches the file
@@ -494,12 +554,86 @@ async function fsSaveSurgical(kind, link, cur) {
  * are NOT preserved. The linked direct-save path below (patch-in-place)
  * preserves them. */
 QBR.fsDownloadKind = function (kind, mode) {
+  // 2026-10-28 (write contract): the adapter decides what a fallback copy is. Inventory and
+  // Supplies rebuild from the model (as before); every other kind downloads a PATCHED COPY
+  // of the last-saved bytes with its pending edits (edits stay pending). Before, every kind
+  // fell through to the Inventory builder — an audit/storage/usage fallback had nothing to download.
+  const ad = QBR.wbKinds && QBR.wbKinds.get(kind);
+  if (ad && typeof ad.download === "function") return ad.download(mode);
+  if (ad && ad.download !== "model") return fsDownloadPatchedCopy(kind, mode);
   const build = kind === "supplies" ? QBR.supBuildWorkbook : QBR.invBuildWorkbook;
   if (typeof build !== "function") return { mode: "no-data" };
   const b = build();
   if (!b || !b.wb) return { mode: "no-data" };
   XLSX.writeFile(b.wb, b.filename, { cellStyles: true });
   return { mode: mode || "download", filename: b.filename };
+};
+
+function fsDownloadPatchedCopy(kind, mode) {
+  try {
+    const link = QBR.fsGetLink(kind);
+    const base = link && fsBaseOf(link.name);
+    if (!base || typeof QBR.patchWorkbookFromJournal !== "function") return { mode: "no-data" };
+    const wb = XLSX.read(base, { type: "array", cellStyles: true });
+    const res = QBR.patchWorkbookFromJournal(kind, wb, link.fp);
+    QBR._lastPatch = null;   // nothing was written to the file: no row positions to commit, nothing to clear
+    if (!res.ok) return { mode: "no-data" };
+    if (typeof QBR.sanitizeHyperlinkTargets === "function") QBR.sanitizeHyperlinkTargets(wb);
+    const bookType = fsBookType(link.name);
+    const filename = String(link.name).replace(/\.(xlsx|xlsm)$/i, "") + " (dashboard copy)." + (bookType === "xlsm" ? "xlsm" : "xlsx");
+    XLSX.writeFile(wb, filename, { bookType: bookType, cellStyles: true, bookVBA: true });
+    return { mode: mode || "download", filename: filename };
+  } catch (e) { console.warn("[QBR] copy download failed:", e && e.message); return { mode: "no-data" }; }
+}
+QBR._fsDownloadPatchedCopy = fsDownloadPatchedCopy;
+
+/* 2026-10-28 (write contract) — "side" files: a workbook a tab opens itself (MOS
+ * Certificate Log, Trainers tracker) joins the SAME save path as a loaded file:
+ * journal (keyed by its fingerprint), merge base, lineage, lock detection,
+ * shared messages. QBR.fsAttachSide(kind, handle, bytes, opts) → link;
+ * opts.onSaved(bytes, reason) is called after every save / reload of that file so the tab
+ * re-parses its own model (side files are not dashboard sources: no loadItems). */
+QBR._fsSideKinds = QBR._fsSideKinds || {};
+QBR.fsAttachSide = async function (kind, handle, bytes, opts) {
+  opts = opts || {};
+  const f = await handle.getFile();
+  const name = opts.name || f.name || handle.name;
+  const u8 = bytes ? (bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)) : new Uint8Array(await f.arrayBuffer());
+  const fp = QBR.fpOf(name, f);
+  QBR.fsDetachSide(kind);
+  const link = { fp: fp, kinds: [kind], name: name, size: f.size, lastModified: f.lastModified, hash: fsHashBytes(u8), handle: handle,
+    side: true, onSaved: typeof opts.onSaved === "function" ? opts.onSaved : null };
+  QBR._fsLinks = (QBR._fsLinks || []).filter(l => !(l.side && fileKey(l.name) === fileKey(name))).concat([link]);
+  (QBR._fsSideKinds[fp] || (QBR._fsSideKinds[fp] = new Set())).add(kind);
+  fsSetBase(name, u8);
+  try { if (typeof QBR.persistRefreshBadge === "function") QBR.persistRefreshBadge(); } catch (e) {}
+  return link;
+};
+QBR.fsDetachSide = function (kind) {
+  (QBR._fsLinks || []).filter(l => l.side && (l.kinds || []).indexOf(kind) >= 0).forEach(l => {
+    const s = QBR._fsSideKinds[l.fp]; if (s) { s.delete(kind); if (!s.size) delete QBR._fsSideKinds[l.fp]; }
+  });
+  QBR._fsLinks = (QBR._fsLinks || []).filter(l => !(l.side && (l.kinds || []).indexOf(kind) >= 0));
+};
+function fsSideMove(oldFp, newFp) {
+  if (!oldFp || !newFp || oldFp === newFp || !QBR._fsSideKinds[oldFp]) return;
+  QBR._fsSideKinds[newFp] = QBR._fsSideKinds[oldFp]; delete QBR._fsSideKinds[oldFp];
+}
+async function fsSideNotify(link, u8, reason) {
+  if (!link || !link.side || typeof link.onSaved !== "function") return;
+  try { await link.onSaved(u8, reason); } catch (e) { console.warn("[QBR] side reload failed:", e && e.message); }
+}
+// Autosave (adapter.autosave): edits recorded in a burst save once, 300 ms after the last one.
+const WB_AUTOSAVE = {};
+QBR.wbScheduleSave = function (kind) {
+  clearTimeout(WB_AUTOSAVE[kind]);
+  WB_AUTOSAVE[kind] = setTimeout(async () => {
+    delete WB_AUTOSAVE[kind];
+    try { QBR.persistNote(kind, "Saving…", 15000); } catch (e) {}
+    let r; try { r = await QBR.fsSaveKind(kind); } catch (e) { r = { mode: "error" }; }
+    try { QBR.saveResultNote(kind, r); } catch (e) {}
+    try { document.dispatchEvent(new CustomEvent("qbr:autosaved", { detail: { kind: kind, mode: r && r.mode } })); } catch (e) {}
+  }, 300);
 };
 
 /* Last-resort linked write: the on-disk file changed externally and the user
@@ -538,7 +672,28 @@ QBR.fsRebuildToLink = async function (kind, link) {
  *  cancelled        — user declined the overwrite confirm
  *  denied           — permission not granted (then downloaded? no: aborted)
  *  no-data          — nothing to save */
-QBR.fsSaveKind = async function (kind) {
+/* 2026-10-20: one save at a time per kind, and saves to the same linked file run one after
+ * another. A double-click on Save used to start two overlapping saves of the same journal;
+ * the slower one could overwrite the faster one's appended rows. A repeat click while a
+ * save is running now just waits for that save's result. */
+QBR._fsInFlight = QBR._fsInFlight || {};
+QBR._fsLinkQueue = QBR._fsLinkQueue || {};
+QBR.fsSaveKind = function (kind) {
+  if (QBR._fsInFlight[kind]) return QBR._fsInFlight[kind];
+  const link = QBR.fsGetLink(kind);
+  const qk = link ? "link:" + fileKey(link.name) : "kind:" + kind;
+  const prev = QBR._fsLinkQueue[qk] || Promise.resolve();
+  const run = prev.catch(() => {}).then(() => fsSaveKindNow(kind));
+  QBR._fsInFlight[kind] = run;
+  QBR._fsLinkQueue[qk] = run;
+  const done = () => {
+    if (QBR._fsInFlight[kind] === run) delete QBR._fsInFlight[kind];
+    if (QBR._fsLinkQueue[qk] === run) delete QBR._fsLinkQueue[qk];
+  };
+  run.then(done, done);
+  return run;
+};
+async function fsSaveKindNow(kind) {
   const link = QBR.fsGetLink(kind);
   if (!link || !QBR.fsSupported()) return QBR.fsDownloadKind(kind);
   try {
@@ -602,6 +757,7 @@ QBR.fsSaveKind = async function (kind) {
     const bytes = XLSX.write(wb, { bookType: bookType, type: "array", cellStyles: true, bookVBA: true });
     const why = fsVerifyBytes(bytes, bookType, wb);
     if (why) {
+      try { delete QBR._origWb[link.fp]; } catch (x) {}   // 2026-10-20: retained copy now holds unsaved rows; re-read next time
       console.warn("[QBR] save blocked — " + why);
       const r = QBR.fsDownloadKind(kind, "download-unsafe");
       return Object.assign(r, { name: link.name, reason: why });
@@ -613,6 +769,9 @@ QBR.fsSaveKind = async function (kind) {
     await QBR.fsAfterSave(kind, link, fresh);
     return { mode: "file", name: link.name, applied: res.applied, skipped: res.skipped, notes: res.notes };
   } catch (e) {
+    // 2026-10-20: the legacy path patches the retained workbook in place; drop it so a retry
+    // re-reads the file instead of appending the same rows twice.
+    try { if (link && QBR._origWb && QBR.saveEngine() !== "format-safe") delete QBR._origWb[link.fp]; } catch (x) {}
     console.warn("[QBR] direct save failed, falling back to download:", e && e.message);
     return QBR.fsDownloadKind(kind, "download-fallback");
   }
@@ -635,10 +794,12 @@ QBR.fsRebaseLink = async function (link, freshFile) {
     }
   } catch (e) {}
   try { if (typeof QBR.fsCarryPatchState === "function") QBR.fsCarryPatchState(oldFp, newFp); } catch (e) {}
+  try { fsSideMove(oldFp, newFp); } catch (e) {}
   try { if (QBR._audit && QBR._audit.fp === oldFp) QBR._audit.fp = newFp; } catch (e) {}
   try { if (QBR._auditMeta && QBR._auditMeta.fp === oldFp) QBR._auditMeta.fp = newFp; } catch (e) {}
   link.fp = newFp; link.size = freshFile.size; link.lastModified = freshFile.lastModified;
   try { await fsLinksSave(); } catch (e) {}
+  try { await lineageRecordFile(link.name, freshFile); } catch (e) {}
   try { if (typeof QBR.fsRefreshStatus === "function") QBR.fsRefreshStatus(); } catch (e) {}
 };
 
@@ -667,15 +828,19 @@ QBR.fsAfterSave = async function (kind, link, freshFile) {
     link.fp = newFp; link.size = freshFile.size; link.lastModified = freshFile.lastModified;
     try { link.hash = fsHashBytes(new Uint8Array(await freshFile.arrayBuffer())); } catch (e) {} // v1.25.1: keep the content hash in sync
     await fsLinksSave();
+    try { await lineageRecordFile(link.name, freshFile); } catch (e) {} // lineage: this browser saved this version
     // 3. kind map: move the entry to the new fingerprint so later mutations
     //    record against the right file
     if (QBR._kindByFp && QBR._kindByFp[oldFp]) {
       QBR._kindByFp[newFp] = QBR._kindByFp[oldFp];
       delete QBR._kindByFp[oldFp];
     }
+    fsSideMove(oldFp, newFp);   // write contract: side files keep their kind across saves
     // 3b. patch state: the retained workbook was patched in place, so its
     //     coordinates are still valid — carry them to the new fingerprint.
     //     (The rebuild path drops them beforehand via fsDropPatchState.)
+    // 2026-10-20: the bytes are on disk, so the row positions this save stamped are now real.
+    if (typeof QBR.patchCommitStamps === "function") QBR.patchCommitStamps(oldFp, kind);
     if (typeof QBR.fsCarryPatchState === "function") QBR.fsCarryPatchState(oldFp, newFp);
     // 4. journal entries now in the file — clear exactly those (2026-10-13: was the whole
     //    fingerprint, which also dropped edits made during the save, other kinds' pending
@@ -688,8 +853,10 @@ QBR.fsAfterSave = async function (kind, link, freshFile) {
       QBR.journalClearFp(oldFp);
     }
     QBR._lastPatch = null;
-    // 5. persist the fresh bytes for session restore
-    if (typeof cacheSession === "function") cacheSession();
+    // 5. persist the fresh bytes for session restore (side files are not session sources)
+    if (!link.side && typeof cacheSession === "function") cacheSession();
+    // 6. write contract: a side file's tab re-parses the saved bytes itself
+    if (link.side) { const sb = fsBaseOf(link.name); await fsSideNotify(link, sb, "saved"); }
   } catch (e) { console.warn("[QBR] post-save bookkeeping failed:", e && e.message); }
   QBR.fsRefreshStatus();
 };
@@ -705,41 +872,45 @@ QBR.invSave = async function () {
   const r = await QBR.fsSaveKind("assets");
   QBR.invSaveDone(r);
 };
+// 2026-10-28: one message per save outcome, shared by every Save button
+// (Inventory, Supplies, Risky sign-ins editor, guided audit). Before, the
+// "open in Excel" / write-failed / sync-busy / merge-cancelled outcomes had no
+// message of their own and the badge just went back to "● N unsaved".
+// Returns { text, ms, warn, short } — short is the guided-audit "Save all" summary form.
+QBR.saveResultText = function (r) {
+  r = r || { mode: "error" };
+  const nm = r.name || "the linked file";
+  const extra = (r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "");
+  switch (r.mode) {
+    case "file": return { text: `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}${r.merged ? " · merged with Excel changes" : ""}`, ms: 6000, short: "saved ✓" };
+    case "no-changes": return { text: "No changes to save" + (r.kind && r.kind !== "assets" && r.kind !== "supplies" ? " for " + r.kind : ""), ms: 3000, short: "no changes" };
+    case "reloaded": return { text: `No dashboard edits to save — reloaded ${nm} with the changes made in Excel`, ms: 6000, short: "reloaded" };
+    case "download": case "download-fallback": return { text: `Downloaded ${r.filename || ""} — tick Direct save for the file to save into it`, ms: 6000, short: "downloaded" };
+    case "download-unsafe": return { text: `Not saved to ${nm} — ${r.reason || "safety check failed"}. Downloaded a separate copy instead.`, ms: 15000, warn: true, short: "not saved (copy downloaded)" };
+    case "download-changed": return { text: `${nm} changed in Excel — downloaded a separate copy. Re-link to save directly.`, ms: 15000, warn: true, short: "copy downloaded" };
+    case "locked": return { text: `Not saved — "${nm}" is open in Excel. Close it there, then click Save again. Your edits are kept.`, ms: 30000, warn: true, short: "open in Excel — close it and save again" };
+    case "write-failed": return { text: `Not saved — could not write "${nm}"${r.reason ? " (" + r.reason + ")" : ""}. Your edits are kept.`, ms: 20000, warn: true, short: "not saved (write failed)" };
+    case "busy": return { text: `Not saved — "${nm}" keeps changing (sync in progress?). Try again in a moment. Your edits are kept.`, ms: 20000, warn: true, short: "not saved (file busy)" };
+    case "merge-cancelled": return { text: "Save cancelled — nothing was written. Your edits are kept.", ms: 10000, warn: true, short: "cancelled" };
+    case "denied": return { text: "Not saved — permission to the file was denied. Your edits are kept.", ms: 10000, warn: true, short: "permission denied" };
+    case "no-data": return null;
+    default: return { text: "Not saved — something went wrong (see the browser console). Your edits are kept.", ms: 15000, warn: true, short: "failed" };
+  }
+};
+QBR.saveResultNote = function (kind, r, noDataMsg) {
+  const t = QBR.saveResultText(r);
+  if (!t) { if (noDataMsg) alert(noDataMsg); return; }
+  QBR.persistNote(kind, t.text, t.ms, { warn: !!t.warn });
+};
 QBR.supSaveDone = function (r) {
   if (!r) return;
-  if (r.mode === "file") {
-    const extra = (r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "");
-    QBR.persistNote("supplies", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}${r.merged ? " · merged with Excel changes" : ""}`, 5000);
-  }
-  else if (r.mode === "no-changes") QBR.persistNote("supplies", "No changes to save", 3000);
-  else if (r.mode === "download" || r.mode === "download-fallback")
-    QBR.persistNote("supplies", `Downloaded ${r.filename || ""} — tick Direct save for the file to save into it`, 5000);
-  else if (r.mode === "download-unsafe")
-    QBR.persistNote("supplies", `Not saved to ${r.name || "the linked file"} — ${r.reason || "safety check failed"}. Downloaded a separate copy instead.`, 12000);
-  else if (r.mode === "download-changed")
-    QBR.persistNote("supplies", `${r.name || "Linked file"} changed in Excel — downloaded a separate copy. Re-link to save directly.`, 12000);
-  else if (r.mode === "denied") QBR.persistNote("supplies", "Permission denied — file not saved", 5000);
-  else if (r.mode === "no-data") alert("Load a supplies workbook first.");
-  else QBR.persistRefreshBadge();
   if (typeof renderAll === "function") { try { renderAll(); } catch (e) {} }
+  QBR.saveResultNote("supplies", r, "Load a supplies workbook first.");   // after the re-render; the note also survives later ones
 };
 QBR.invSaveDone = function (r) {
   if (!r) return;
-  if (r.mode === "file") {
-    const extra = (r.applied ? ` (${r.applied} change${r.applied === 1 ? "" : "s"}${r.skipped ? `, ${r.skipped} skipped` : ""})` : "");
-    QBR.persistNote("assets", `Saved ✓ ${r.name}${extra}${r.engine === "format-safe" ? " · formatting kept" : ""}${r.merged ? " · merged with Excel changes" : ""}`, 5000);
-  }
-  else if (r.mode === "no-changes") QBR.persistNote("assets", "No changes to save", 3000);
-  else if (r.mode === "download" || r.mode === "download-fallback")
-    QBR.persistNote("assets", `Downloaded ${r.filename || ""} — tick Direct save for the file to save into it`, 5000);
-  else if (r.mode === "download-unsafe")
-    QBR.persistNote("assets", `Not saved to ${r.name || "the linked file"} — ${r.reason || "safety check failed"}. Downloaded a separate copy instead.`, 12000);
-  else if (r.mode === "download-changed")
-    QBR.persistNote("assets", `${r.name || "Linked file"} changed in Excel — downloaded a separate copy. Re-link to save directly.`, 12000);
-  else if (r.mode === "denied") QBR.persistNote("assets", "Permission denied — file not saved", 5000);
-  else if (r.mode === "no-data") alert("Load an inventory workbook first.");
-  else QBR.persistRefreshBadge();
   if (typeof renderAll === "function") { try { renderAll(); } catch (e) {} }
+  QBR.saveResultNote("assets", r, "Load an inventory workbook first.");   // after the re-render; the note also survives later ones
 };
 
 // Adaptive Save button for an inventory kind: direct "Save to Excel" when a
@@ -747,7 +918,7 @@ QBR.invSaveDone = function (r) {
 QBR.saveButtonHtml = function (kind, id) {
   const link = (typeof QBR.fsGetLink === "function") ? QBR.fsGetLink(kind) : null;
   const esc = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  const badge = `<span data-unsaved="${kind}" class="small text-muted align-self-center"></span>`;
+  const badge = `<span data-unsaved="${kind}" class="small text-muted align-self-center" role="status" aria-live="polite"></span>`;
   if (link) {
     return `<button type="button" class="btn btn-sm btn-primary" id="${id}" title="Write directly to ${esc(link.name)}">💾 Save to Excel</button>` + badge;
   }

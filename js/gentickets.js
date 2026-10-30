@@ -254,7 +254,8 @@
       '<div class="d-flex flex-wrap align-items-center gap-2 mb-3"><h4 class="mb-0">General tickets</h4>' +
       '<span class="badge bg-primary">' + esc(u.name) + "</span>" +
       '<button class="btn btn-sm btn-primary" data-gt-act="new">+ New ticket</button>' +
-      '<label class="btn btn-sm btn-outline-secondary mb-0">Import file<input type="file" id="gt-import-file" accept=".xlsx,.xls,.csv" hidden></label>' +
+      '<label class="btn btn-sm btn-outline-secondary mb-0" title="Import requests from a Microsoft Forms export">Import Forms file<input type="file" id="gt-import-file" accept=".xlsx,.xls,.csv" hidden></label>' +
+      '<button class="btn btn-sm btn-outline-secondary" data-gt-act="open" title="Re-open a file saved with My To-Do › Export my file (merges into this list)">Open saved file…</button>' +
       "</div>" +
       '<div class="card-box"><div class="table-responsive"><table class="table table-sm">' +
       "<thead><tr><th>Ticket #</th><th>Title</th><th>Requester</th><th>Client</th><th>Priority</th><th>Status</th><th>Due</th><th></th></tr></thead>" +
@@ -263,6 +264,7 @@
 
     host.querySelectorAll("[data-gt-act]").forEach(function (b) {
       if (b.dataset.gtAct === "new") b.addEventListener("click", newDialog);
+      if (b.dataset.gtAct === "open") b.addEventListener("click", function () { QBR.users.importDialog(); });
     });
     host.querySelectorAll("[data-gt-status]").forEach(function (sel) {
       sel.addEventListener("change", function () { setStatus(sel.dataset.gtStatus, sel.value); render(); });

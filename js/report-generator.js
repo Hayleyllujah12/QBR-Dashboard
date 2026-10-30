@@ -86,7 +86,7 @@ QBR.generateReport = function (model, agg) {
   /* ---- User Management readiness ---- */
   if (agg.umTotal != null) {
     s.push({ title: "User Management & School-Year Readiness", body:
-      `${agg.umUpdated} of ${agg.umTotal} schools completed grade-level and user-information updates for ${agg.umSY} ` +
+      `${agg.umUpdated} of ${agg.umTotal} schools completed grade-level and user-information updates for ${_rgEsc(agg.umSY)} ` +
       `(${agg.umCompletion.toFixed(1)}% readiness). ` +
       `${agg.umCompletion < 50 ? "The majority remain pending and should be prioritized before the next deployment cycle." : "Rollover progress is on track across the managed portfolio."}`
     });
@@ -98,7 +98,7 @@ QBR.generateReport = function (model, agg) {
     s.push({ title: "Email Reputation (Google Postmaster)", body:
       `Across ${agg.pmReported} school domain(s) reporting a reputation status, ${flagged} show deliverability problems ` +
       `(Google "Issues detected"${agg.pmBad ? " / BAD" : ""})` +
-      `${flagged ? " — e.g. " + agg.pmBadSchools.slice(0, 3).join(", ") + (agg.pmBadSchools.length > 3 ? ", …" : "") : ""}. ` +
+      `${flagged ? " — e.g. " + agg.pmBadSchools.slice(0, 3).map(_rgEsc).join(", ") + (agg.pmBadSchools.length > 3 ? ", …" : "") : ""}. ` +
       `Flagged domains risk mail deliverability and should review SPF/DKIM/DMARC and outbound sending practices; ` +
       `domains reading "Verify to see health" must first be verified in Postmaster before Google will report their reputation.`
     });

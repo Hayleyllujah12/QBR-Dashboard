@@ -793,9 +793,87 @@ function pBumpRanges(wb, srcSheet, oldLast, newLast) {
 /* ============================ main entry ================================ */
 /* Replay the mutation journal for (kind, fp) as cell writes into the ORIGINAL
  * workbook. Returns {ok, applied, skipped, appended, notes[]}. */
+/* 2026-10-20 fix: a patch pass stamps _src on model rows so later ops in the SAME pass
+ * (intake → deploy, add ticket → update ticket) find the new rows. Those stamps used to stay
+ * on the live model even when the save then failed (file locked, merge cancelled, safety
+ * check, write error). The retry treated the rows as "already written" and the journal op
+ * was cleared, so appended rows were silently lost. Now each pass snapshots _src, keeps its
+ * stamps aside and restores the model; QBR.patchCommitStamps applies them only after the
+ * bytes are on disk (persist.js fsAfterSave). */
+function pModelRows() {
+  const out = [];
+  try {
+    const m = (typeof APP !== "undefined" && APP.model) || {};
+    [m.inventory, m.supplies].forEach(part => {
+      if (!part) return;
+      Object.keys(part).forEach(k => { const arr = part[k]; if (Array.isArray(arr)) arr.forEach(x => { if (x && typeof x === "object") out.push(x); }); });
+    });
+  } catch (e) {}
+  return out;
+}
+function pSnapSrc() { return pModelRows().map(x => [x, x._src]); }
+function pTakeStamps(snap) {
+  const stamps = [];
+  snap.forEach(([x, before]) => {
+    if (x._src !== before) stamps.push([x, x._src]);
+    if (before === undefined) delete x._src; else x._src = before;
+  });
+  return stamps;
+}
+QBR.patchCommitStamps = function (fp, kind) {
+  const lp = QBR._lastPatch;
+  if (!lp || !lp.stamps || (fp && lp.fp !== fp) || (kind && lp.kind !== kind)) return 0;
+  lp.stamps.forEach(([x, src]) => { x._src = src; });
+  const n = lp.stamps.length;
+  lp.stamps = null;
+  return n;
+};
+
 QBR.patchWorkbookFromJournal = function (kind, wb, fp) {
+  // 2026-10-28: this patches wb IN PLACE — drop it from the parsed-workbook cache first,
+  // so the next load re-reads the file instead of reusing the patched object.
+  try { if (wb && QBR.wbCacheEvict) QBR.wbCacheEvict(wb); } catch (e) {}
   const report = { ok: true, applied: 0, skipped: 0, appended: 0, bumped: 0, notes: [], ids: [] };
   if (!wb || !fp || typeof XLSX === "undefined") return Object.assign(report, { ok: false, error: "no workbook" });
+  const srcSnap = pSnapSrc();
+  try { return pPatchPass(kind, wb, fp, report); }
+  finally { if (QBR._lastPatch && QBR._lastPatch.fp === fp && QBR._lastPatch.kind === kind) QBR._lastPatch.stamps = pTakeStamps(srcSnap); else pTakeStamps(srcSnap); }
+};
+/* ===================== workbook-kind registry (Excel write contract) =====
+ * docs/EXCEL_WRITE_CONTRACT.md, Phase 1 (2026-10-28). Every workbook kind that
+ * the dashboard writes to registers ONE adapter:
+ *   { label, ops: { opName: (wb, fp, args) -> "ok"|"noop"|"skip: why" },
+ *     detect?(wb) -> bool, rowKey?(op, args) -> string|null,
+ *     editLog (default true: append the "EDIT LOG" sheet),
+ *     source ("loaded" = in APP.files | "side" = a tab-owned file, see
+ *             QBR.fsAttachSide), autosave (save right after each edit),
+ *     download?(mode) -> result  (fallback copy; default: patched copy of the
+ *             last-saved bytes, see persist.js fsDownloadKind) }
+ * The five existing kinds are registered below by wrapping PATCH_OPS — same
+ * cell writers, same order, so their saves are byte-identical to before. */
+var WB_KINDS = {};
+QBR.wbKinds = {
+  register: function (kind, ad) {
+    if (!kind || !ad || typeof ad.ops !== "object") throw new Error("wbKinds.register: kind and ops are required");
+    Object.keys(ad.ops).forEach(function (op) { if (typeof ad.ops[op] !== "function") throw new Error("wbKinds.register(" + kind + "): op " + op + " is not a function"); });
+    WB_KINDS[kind] = Object.assign({ label: kind, source: "loaded", editLog: true, autosave: false }, ad, { kind: kind });
+    return WB_KINDS[kind];
+  },
+  get: function (kind) { return WB_KINDS[kind] || null; },
+  list: function () { return Object.keys(WB_KINDS); },
+  opFor: function (kind, op) { var a = WB_KINDS[kind]; return (a && a.ops && typeof a.ops[op] === "function") ? a.ops[op] : null; }
+};
+(function registerBuiltinKinds() {
+  function pick(names) { var o = {}; names.forEach(function (n) { o[n] = PATCH_OPS[n]; }); return o; }
+  QBR.wbKinds.register("audit", { label: "Risky sign-ins", ops: pick(["auditUpdateCell", "auditAddRow", "auditPasteRow"]) });
+  QBR.wbKinds.register("storage", { label: "Storage report", ops: pick(["storagePasteRow"]) });
+  QBR.wbKinds.register("usage", { label: "Usage report", ops: pick(["usagePasteRow"]) });
+  QBR.wbKinds.register("assets", { label: "Inventory", ops: pick(["invIntake", "invDeploy", "invAddTicket", "invUpdateTicket", "invTicketNote",
+    "invLinkTicket", "invSetTicketStatus", "invResolveTicket", "invSetStatus", "invUpdateAsset", "invAddDeployment"]), download: "model" });
+  QBR.wbKinds.register("supplies", { label: "Supplies", ops: pick(["supRecordTransaction", "supAddItem"]), download: "model" });
+})();
+
+function pPatchPass(kind, wb, fp, report) {
   // v1.30.0: read through the journal module (in-memory store survives a full localStorage).
   if (typeof QBR.journalEntries !== "function") return Object.assign(report, { ok: false, error: "no journal" });
   const store = QBR.journalEntries() || {};
@@ -803,7 +881,7 @@ QBR.patchWorkbookFromJournal = function (kind, wb, fp) {
   const ops = entry && entry.ops ? entry.ops.filter(o => o && o.kind === kind) : [];
   const logRows = [];
   ops.forEach(o => {
-    const fn = PATCH_OPS[o.op];
+    const fn = QBR.wbKinds.opFor(kind, o.op) || PATCH_OPS[o.op];   // adapter first; PATCH_OPS = legacy fallback
     if (typeof fn !== "function") { report.skipped++; report.notes.push(o.op + ": unknown op"); return; }
     let res;
     try { res = fn(wb, fp, o.args || []); }
@@ -817,7 +895,8 @@ QBR.patchWorkbookFromJournal = function (kind, wb, fp) {
       report.notes.push(o.op + ": " + res);
     }
   });
-  if (logRows.length) {
+  const ad = QBR.wbKinds.get(kind);
+  if (logRows.length && (!ad || ad.editLog !== false)) {
     try { pAppendEditLog(wb, logRows); } catch (e) { report.notes.push("edit-log: " + (e && e.message)); }
   }
   /* 2026-10-13: remember exactly which ops this pass wrote, so the save clears only those

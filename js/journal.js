@@ -72,7 +72,12 @@
   function normSig(v) { return String(v == null ? "" : v).replace(/\s+/g, " ").trim().toLowerCase(); }
   function appFiles() { try { return (typeof APP !== "undefined" && APP.files) || []; } catch (e) { return []; } }
   function fpOf(f) { return QBR.fpOf ? QBR.fpOf(f.name, f.blob) : String(f.name); }
-  function loadedFps() { return appFiles().map(fpOf); }
+  // 2026-10-28 (write contract): attached side files (QBR.fsAttachSide) count as loaded.
+  function loadedFps() {
+    var out = appFiles().map(fpOf);
+    Object.keys(QBR._fsSideKinds || {}).forEach(function (fp) { if (out.indexOf(fp) < 0) out.push(fp); });
+    return out;
+  }
   function gk(fp, id) { return fp + "\u0001" + id; }
   var seq = 0;
   function newId(prefix) { return (prefix || "op") + Date.now().toString(36) + (seq++).toString(36) + Math.floor(Math.random() * 1e6).toString(36); }
@@ -259,9 +264,14 @@
 
   /* ------------------------------- core API ------------------------------ */
   // Fingerprints currently loaded that contain a given kind (rebuilt by the parsers).
+  // 2026-10-28 (write contract): plus tab-owned "side" files attached with QBR.fsAttachSide
+  // (QBR._fsSideKinds survives loadItems, which rebuilds _kindByFp from APP.files only).
   QBR._fpsForKind = function (kind) {
-    var m = QBR._kindByFp || {};
-    return Object.keys(m).filter(function (fp) { try { return m[fp] && m[fp].has(kind); } catch (e) { return false; } });
+    var out = [];
+    [QBR._kindByFp || {}, QBR._fsSideKinds || {}].forEach(function (m) {
+      Object.keys(m).forEach(function (fp) { try { if (m[fp] && m[fp].has(kind) && out.indexOf(fp) < 0) out.push(fp); } catch (e) {} });
+    });
+    return out;
   };
   function rowSig(fp, op, args) {
     if (!(op in ROW_OPS)) return null;
@@ -274,7 +284,9 @@
   }
   function fileNameOf(fp) {
     var f = appFiles().filter(function (x) { return fpOf(x) === fp; })[0];
-    return f ? f.name : "";
+    if (f) return f.name;
+    var sl = (QBR._fsLinks || []).filter(function (l) { return l.side && l.fp === fp; })[0];
+    return sl ? sl.name : "";
   }
 
   QBR.journalRecord = function (kind, op, args) {
@@ -291,6 +303,8 @@
     e.ops.push(o);
     persist();
     requestPersistOnce();
+    // 2026-10-28 (write contract): adapters with autosave save right after the edit.
+    try { var ad = QBR.wbKinds && QBR.wbKinds.get(kind); if (ad && ad.autosave && typeof QBR.wbScheduleSave === "function") QBR.wbScheduleSave(kind); } catch (x) {}
   };
 
   // v1 data: claim entries for the files being loaded (others stay listed as "previous version").
@@ -568,6 +582,11 @@
       var big = maxPerFile() >= WARN_OPS;
       document.querySelectorAll("[data-unsaved]").forEach(function (el) {
         if (el.dataset.persistBusy) return;
+        // 2026-10-28: a save message outlives a re-render (the panels redraw right
+        // after a save, which used to wipe "Not saved — open in Excel" before it was seen).
+        var nt = NOTES[el.dataset.unsaved];
+        if (nt && nt.until > Date.now()) { paintNote(el, nt); return; }
+        el.classList.remove("qbr-note-warn"); el.removeAttribute("data-note");
         var n = QBR.journalUnsavedCount(el.dataset.unsaved);
         el.innerHTML = n
           ? ' <button type="button" class="badge ' + (big ? "bg-danger" : "bg-warning text-dark") + ' qbr-unsaved-badge border-0" title="' +
@@ -577,15 +596,28 @@
     } catch (e) {}
   };
   // Transient status text in the same badge slot ("Saving…", "Saved ✓").
-  QBR.persistNote = function (kind, html, ms) {
+  // 2026-10-28: the note is kept per kind (NOTES) and repainted by
+  // persistRefreshBadge, so it survives the re-render that follows every save.
+  // Text only — messages carry file names (XSS via a crafted file name).
+  // opts.warn (or a "Not saved…" / "Save cancelled…" text) paints it as a warning.
+  var NOTES = {}, NOTE_TIMERS = {};
+  function paintNote(el, nt) {
+    el.textContent = " " + nt.text;
+    el.classList.toggle("qbr-note-warn", !!nt.warn);
+    el.setAttribute("data-note", nt.warn ? "warn" : "info");
+  }
+  QBR.persistNote = function (kind, html, ms, opts) {
     try {
-      var el = document.querySelector('[data-unsaved="' + kind + '"]');
-      if (!el) return;
-      el.dataset.persistBusy = "1";
-      el.textContent = " " + html;   // 2026-10-13: text only — messages carry file names (XSS via a crafted file name)
-      setTimeout(function () { delete el.dataset.persistBusy; QBR.persistRefreshBadge(); }, ms || 3500);
+      var text = String(html == null ? "" : html);
+      var warn = !!((opts && opts.warn) || /^(Not saved|Save cancelled|Could not save)/.test(text));
+      ms = ms || 3500;
+      NOTES[kind] = { text: text, warn: warn, until: Date.now() + ms };
+      clearTimeout(NOTE_TIMERS[kind]);
+      NOTE_TIMERS[kind] = setTimeout(function () { delete NOTES[kind]; QBR.persistRefreshBadge(); }, ms);
+      document.querySelectorAll('[data-unsaved="' + kind + '"]').forEach(function (el) { paintNote(el, NOTES[kind]); });
     } catch (e) {}
   };
+  QBR.persistNoteOf = function (kind) { var nt = NOTES[kind]; return nt && nt.until > Date.now() ? { text: nt.text, warn: nt.warn } : null; };
 
   // One-line alert above the dashboards when edits need attention.
   function alertState() {
