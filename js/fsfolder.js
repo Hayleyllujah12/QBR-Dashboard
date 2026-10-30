@@ -208,6 +208,7 @@
     }
     var last = (QBR._fsDirs || [])[0];
     var dir;
+    nameScan = {};
     try {
       var opt = { id: "qbr-workbooks", mode: "readwrite" };
       if (last && last.handle) opt.startIn = last.handle;
@@ -412,6 +413,7 @@
   // the file handles inherit the grant. Must run inside a click.
   QBR.fsFolderReconnect = async function (id) {
     var d = dirById(id); if (!d) return false;
+    nameScan = {};
     var p;
     try {
       p = await d.handle.queryPermission({ mode: "readwrite" });
@@ -456,6 +458,7 @@
   // below — they are now collected and named in the end note. Skips (unsaved
   // edits) keep their existing wording and are NOT failures.
   QBR.fsFolderReloadAll = async function () {
+    nameScan = {};
     if (!(await QBR.fsFolderReconnectAll())) return false;
     var list = (QBR._fsLinks || []).filter(function (l) { return l.dirId; });
     var LP = (typeof QBR !== "undefined" && QBR.loadProgress) || null;
@@ -487,6 +490,196 @@
     QBR._fsDirs = QBR._fsDirs.filter(function (d, i) { return i === 0 || used[d.id] || d.keep; });
     if (QBR._fsDirs.length !== before) dirsSave();
   };
+
+  /* ---------------- 2026-10-30: per-file checkbox -> link through a remembered folder ----------------
+   * Ticking Direct save on an UPLOADED workbook used to always open the file picker (an upload never tells
+   * the browser where the file lives) and stored a plain file link that asked again per file next session.
+   * Now the tick looks for the same file name in the folders already opened with "Open folder...":
+   *  - a folder already allowed -> no prompt; none allowed -> ONE prompt for the most recent folder (inside the click)
+   *  - same content as the upload -> linked silently (no reload); different content -> the user chooses
+   *  - not found / declined -> null, and the caller opens the file picker as before (starting in that folder)
+   * The link is stored as a folder link (dirId + rel), so the next session re-grants it with the folder. */
+  var nameScan = {};   // dirId -> books[]; cleared on Open folder / Reconnect / Reload all
+  QBR.fsFolderScanReset = function () { nameScan = {}; };
+
+  // Small modal with buttons. buttons: [{id, label, primary}] -> resolves the clicked id, or null (Esc / Cancel).
+  function askDialog(title, bodyHtml, buttons) {
+    return new Promise(function (resolve) {
+      var ov = document.createElement("div");
+      ov.className = "merge-ov fo-ov fo-al"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true"); ov.setAttribute("aria-labelledby", "fo-al-h");
+      ov.innerHTML = '<div class="merge-box"><h5 id="fo-al-h">' + e(title) + '</h5>' + bodyHtml +
+        '<div class="merge-act">' + buttons.map(function (b) {
+          return '<button type="button" class="btn ' + (b.primary ? "btn-primary" : "btn-outline-secondary") + '" data-al="' + e(b.id) + '">' + e(b.label) + '</button>';
+        }).join(" ") + '</div></div>';
+      document.body.appendChild(ov);
+      var done = function (v) { ov.remove(); document.removeEventListener("keydown", esc); resolve(v); };
+      var esc = function (ev) { if (ev.key === "Escape") done(null); };
+      document.addEventListener("keydown", esc);
+      ov.addEventListener("click", function (ev) {
+        var b = ev.target.closest && ev.target.closest("[data-al]");
+        if (!b) return;
+        var v = b.dataset.al;
+        if (v === "ok") { var r = ov.querySelector(".fo-al-pick:checked"); v = r ? "i" + r.value : "ok"; }
+        done(v === "cancel" ? null : v);
+      });
+      setTimeout(function () { try { ov.querySelector(".btn-primary").focus(); } catch (x) {} }, 0);
+    });
+  }
+  // The browser only opens a file picker during a click. When searching the folder took too long (or a
+  // permission prompt ran first) that click has expired: ask for one more click. -> true when clicked
+  QBR.fsAskClick = function (msg) {
+    if (typeof QBR._autoAskClick === "function") return Promise.resolve(QBR._autoAskClick(msg));
+    return askDialog("Choose the file", '<p class="small mb-2">' + e(msg) + '</p>',
+      [{ id: "go", label: "Choose file…", primary: true }, { id: "cancel", label: "Cancel" }]).then(function (v) { return v === "go"; });
+  };
+
+  // The remembered folder that contains this file handle -> {id, rel} | null (no permission needed).
+  QBR.fsFolderOf = async function (handle) {
+    var all = QBR._fsDirs || [];
+    for (var i = 0; i < all.length; i++) {
+      try {
+        if (typeof all[i].handle.resolve !== "function") continue;
+        var rel = await all[i].handle.resolve(handle);
+        if (rel && rel.length) return { id: all[i].id, rel: rel };
+      } catch (x) {}
+    }
+    return null;
+  };
+  QBR.fsFolderStartIn = function () { var d = (QBR._fsDirs || [])[0]; return d && d.handle || null; };
+
+  // Allowed folders; when none is allowed, ONE prompt for the most recent folder (must run inside the click).
+  async function allowedDirs() {
+    var all = QBR._fsDirs || [], ok = [];
+    for (var i = 0; i < all.length; i++) {
+      var p; try { p = await all[i].handle.queryPermission({ mode: "readwrite" }); } catch (x) { p = "denied"; }
+      QBR._fsDirState[all[i].id] = p;
+      if (p === "granted") ok.push(all[i]);
+    }
+    if (ok.length || !all.length) return { dirs: ok, asked: false };
+    var granted = await QBR.fsFolderReconnect(all[0].id);   // one prompt; also re-allows its other linked files
+    return { dirs: granted ? [all[0]] : [], asked: true, declined: !granted };
+  }
+  function kb(n) { return n ? Math.max(1, Math.round(n / 1024)).toLocaleString() + " KB" : "—"; }
+  function when(t) { return t ? new Date(t).toLocaleString() : "—"; }
+  function where(m) { return m.d.name + (m.b.path.length ? " / " + m.b.path.join(" / ") : ""); }
+
+  async function storeLink(link) {
+    QBR._fsLinks = (QBR._fsLinks || []).filter(function (l) {
+      return fileKey(l.name) !== fileKey(link.name) && !(l.kinds || []).some(function (k) { return link.kinds.indexOf(k) >= 0; });
+    });
+    QBR._fsLinks.push(link);
+    await fsLinksSave();
+    if (typeof cacheSession === "function") { try { cacheSession(); } catch (x) {} }
+    if (typeof QBR.fsRefreshStatus === "function") QBR.fsRefreshStatus();
+    if (typeof renderAll === "function") { try { renderAll(); } catch (x) {} }
+  }
+
+  // -> true (linked) | false (cancelled / nothing to link) | null (caller opens the file picker)
+  QBR.fsAutoLinkByName = async function (name) {
+    if (!QBR.fsFolderSupported() || !(QBR._fsDirs || []).length) return null;
+    var item = persistAppFiles().filter(function (it) { return fileKey(it.name) === fileKey(name); })[0];
+    if (!item || !item.blob) return null;
+    var upFp = QBR.fpOf(item.name, item.blob);
+    var kinds = Array.from((QBR._kindByFp || {})[upFp] || []);
+    if (!kinds.length) {   // same outcome as before (no link), without the detour through the picker
+      note('"' + item.name + '" has no sheets the dashboard edits, so there is nothing to save to it. Use Open folder… to link it for ↻ reload.', 8000);
+      return false;
+    }
+    var g = await allowedDirs();
+    if (!g.dirs.length) return null;
+
+    var key = nk(item.name), found = [];
+    for (var pass = 0; pass < 2 && !found.length; pass++) {
+      var cached = false;
+      for (var i = 0; i < g.dirs.length; i++) {
+        var d = g.dirs[i], books = null;
+        if (pass === 0 && nameScan[d.id]) { books = nameScan[d.id]; cached = true; }
+        else { try { books = (await scan(d.handle)).books; } catch (x) { books = []; } nameScan[d.id] = books; }
+        for (var j = 0; j < books.length; j++) if (nk(books[j].name) === key) found.push({ d: d, b: books[j] });
+      }
+      if (!cached) break;   // a fresh scan already ran: no second pass
+    }
+    if (!found.length) {
+      note('"' + item.name + '" was not found in ' + g.dirs.map(function (x) { return x.name; }).join(", ") + " — pick it.", 6000);
+      return null;
+    }
+
+    // Same file as the upload? name|size|modified first; same size -> compare the bytes.
+    var upHash = null;
+    var uploadedHash = async function () {
+      if (upHash == null) { var u = fsBaseOf(item.name); if (!u) u = new Uint8Array(await item.blob.arrayBuffer()); upHash = fsHashBytes(u); }
+      return upHash;
+    };
+    var same = [], diff = [];
+    for (var k = 0; k < found.length; k++) {
+      var f; try { f = await found[k].b.handle.getFile(); } catch (x) { continue; }
+      found[k].file = f;
+      var isSame = QBR.fpOf(item.name, f) === upFp;
+      if (!isSame && f.size === item.blob.size) {
+        try { isSame = fsHashBytes(new Uint8Array(await f.arrayBuffer())) === (await uploadedHash()); } catch (x) { isSame = false; }
+      }
+      (isSame ? same : diff).push(found[k]);
+    }
+
+    if (same.length) {
+      same.sort(function (a, b) { return b.file.lastModified - a.file.lastModified; });
+      var m = same[0];
+      // Link metadata = the copy that is loaded; a newer timestamp on identical bytes (OneDrive) is
+      // rebased by the existing save path (size + hash equal -> fsRebaseLink).
+      await storeLink({ fp: upFp, kinds: kinds, name: item.name, size: item.blob.size, lastModified: item.blob.lastModified,
+        hash: await uploadedHash(), handle: m.b.handle, dirId: m.d.id, rel: m.b.rel });
+      note("Linked ✓ " + item.name + " — found in " + where(m) + ". Direct save is on; next visit the folder's one permission covers it.", 6000);
+      return true;
+    }
+    if (!diff.length) return null;
+
+    diff.sort(function (a, b) { return b.file.lastModified - a.file.lastModified; });
+    var pending = 0; try { pending = QBR.journalOpsFor(upFp).length; } catch (x) {}
+    var choice;
+    if (typeof QBR._autoLinkChoose === "function") choice = QBR._autoLinkChoose(diff.map(function (m) { return { where: where(m), size: m.file.size, lastModified: m.file.lastModified }; }), pending);
+    else {
+      var rows = diff.map(function (m, i) {
+        return '<tr><td><input type="radio" name="fo-al" class="fo-al-pick" value="' + i + '"' + (i === 0 ? " checked" : "") + ' aria-label="' + e(where(m)) + '"></td>' +
+          '<td>' + e(where(m)) + '</td><td class="small text-muted">' + e(when(m.file.lastModified)) + '</td><td class="small text-muted">' + e(kb(m.file.size)) + '</td></tr>';
+      }).join("");
+      choice = await askDialog("Different copy in the folder",
+        '<p class="small mb-1">The folder has <b>' + e(item.name) + '</b>, but it is not the same as the copy you uploaded ' +
+        '(modified ' + e(when(item.blob.lastModified)) + ', ' + e(kb(item.blob.size)) + ').</p>' +
+        '<p class="small mb-1">Link it and reload the dashboard from it, or pick a different file.</p>' +
+        (pending ? '<p class="small mb-1 text-danger">⚠ ' + pending + ' unsaved dashboard edit' + (pending === 1 ? "" : "s") +
+          ' on the uploaded copy will not carry over to the folder copy.</p>' : "") +
+        '<div class="merge-scroll"><table class="table table-sm fo-table"><thead><tr><th></th><th>Location</th><th>Modified</th><th>Size</th></tr></thead><tbody>' + rows + '</tbody></table></div>',
+        [{ id: "ok", label: "Link & reload", primary: true }, { id: "picker", label: "Pick another file…" }, { id: "cancel", label: "Cancel" }]);
+      if (choice && choice.charAt(0) === "i") choice = +choice.slice(1);
+      else if (choice === "ok") choice = 0;
+    }
+    if (choice === "picker") return null;          // the button click is a fresh gesture for the picker
+    if (choice == null || choice === false || !diff[choice]) return false;
+    return linkAndReload(item, diff[choice]);
+  };
+
+  async function linkAndReload(item, m) {
+    var mem;
+    try { mem = await fsMemFile(m.file, item.name); }
+    catch (x) { alert("Could not read " + where(m) + ": " + ((x && x.message) || x)); return false; }
+    var map = new Map();
+    persistAppFiles().forEach(function (it) { map.set(fileKey(it.name), it); });
+    map.set(fileKey(item.name), { name: item.name, blob: mem.file });
+    var ok = await loadItems(Array.from(map.values()), {});
+    if (!ok) { note("Could not load " + where(m), 6000); return false; }
+    var fp = QBR.fpOf(item.name, mem.file);
+    var kinds = Array.from((QBR._kindByFp || {})[fp] || []);
+    if (!kinds.length) {
+      note("Reloaded " + item.name + " from " + where(m) + ", but it has no sheets the dashboard edits — not linked.", 8000);
+      if (typeof cacheSession === "function") { try { cacheSession(); } catch (x) {} }
+      return true;
+    }
+    await storeLink({ fp: fp, kinds: kinds, name: item.name, size: m.file.size, lastModified: m.file.lastModified,
+      hash: fsHashBytes(mem.bytes), handle: m.b.handle, dirId: m.d.id, rel: m.b.rel });
+    note("Linked ✓ " + item.name + " — reloaded from " + where(m) + ".", 6000);
+    return true;
+  }
+
 
   /* ---------------- toolbar in the loaded-files list ---------------- */
   QBR.fsFolderToolbarHtml = function () {
