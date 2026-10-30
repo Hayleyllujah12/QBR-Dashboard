@@ -170,19 +170,31 @@ async function fsEnsurePermission(handle) {
 
 // Link a workbook file: pick it, get read/write permission, load it through
 // the normal accumulation path, and remember the handle per detected kind.
-QBR.fsLinkFile = async function (expectName) {
+QBR.fsLinkFile = async function (expectName, opts) {
+  opts = opts || {};
   if (!QBR.fsSupported()) {
     alert("Direct file linking needs Chrome or Edge. Other browsers use Export download.");
     return;
   }
   let handle;
   try {
+    // 2026-10-30: open the picker in the folder last used with "Open folder..." (fsfolder.js)
+    let startIn = null;
+    try { if (typeof QBR.fsFolderStartIn === "function") startIn = QBR.fsFolderStartIn(); } catch (e) {}
     const picks = await window.showOpenFilePicker({
       multiple: false,
+      ...(startIn ? { startIn: startIn } : {}),
       types: [{ description: "Excel workbook", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"], "application/vnd.ms-excel.sheet.macroEnabled.12": [".xlsm"] } }],
     });
     handle = picks[0];
-  } catch (e) { return false; } // user cancelled
+  } catch (e) {
+    if (!e || e.name === "AbortError") return false; // user cancelled
+    // 2026-10-30: the click that started this can expire while the folder is searched (or after a
+    // permission prompt) and the browser then refuses the picker - ask for one more click.
+    if (opts.retried || typeof QBR.fsAskClick !== "function") return false;
+    if (!(await QBR.fsAskClick(`Pick "${expectName || "the workbook"}" to turn on direct save.`))) return false;
+    return QBR.fsLinkFile(expectName, Object.assign({}, opts, { retried: true }));
+  }
     if (!(await fsEnsurePermission(handle))) {
     alert("Permission was not granted \u2014 the file was not linked.");
     return false;
@@ -210,7 +222,11 @@ QBR.fsLinkFile = async function (expectName) {
       QBR._fsLinks = (QBR._fsLinks || []).filter(l =>
         fileKey(l.name) !== fileKey(file.name) && !(l.kinds || []).some(k => kinds.indexOf(k) >= 0));
       if (kinds.length) {
-        QBR._fsLinks.push({ fp: fp, kinds: kinds, name: file.name, size: file.size, lastModified: file.lastModified, hash: fileHash, handle: handle });
+        // 2026-10-30: a file picked inside a remembered folder becomes a folder link (re-allowed with the folder next visit)
+        let inDir = null;
+        try { if (typeof QBR.fsFolderOf === "function") inDir = await QBR.fsFolderOf(handle); } catch (e) {}
+        QBR._fsLinks.push({ fp: fp, kinds: kinds, name: file.name, size: file.size, lastModified: file.lastModified, hash: fileHash, handle: handle,
+          dirId: inDir ? inDir.id : null, rel: inDir ? inDir.rel : null });
         await fsLinksSave();
       }
       if (typeof cacheSession === "function") cacheSession();
@@ -250,17 +266,25 @@ QBR.fsIsLinkedByName = function (name) {
   catch (e) { return false; }
 };
 QBR.fsToggleFileLink = async function (name, enable) {
-  if (enable) return QBR.fsLinkFile(name);
-  await QBR.fsUnlink(name, true);
+  if (enable) {
+    // 2026-10-30: first look for the file in a folder opened with "Open folder..." (no picker when found)
+    if (typeof QBR.fsAutoLinkByName === "function") {
+      let r = null;
+      try { r = await QBR.fsAutoLinkByName(name); } catch (e) { console.warn("[QBR] folder auto-link:", e && e.message); r = null; }
+      if (r !== null) return r;
+    }
+    return QBR.fsLinkFile(name);
+  }
+  await QBR.fsUnlink(name, true, true); // keep the folder remembered so re-ticking finds the file again
   if (typeof renderFileList === "function") { try { renderFileList(); } catch (e) {} }
   return true;
 };
 
-QBR.fsUnlink = async function (name, skipConfirm) {
+QBR.fsUnlink = async function (name, skipConfirm, keepFolder) {
   if (!skipConfirm && !confirm(`Stop direct saving to "${name}"? (The dashboard keeps working; Export download still available.)`)) return;
   QBR._fsLinks = (QBR._fsLinks || []).filter(l => l.name !== name);
   await fsLinksSave();
-  try { if (QBR.fsFolderPrune) QBR.fsFolderPrune(); } catch (e) {}
+  try { if (!keepFolder && QBR.fsFolderPrune) QBR.fsFolderPrune(); } catch (e) {}
   QBR.fsRefreshStatus();
   if (typeof renderAll === "function") { try { renderAll(); } catch (e) {} }
 };

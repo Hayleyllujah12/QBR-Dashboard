@@ -6,6 +6,18 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.22.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-30 — Direct-save checkbox finds the file in your folder (no version bump)
+  - Ticking the Direct-save box on an uploaded workbook no longer always makes you find the file again. It first
+    looks for the same file name in a folder you opened with "Open folder…" (subfolders included):
+      · same file as the one you uploaded → linked straight away, no file picker, no reload;
+      · a different copy (edited since) → it asks: Link & reload from that copy, Pick another file…, or Cancel;
+      · not there, or you decline the folder permission → the usual file picker, opened in that folder.
+  - Permission: none if the folder is already allowed; otherwise ONE prompt for the folder (not per file).
+  - Links made this way (and files you pick inside that folder) are folder links: next visit the folder's single
+    "Reconnect folder" prompt covers them — no re-picking.
+  - Unticking only stops saving to that file; the folder stays remembered, so ticking again is silent.
+  - A workbook with no sheets the dashboard edits says so at once (no picker). Chrome/Edge only, as before.
+
 RELEASE — 2026-10-30 — v1.22.0 (everything below down to the 1.21.0 promotion; details in docs/CHANGELOG_v1.22.0.md)
   - Overview revamp; clearer charts; "All quarters" totals now use each school's latest quarter (numbers can be
     lower than in 1.21.0 — they show the current state, not each school's peak); Managed tenants excludes Canva-only.
