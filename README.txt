@@ -1,10 +1,19 @@
-RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.21.0
+RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.22.0
 ==================================================================
 
-** LIVE / production version: 1.21.0  (folder: QBR-Dashboard_1.21.0), promoted 2026-10-05.
-   QBR-Dashboard_1.9.0 is now the ROLLBACK — don't edit it. Fixes are applied IN PLACE
+** LIVE / production version: 1.22.0  (folder: QBR-Dashboard_1.22.0), released 2026-10-30.
+   QBR-Dashboard_1.21.0 is now the ROLLBACK — don't edit it. Fixes are applied IN PLACE
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
+
+RELEASE — 2026-10-30 — v1.22.0 (everything below down to the 1.21.0 promotion; details in docs/CHANGELOG_v1.22.0.md)
+  - Overview revamp; clearer charts; "All quarters" totals now use each school's latest quarter (numbers can be
+    lower than in 1.21.0 — they show the current state, not each school's peak); Managed tenants excludes Canva-only.
+  - Save to Excel: clear "not saved" messages, faster reloads, one shared save path (write contract phases 0–1).
+  - MOS: completion certificates (centre line, Adjust layout, accent colours), reconciliation, Analytics view.
+  - Risky Investigation: files checked on drop + "Drop all your files here" (auto-detect, one school per run).
+  - PowerShell scripts ask where to save; the Usage script writes only its report CSV.
+  - Revision-list fixes (audit, inventory serials, scan MTM, Postmaster filters, loaded-files pop-up, My To-Do).
 
 UPDATE — 2026-10-29 — Risky Investigation: "Drop all your files here" (no version bump)
   - New bar above the Source cards: drop every file at once, Choose files, or Choose folder (e.g. a whole month folder).
