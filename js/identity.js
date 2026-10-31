@@ -21,7 +21,8 @@
 (function () {
   "use strict";
   const QBR = (window.QBR = window.QBR || {});
-  const WIDGET = "https://identity.netlify.com/v1/netlify-identity-widget.js";
+  // 2026-10-31 (audit M4): vendored copy (libs/netlify-identity, v1.9.2, MIT) — no third-party script at runtime.
+  const WIDGET = "libs/netlify-identity/netlify-identity-widget.js";
 
   function isNetlifyHost() {
     try { const h = window.location.hostname || ""; return /\.netlify\.app$/i.test(h) || /\.netlify\.com$/i.test(h); }

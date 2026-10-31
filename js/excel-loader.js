@@ -17,6 +17,33 @@ var QBR = (window.QBR = window.QBR || {});
 // major release, together with a new folder.
 QBR.VERSION = "1.22.0";
 
+// SheetJS returns hyperlink targets with XML entities still encoded and re-encodes them on
+// write, so every read -> write cycle adds an &amp; layer to every link (2026-10-06 lesson).
+// Call before EVERY XLSX.write of a workbook that was read from a user file. Lives in the
+// engine (loaded first) so no save path depends on audit.js being present (audit 2026-10-31 L1).
+QBR.decodeEntitiesStable = function (t) {
+  let prev;
+  t = String(t == null ? "" : t);
+  do {
+    prev = t;
+    t = t.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+  } while (t !== prev);
+  return t;
+};
+QBR.sanitizeHyperlinkTargets = function (wb) {
+  try {
+    (wb && wb.SheetNames || []).forEach(n => {
+      const ws = wb.Sheets[n]; if (!ws) return;
+      for (const addr of Object.keys(ws)) {
+        if (addr[0] === "!") continue;
+        const cell = ws[addr];
+        if (cell && cell.l && cell.l.Target) cell.l.Target = QBR.decodeEntitiesStable(cell.l.Target);
+      }
+    });
+  } catch (e) {}
+  return wb;
+};
+
 /* ---------- small helpers ------------------------------------------------ */
 
 // Canonical join key for a school name: uppercase, strip punctuation/marks,

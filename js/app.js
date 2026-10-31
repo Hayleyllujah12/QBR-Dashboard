@@ -313,7 +313,7 @@ function kpi(label, value, tone) {
   // long school name doesn't balloon the card.
   const txt = !isFinite(kpiNum(value)) && String(value).replace(/<[^>]*>/g, "").trim().length > 3 ? " kpi-text" : "";
   return `<div class="col"><div class="kpi kpi-${tone || "blue"}${txt}">
-    <div class="kpi-val">${value}</div><div class="kpi-lbl">${label}</div>${chip}</div></div>`;
+    <div class="kpi-val">${value}</div><div class="kpi-lbl">${esc(label)}</div>${chip}</div></div>`;
 }
 
 /* ======================= DASHBOARD 0: EXECUTIVE OVERVIEW =======================
@@ -2859,6 +2859,13 @@ function loadItems(items, meta) {
       try { ok = await processBuffers(buffers, meta || {}, prog); }
       finally { if (typeof QBR !== "undefined" && QBR.wbCacheEnd) QBR.wbCacheEnd(ok); }
       if (!ok) { APP.files = prev; return ok; }
+      // 2026-10-31 (audit L6): release retained workbooks of files no longer loaded (kept: current files + linked/side files).
+      try {
+        if (typeof QBR !== "undefined" && QBR._origWb && QBR._currentFps) {
+          const keep = new Set(QBR._currentFps.concat((QBR._fsLinks || []).map(l => l.fp)));
+          Object.keys(QBR._origWb).forEach(fp => { if (!keep.has(fp)) delete QBR._origWb[fp]; });
+        }
+      } catch (e) {}
       try { detectGdap(items, buffers); } catch (e) {}
       // Replay any journaled entries recorded against these exact files
       // (covers both fresh uploads and session restores after Ctrl+R).

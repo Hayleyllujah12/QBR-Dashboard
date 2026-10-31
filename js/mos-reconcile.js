@@ -210,7 +210,8 @@
         first: norm(g(row, "first")), last: norm(g(row, "last")), alt: norm(g(row, "alt")),
         name: norm(norm(g(row, "first")) + " " + norm(g(row, "last"))),
         examTitle: title, exam: examFamilyOf(title),
-        date: d instanceof Date && !isNaN(d) ? d.toISOString().slice(0, 10) : norm(d).slice(0, 10),
+        // local calendar day: cellDates gives local midnight, toISOString() shifted it a day back east of UTC (audit 2026-10-31 M2)
+        date: d instanceof Date && !isNaN(d) ? d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0") : norm(d).slice(0, 10),
         score: cellNum(g(row, "score")), result: norm(g(row, "result"))
       });
     }

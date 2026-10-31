@@ -1469,11 +1469,13 @@ function renderIoc(report) {
   IOC_STATE = { ipRows, linkRows };
   if (!ipRows.length && !linkRows.length) { body.innerHTML = `<div class="cx-empty">No indicators to explore.</div>`; return; }
   body.innerHTML = `
-    <div class="ioc-search"><input type="text" id="iocSearch" placeholder="Filter by IP, user, or location…" oninput="filterIoc()"></div>
+    <div class="ioc-search"><input type="text" id="iocSearch" placeholder="Filter by IP, user, or location…"></div>
     <div class="ioc-cols">
       <div class="ioc-panel"><div class="cx-title">IP Prevalence</div><div class="cx-tablewrap"><table class="cx-table" id="iocIpTable"><thead><tr><th>IP Address</th><th>Users</th><th>Detections</th><th>Latest (UTC)</th></tr></thead><tbody></tbody></table></div></div>
       <div class="ioc-panel"><div class="cx-title">User &rarr; IP / Location Link</div><div class="cx-tablewrap"><table class="cx-table" id="iocLinkTable"><thead><tr><th>User</th><th>IPs</th><th>Locations</th><th>Events</th></tr></thead><tbody></tbody></table></div></div>
     </div>`;
+  // 2026-10-31 (audit M1): bound here instead of an inline oninput= so the page runs under a strict CSP
+  const iocIn = document.getElementById('iocSearch'); if (iocIn) iocIn.addEventListener('input', filterIoc);
   renderIocTables('');
 }
 function filterIoc() { renderIocTables((($('iocSearch') || {}).value || '').toLowerCase().trim()); }

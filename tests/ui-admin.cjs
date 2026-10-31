@@ -159,13 +159,14 @@ async function load(p) { await p.evaluate(() => { try { localStorage.setItem("qb
       const ctx = await b.newContext(); const reqs = [];
       ctx.on("request", r => reqs.push(r.url()));
       await ctx.route(/netlify\.app\//, route => { const u = new URL(route.request().url()); const f = path.join(APPDIR, u.pathname === "/" ? "index.html" : decodeURIComponent(u.pathname)); route.fulfill(fs.existsSync(f) ? { path: f } : { status: 404, body: "" }); });
-      await ctx.route(/identity\.netlify\.com/, route => blockWidget ? route.abort() : route.fulfill({ contentType: "application/javascript", body: FAKE }));
+      // 2026-10-31: the widget is a vendored local copy (libs/netlify-identity); stub it the same way as the old CDN URL
+      await ctx.route(/identity\.netlify\.com|libs\/netlify-identity\/netlify-identity-widget\.js/, route => blockWidget ? route.abort() : route.fulfill({ contentType: "application/javascript", body: FAKE }));
       return { ctx, reqs };
     };
     const hidden = p => p.evaluate(() => getComputedStyle(document.querySelector(".app-header")).visibility === "hidden" && getComputedStyle(document.querySelector("main")).visibility === "hidden");
     // offline / live: nothing loaded, no gate
     { const { ctx, reqs } = await mk(false); const p = await boot(ctx, "file://" + path.join(APPDIR, "index.html"));
-      ok(!(await p.$("#identity-gate")) && !reqs.some(u => /identity\.netlify\.com/.test(u)), "file:// (live/offline): no gate and the Netlify widget is NOT downloaded");
+      ok(!(await p.$("#identity-gate")) && !reqs.some(u => /identity\.netlify\.com|netlify-identity-widget/.test(u)), "file:// (live/offline): no gate and the Netlify widget is NOT loaded");
       await ctx.close(); }
     { const { ctx } = await mk(false); const p = await boot(ctx, "https://develop--rct-opsdesk.netlify.app/"); await p.waitForTimeout(300);
       ok(await p.isVisible("#identity-gate") && await hidden(p), "Netlify beta, signed out: login gate shown, dashboard hidden");

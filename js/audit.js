@@ -157,32 +157,10 @@
   }
 
   // Decode XML entities until stable (undoes any layers of double-encoding).
-  function decodeEntitiesStable(t) {
-    let prev;
-    do {
-      prev = t;
-      t = t.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
-    } while (t !== prev);
-    return t;
-  }
-
-  // CRITICAL (2026-10-06): SheetJS returns hyperlink targets with XML entities
-  // still encoded, and re-encodes on write. Without this, every Save/Export
-  // adds another &amp; layer to all links in the workbook (progressive corruption).
-  // Call before EVERY XLSX.write of a workbook that may contain hyperlinks.
-  QBR.sanitizeHyperlinkTargets = function (wb) {
-    try {
-      (wb.SheetNames || []).forEach(n => {
-        const ws = wb.Sheets[n];
-        for (const addr of Object.keys(ws)) {
-          if (addr[0] === "!") continue;
-          const cell = ws[addr];
-          if (cell.l && cell.l.Target) cell.l.Target = decodeEntitiesStable(String(cell.l.Target));
-        }
-      });
-    } catch (e) {}
-    return wb;
-  };
+  // CRITICAL (2026-10-06): SheetJS keeps hyperlink targets entity-encoded and re-encodes on
+  // write. QBR.decodeEntitiesStable / QBR.sanitizeHyperlinkTargets now live in excel-loader.js
+  // (the engine, loaded first) so save paths no longer depend on this file (audit 2026-10-31 L1).
+  const decodeEntitiesStable = t => QBR.decodeEntitiesStable(t);
 
   // Normalize an Excel hyperlink target for dashboard use:
   //  - SheetJS leaves XML entities encoded in targets; decode first so the
@@ -1051,6 +1029,14 @@
   }
 
   /* ---------- export workbook (unlinked fallback) ------------------------- */
+  // Clear only the journal ops this export actually wrote (QBR._lastPatch, set by
+  // patchWorkbookFromJournal). Clearing the whole fingerprint also dropped other kinds'
+  // pending edits on the same file and ops the patch skipped (audit 2026-10-31).
+  function clearWritten(kind, fp) {
+    const lp = QBR._lastPatch;
+    if (lp && lp.fp === fp && lp.kind === kind && typeof QBR.journalClearIds === "function") QBR.journalClearIds(fp, lp.ids, "exported");
+    QBR._lastPatch = null;
+  }
   QBR.auditExportWorkbook = function () {
     const a = auditModel();
     if (!a || !QBR._origWb || !QBR._origWb[a.fp]) { alert("Load an audit workbook first."); return; }
@@ -1069,7 +1055,7 @@
       link.download = (a.fileName || "audit-workbook").replace(/\.xlsx?$/i, "") + "-edited.xlsx";
       document.body.appendChild(link); link.click();
       setTimeout(() => { URL.revokeObjectURL(url); link.remove(); }, 500);
-      if (typeof QBR.journalClearFp === "function") QBR.journalClearFp(a.fp);
+      clearWritten("audit", a.fp);
       if (typeof QBR.persistRefreshBadge === "function") QBR.persistRefreshBadge();
       return { mode: "download", filename: link.download, kind: "audit" };
     } catch (e) { alert("Export failed: " + (e && e.message || e)); }
@@ -1094,8 +1080,8 @@
       link.download = (fileName || "workbook").replace(/\.xlsx?$/i, "") + "-edited.xlsx";
       document.body.appendChild(link); link.click();
       setTimeout(() => { URL.revokeObjectURL(url); link.remove(); }, 500);
-      // The journaled changes are now in the downloaded copy — clear them.
-      if (typeof QBR.journalClearFp === "function") QBR.journalClearFp(mdl.fp);
+      // The journaled changes are now in the downloaded copy — clear exactly those.
+      clearWritten(kind, mdl.fp);
       if (typeof QBR.persistRefreshBadge === "function") QBR.persistRefreshBadge();
       return { mode: "download", filename: link.download, kind: kind };
     } catch (e) { alert("Export failed: " + (e && e.message || e)); }

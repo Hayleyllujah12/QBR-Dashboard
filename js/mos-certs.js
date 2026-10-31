@@ -301,7 +301,10 @@
     });
     ws["!ref"] = XLSX.utils.encode_range(rng);
     var SG = QBR.xlsxSurgical;
-    var plain = function () { return new Uint8Array(XLSX.write(work, { bookType: "xlsx", type: "array", cellDates: true })); };
+    var plain = function () {
+      if (QBR.sanitizeHyperlinkTargets) QBR.sanitizeHyperlinkTargets(work);   // SheetJS re-encodes link targets on write (audit 2026-10-31 M3)
+      return new Uint8Array(XLSX.write(work, { bookType: "xlsx", type: "array", cellDates: true }));
+    };
     if (!SG) return Promise.resolve(plain());
     return Promise.resolve().then(function () { return SG.surgicalSave(bytes, base, work); }).then(function (res) {
       if (!res || !res.ok) return plain();
