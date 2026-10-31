@@ -6,6 +6,19 @@ RAKSO EDUCATION — M365 TENANT QBR DASHBOARD (Offline)   ·   v1.22.0
    here and recorded as the dated entries below; the number is NOT bumped per patch. A new
    number is cut only for a deliberate major release. **
 
+UPDATE — 2026-10-31 — Security & data-safety fixes from the engine audit (no version bump)
+  - A Domain Health value the dashboard doesn't recognise could run as code on the Tenant status page. It is now
+    shown as plain text everywhere (checked by loading workbooks with HTML planted in every text cell).
+  - Export (audit, storage, usage) without a linked file now clears only the edits it put into the downloaded copy.
+    Before, it also cleared other pending edits for that workbook and edits it could not apply.
+  - MOS › Reconcile showed and exported exam dates one day early in the Philippines; dates now keep their own day.
+  - Links in a certificate log or trainer tracker no longer pick up an extra "&amp;" when the plain-copy fallback
+    saves them. The link clean-up now lives in the core engine, so every save path uses it.
+  - Hosted sites (Netlify beta, Azure) now send a Content-Security-Policy: scripts only from the site itself, network
+    only to the site and the GitHub API. The Netlify sign-in widget is now a local copy (libs/netlify-identity), so
+    nothing is loaded from another site at runtime.
+  - Removed an unused save routine that could rebuild a linked workbook from scratch (formulas and layout lost).
+
 UPDATE — 2026-10-30 — Direct-save checkbox finds the file in your folder (no version bump)
   - Ticking the Direct-save box on an uploaded workbook no longer always makes you find the file again. It first
     looks for the same file name in a folder you opened with "Open folder…" (subfolders included):

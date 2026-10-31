@@ -122,5 +122,16 @@ ok(sparse.length === 1 && sparse[0].students.length === 3, "sparse student rows 
   ok(bs.length === 1 && bs[0].students.length === 3, "a lone FAILED in the result column does NOT split the block");
 })();
 
+/* exam dates stay on the local calendar day (audit 2026-10-31 M2: toISOString() moved them a day back east of UTC) */
+(function () {
+  // A real export read with cellDates:true (as the view does) yields Date objects at LOCAL midnight.
+  const aoa = exportAOA().map(r => r.slice());
+  const h = C.detectExportHeader(aoa), dc = h.cols.date;
+  aoa.slice(h.row + 1).forEach((r, i) => { if (/^\d{4}-/.test(String(r[dc]))) r[dc] = new Date(2026, 9, 8 + (i % 3)); });
+  const got = C.parseCertExport(aoa).rows.map(r => r.date);
+  ok(got.length > 0 && got.every(d => /^2026-10-(08|09|10)$/.test(d)) && got.includes("2026-10-08"),
+    "exam dates keep their local calendar day (TZ " + (process.env.TZ || "system") + ")  " + JSON.stringify(got.slice(0, 3)));
+})();
+
 console.log("\nmos-reconcile: " + pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

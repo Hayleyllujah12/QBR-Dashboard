@@ -660,33 +660,9 @@ QBR.wbScheduleSave = function (kind) {
   }, 300);
 };
 
-/* Last-resort linked write: the on-disk file changed externally and the user
- * confirmed overwrite. Recorded cell coordinates may be stale, so fall back
- * to the full rebuild write, then re-sync the model from the fresh bytes. */
-QBR.fsRebuildToLink = async function (kind, link) {
-  const build = kind === "supplies" ? QBR.supBuildWorkbook : QBR.invBuildWorkbook;
-  if (typeof build !== "function") return { mode: "no-data" };
-  const b = build();
-  if (!b || !b.wb) return { mode: "no-data" };
-  const oldFp = link.fp;
-  if (typeof QBR.fsDropPatchState === "function") QBR.fsDropPatchState(oldFp);
-  const bookType = fsBookType(link.name);
-  if (bookType === "xlsm") return QBR.fsDownloadKind(kind, "download-unsafe");   // a rebuild can't carry macros
-  const bytes = XLSX.write(b.wb, { bookType: bookType, type: "array", cellStyles: true });
-  if (fsVerifyBytes(bytes, bookType, null)) return QBR.fsDownloadKind(kind, "download-unsafe");
-  const w = await link.handle.createWritable();
-  await w.write(bytes);
-  await w.close();
-  const fresh = await link.handle.getFile();
-  await QBR.fsAfterSave(kind, link, fresh);
-  try {
-    if (typeof loadItems === "function" && typeof APP !== "undefined" && APP.files) {
-      await loadItems(APP.files, {});
-      if (typeof cacheSession === "function") cacheSession();
-    }
-  } catch (e) { console.warn("[QBR] post-rebuild re-sync failed:", e && e.message); }
-  return { mode: "file", name: link.name, rebuilt: true };
-};
+/* 2026-10-31 (audit L2): QBR.fsRebuildToLink removed — it rebuilt the whole workbook from the
+ * model over the linked file (formulas/layout lost), bypassing format-safe save; nothing called it.
+ * A changed file now always goes through merge-on-save or a downloaded copy. */
 
 /* Save one inventory kind. Returns a result descriptor:
  *  file             — bytes written straight into the linked file (patch-in-place)

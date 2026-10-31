@@ -518,6 +518,7 @@
       // The plain copy has lost formatting (and macros): never write it — or anything built on it later —
       // into the linked original. Unlink for good; reopening the tracker links it again.
       t.handle = null;
+      if (QBR.sanitizeHyperlinkTargets) QBR.sanitizeHyperlinkTargets(work);   // SheetJS re-encodes link targets on write (audit 2026-10-31 M3)
       return finish(XLSX.write(work, { bookType: "xlsx", type: "array" }), ".xlsx");
     }
     if (!base) return Promise.resolve(legacy(SG ? "file bytes unavailable" : null));
